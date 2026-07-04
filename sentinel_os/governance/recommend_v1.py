@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
-from drift_core_v1 import DriftSignal
+from .drift_core_v1 import DriftSignal
 
 def _role(node: str) -> str:
     if node.endswith("::auth"):
