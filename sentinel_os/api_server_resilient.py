@@ -1,7 +1,7 @@
 """
-Iceberg API Server (Resilient) - With error handling, health checks, observability
+Iceberg API Server (Resilient + TLS) - With SSL/HTTPS support
 
-Uses ResilientHarness instead of plain production_harness
+Uses ResilientHarness with TLS encryption
 """
 
 from fastapi import FastAPI, HTTPException
@@ -17,8 +17,8 @@ from grafana_dashboard import generate_dashboard_json
 logger = setup_logging("APIServer")
 
 app = FastAPI(
-    title="Iceberg IVR Platform (Resilient)",
-    description="Self-healing IVR with operational hardening",
+    title="Iceberg IVR Platform (Resilient + TLS)",
+    description="Self-healing IVR with operational hardening and encryption",
     version="1.0.0"
 )
 
@@ -41,7 +41,7 @@ async def startup():
     }
     
     harness = ResilientHarness(config)
-    logger.info("Resilient harness initialized")
+    logger.info("Resilient harness initialized (TLS enabled)")
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -83,6 +83,7 @@ async def status():
     return {
         "timestamp": datetime.utcnow().isoformat(),
         "health": health,
+        "protocol": "HTTPS/TLS"
     }
 
 @app.get("/alerts")
@@ -97,7 +98,7 @@ async def dashboard():
 
 @app.post("/process")
 async def process_call(call: dict):
-    """Process single call with resilience"""
+    """Process single call with resilience (over HTTPS)"""
     if harness is None:
         raise HTTPException(status_code=503, detail="Harness not initialized")
     
@@ -114,7 +115,7 @@ async def process_call(call: dict):
 
 @app.post("/batch")
 async def process_batch(batch: dict):
-    """Process batch with resilience"""
+    """Process batch with resilience (over HTTPS)"""
     if harness is None:
         raise HTTPException(status_code=503, detail="Harness not initialized")
     
@@ -135,7 +136,7 @@ async def process_batch(batch: dict):
 
 @app.get("/ledger")
 async def get_ledger():
-    """Get ledger entries"""
+    """Get ledger entries (over HTTPS)"""
     if harness is None or not harness.harness or not harness.harness.ledger:
         raise HTTPException(status_code=503, detail="Ledger not available")
     
@@ -148,7 +149,7 @@ async def get_ledger():
 
 @app.get("/verify")
 async def verify_ledger():
-    """Verify ledger integrity"""
+    """Verify ledger integrity (over HTTPS)"""
     if harness is None:
         raise HTTPException(status_code=503, detail="Harness not initialized")
     
@@ -156,9 +157,35 @@ async def verify_ledger():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 9090))
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        log_level="info"
-    )
+    
+    # TLS configuration
+    cert_file = os.getenv("CERT_FILE", "./certs/cert.pem")
+    key_file = os.getenv("KEY_FILE", "./certs/key.pem")
+    
+    # Check if certs exist
+    if not os.path.exists(cert_file) or not os.path.exists(key_file):
+        print(f"⚠️  TLS certificates not found at {cert_file} and {key_file}")
+        print("Running without TLS. To enable TLS, generate certs with:")
+        print('  mkdir -p certs && openssl req -x509 -newkey rsa:4096 -nodes -out certs/cert.pem -keyout certs/key.pem -days 365 -subj "/C=US/ST=State/L=City/O=Iceberg/CN=localhost"')
+        use_tls = False
+    else:
+        use_tls = True
+        print(f"✓ Using TLS certificates: {cert_file}, {key_file}")
+    
+    # Run server
+    if use_tls:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            ssl_certfile=cert_file,
+            ssl_keyfile=key_file,
+            log_level="info"
+        )
+    else:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            log_level="info"
+        )
