@@ -1,10 +1,10 @@
 """
-Iceberg API Server (Resilient + TLS) - With SSL/HTTPS support
+Iceberg API Server (Resilient + TLS + API Key Auth)
 
-Uses ResilientHarness with TLS encryption
+With SSL/HTTPS and API key authentication
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.responses import PlainTextResponse, JSONResponse
 import uvicorn
 import os
@@ -13,12 +13,13 @@ from datetime import datetime
 from resilient_harness import ResilientHarness
 from operational_resilience import setup_logging, export_alert_rules
 from grafana_dashboard import generate_dashboard_json
+from api_key_auth import api_key_manager, require_api_key
 
 logger = setup_logging("APIServer")
 
 app = FastAPI(
-    title="Iceberg IVR Platform (Resilient + TLS)",
-    description="Self-healing IVR with operational hardening and encryption",
+    title="Iceberg IVR Platform (Resilient + TLS + Auth)",
+    description="Self-healing IVR with TLS and API key authentication",
     version="1.0.0"
 )
 
@@ -41,7 +42,7 @@ async def startup():
     }
     
     harness = ResilientHarness(config)
-    logger.info("Resilient harness initialized (TLS enabled)")
+    logger.info("Resilient harness initialized (TLS + API key auth enabled)")
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -51,7 +52,7 @@ async def shutdown():
 
 @app.get("/health")
 async def health():
-    """Detailed health check"""
+    """Public health check (no auth required)"""
     if harness is None:
         raise HTTPException(status_code=503, detail="Harness not initialized")
     
@@ -65,57 +66,65 @@ async def health():
         raise HTTPException(status_code=503, detail=health_status)
 
 @app.get("/metrics")
-async def metrics():
-    """Prometheus metrics endpoint"""
+async def metrics(api_key: dict = Depends(require_api_key)):
+    """Prometheus metrics endpoint (requires API key)"""
     if harness is None:
         raise HTTPException(status_code=503, detail="Harness not initialized")
     
+    logger.info(f"Metrics request from {api_key['name']}")
     return PlainTextResponse(harness.export_metrics())
 
 @app.get("/status")
-async def status():
-    """System status with health"""
+async def status(api_key: dict = Depends(require_api_key)):
+    """System status with health (requires API key)"""
     if harness is None:
         raise HTTPException(status_code=503, detail="Harness not initialized")
     
     health = harness.get_health()
     
+    logger.info(f"Status request from {api_key['name']}")
+    
     return {
         "timestamp": datetime.utcnow().isoformat(),
         "health": health,
-        "protocol": "HTTPS/TLS"
+        "protocol": "HTTPS/TLS",
+        "authenticated_as": api_key['name']
     }
 
 @app.get("/alerts")
-async def alerts():
-    """Prometheus alert rules"""
+async def alerts(api_key: dict = Depends(require_api_key)):
+    """Prometheus alert rules (requires API key)"""
+    logger.info(f"Alert rules request from {api_key['name']}")
     return PlainTextResponse(export_alert_rules())
 
 @app.get("/dashboard")
-async def dashboard():
-    """Grafana dashboard JSON"""
+async def dashboard(api_key: dict = Depends(require_api_key)):
+    """Grafana dashboard JSON (requires API key)"""
+    logger.info(f"Dashboard request from {api_key['name']}")
     return JSONResponse(content={"dashboard": generate_dashboard_json()})
 
 @app.post("/process")
-async def process_call(call: dict):
-    """Process single call with resilience (over HTTPS)"""
+async def process_call(call: dict, api_key: dict = Depends(require_api_key)):
+    """Process single call with resilience (requires API key)"""
     if harness is None:
         raise HTTPException(status_code=503, detail="Harness not initialized")
     
     try:
+        logger.info(f"Processing call from {api_key['name']}: {call.get('sid')}")
         result = harness.process_call(call)
         return {
             "success": True,
             "result": result,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "authenticated_as": api_key['name']
         }
     except Exception as e:
         logger.error(f"Call processing failed: {e}", extra={"extra_data": {"error": str(e)}})
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/batch")
-async def process_batch(batch: dict):
-    """Process batch with resilience (over HTTPS)"""
+async def process_batch(batch: dict, api_key: dict = Depends(require_api_key)):
+    """Process batch with resilience (requires API key)"""
     if harness is None:
         raise HTTPException(status_code=503, detail="Harness not initialized")
     
@@ -124,23 +133,26 @@ async def process_batch(batch: dict):
         if not calls:
             raise ValueError("No calls provided")
         
+        logger.info(f"Processing batch from {api_key['name']}: {len(calls)} calls")
         summary = harness.process_batch(calls)
         return {
             "success": True,
             "summary": summary,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "authenticated_as": api_key['name']
         }
     except Exception as e:
         logger.error(f"Batch processing failed: {e}", extra={"extra_data": {"error": str(e)}})
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/ledger")
-async def get_ledger():
-    """Get ledger entries (over HTTPS)"""
+async def get_ledger(api_key: dict = Depends(require_api_key)):
+    """Get ledger entries (requires API key)"""
     if harness is None or not harness.harness or not harness.harness.ledger:
         raise HTTPException(status_code=503, detail="Ledger not available")
     
     try:
+        logger.info(f"Ledger access from {api_key['name']}")
         entries = harness.harness.ledger.get_entries(limit=10)
         return {"entries": entries, "count": len(entries)}
     except Exception as e:
@@ -148,11 +160,12 @@ async def get_ledger():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/verify")
-async def verify_ledger():
-    """Verify ledger integrity (over HTTPS)"""
+async def verify_ledger(api_key: dict = Depends(require_api_key)):
+    """Verify ledger integrity (requires API key)"""
     if harness is None:
         raise HTTPException(status_code=503, detail="Harness not initialized")
     
+    logger.info(f"Ledger verification from {api_key['name']}")
     return harness.verify_ledger()
 
 if __name__ == "__main__":
@@ -171,6 +184,8 @@ if __name__ == "__main__":
     else:
         use_tls = True
         print(f"✓ Using TLS certificates: {cert_file}, {key_file}")
+    
+    print(f"✓ API key authentication enabled ({len(api_key_manager.keys)} keys loaded)")
     
     # Run server
     if use_tls:
