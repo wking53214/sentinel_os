@@ -25,7 +25,7 @@ import json
 import hashlib
 import pytest
 
-from domain.rl_marl import MARLEngine
+from Domain.rl_marl import MARLEngine
 
 
 # ---------------------------------------------------------

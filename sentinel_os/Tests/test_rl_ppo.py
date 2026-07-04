@@ -25,7 +25,7 @@ import json
 import hashlib
 import pytest
 
-from domain.rl_ppo import PPOEngine
+from Domain.rl_ppo import PPOEngine
 
 
 # ---------------------------------------------------------
