@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from drift_core_v1 import DriftSignal
+from .drift_core_v1 import DriftSignal
 
 class GovernanceViolation(Exception):
     pass
