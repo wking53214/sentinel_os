@@ -1,0 +1,77 @@
+# Row Count: 137
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iceberg-rl
+  labels:
+    app: iceberg-rl
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: iceberg-rl
+  template:
+    metadata:
+      labels:
+        app: iceberg-rl
+    spec:
+      containers:
+        - name: rl-worker
+          image: iceberg-runtime:3.x
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9100
+          env:
+            - name: ICEBERG_ENV
+              value: "production"
+            - name: CONFIG_PATH
+              value: "/etc/iceberg/application.yaml"
+            - name: WORKER_ROLE
+              value: "rl"
+          volumeMounts:
+            - name: iceberg-config
+              mountPath: /etc/iceberg
+              readOnly: true
+      volumes:
+        - name: iceberg-config
+          configMap:
+            name: iceberg-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceberg-rl
+  labels:
+    app: iceberg-rl
+spec:
+  type: ClusterIP
+  selector:
+    app: iceberg-rl
+  ports:
+    - name: http
+      port: 9100
+      targetPort: 9100
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: iceberg-rl-hpa
+  labels:
+    app: iceberg-rl
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: iceberg-rl
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

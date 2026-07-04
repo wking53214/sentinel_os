@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Iceberg Queues</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 0; }
+        header { background: #1e1e1e; color: #fff; padding: 16px; font-size: 22px; display: flex; justify-content: space-between; }
+        .section { padding: 20px; margin: 12px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 16px; }
+        pre { background: #efefef; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+        .timestamp { font-size: 14px; color: #aaa; }
+    </style>
+</head>
+<body>
+<header>
+    Iceberg Queue Dashboard
+    <span id="timestamp" class="timestamp"></span>
+</header>
+
+<div class="section">
+    <div id="queues" class="grid">Loading queue state…</div>
+</div>
+
+<script>
+async function fetchQueues() {
+    try {
+        const res = await fetch("/dashboard/queues");
+        if (!res.ok) throw new Error("Update failed");
+        const data = await res.json();
+
+        const qDiv = document.getElementById("queues");
+        qDiv.innerHTML = "";
+        
+        document.getElementById("timestamp").textContent = new Date().toLocaleTimeString();
+
+        for (const [name, q] of Object.entries(data)) {
+            const block = document.createElement("div");
+            block.innerHTML = `<h3>${name}</h3><pre>${JSON.stringify(q, null, 2)}</pre>`;
+            qDiv.appendChild(block);
+        }
+    } catch (err) {
+        console.error("Queue fetch failed:", err);
+    }
+}
+
+setInterval(fetchQueues, 2000);
+fetchQueues();
+</script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+# Row Count: 118
+
+application:
+  name: iceberg-runtime
+  version: "3.x"
+  environment: development   # development | staging | production
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  dashboard_enabled: true
+  telemetry_stream_enabled: true
+
+governance:
+  enable_structural_hash: true
+  enable_replay_verification: true
+  enable_seed_freeze: true
+  max_telemetry_events: 10000
+
+simulator:
+  max_steps_per_call: 20
+  perceived_wait_increment: 1.0
+  frustration_rate: 0.02
+  latent_memory_increment: 0.01
+
+routing:
+  graph:
+    builder: build_graph
+    start_node: root
+
+rl:
+  ppo:
+    lr: 0.0003
+    gamma: 0.99
+    eps_clip: 0.2
+  marl:
+    lr: 0.0003
+    hidden: 32
+    agents: 4
+  staffing:
+    lr: 0.0003
+    delta_limit: 0.5
+
+cluster:
+  num_workers: 8
+  default_callers: 50
+  default_steps: 12
+
+telemetry:
+  enabled: true
+  flush_interval_ms: 500
+  snapshot_on_flush: true
+
+replay:
+  enabled: true
+  include_events: true
+  include_snapshot: true
+
+dashboard:
+  pages:
+    - index.html
+    - queues.html
+    - callers.html
+    - telemetry.html
+    - replay.html
+    - rl.html
+  auto_refresh_ms: 2000
+
+logging:
+  level: INFO
+  json: true
+
+security:
+  jwt_enabled: false
+  cors:
+    allow_all: true

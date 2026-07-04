@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Iceberg RL Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f4f5; margin: 0; padding: 0; }
+        header { background: #1e1e1e; color: #fff; padding: 16px; font-size: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 16px; padding: 12px; }
+        .section { background: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        h2 { font-size: 14px; text-transform: uppercase; color: #6b7280; margin-bottom: 8px; }
+        pre { background: #1e1e1e; color: #34d399; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 11px; max-height: 250px; margin: 0; }
+        button { padding: 8px 16px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:disabled { background: #9ca3af; }
+        .status { font-size: 12px; font-weight: bold; }
+    </style>
+</head>
+<body>
+<header>
+    Iceberg RL Operational Monitor
+    <span id="status" class="status">IDLE</span>
+</header>
+
+<div class="grid">
+    <div class="section">
+        <h2>PPO Routing</h2>
+        <pre id="ppo_output">Waiting for data...</pre>
+    </div>
+    <div class="section">
+        <h2>MARL Joint Actions</h2>
+        <pre id="marl_output">Waiting for data...</pre>
+    </div>
+    <div class="section">
+        <h2>Staffing Deltas</h2>
+        <pre id="staffing_output">Waiting for data...</pre>
+    </div>
+    <div class="section">
+        <h2>Bayesian Posterior</h2>
+        <pre id="bayes_output">Waiting for data...</pre>
+    </div>
+</div>
+
+<div class="section" style="margin: 12px;">
+    <h2>Episode Execution</h2>
+    <button id="run_btn" onclick="runEpisode()">Trigger RL Episode</button>
+    <pre id="episode_output" style="margin-top: 12px;">No execution recorded.</pre>
+</div>
+
+<script>
+async function updateStatus(text, color) {
+    const el = document.getElementById("status");
+    el.textContent = text;
+    el.style.color = color;
+}
+
+async function fetchRL() {
+    try {
+        const res = await fetch("/dashboard/rl");
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        
+        const map = { ppo: "ppo_output", marl: "marl_output", staffing: "staffing_output", bayes: "bayes_output" };
+        for (const [key, id] of Object.entries(map)) {
+            document.getElementById(id).textContent = JSON.stringify(data[key], null, 2);
+        }
+    } catch (err) {
+        updateStatus("OFFLINE", "#ef4444");
+    }
+}
+
+async function runEpisode() {
+    const btn = document.getElementById("run_btn");
+    btn.disabled = true;
+    updateStatus("RUNNING", "#3b82f6");
+    
+    try {
+        const res = await fetch("/dashboard/rl/episode");
+        const data = await res.json();
+        document.getElementById("episode_output").textContent = JSON.stringify(data, null, 2);
+        updateStatus("COMPLETE", "#10b981");
+    } catch (err) {
+        updateStatus("FAILED", "#ef4444");
+    } finally {
+        setTimeout(() => { btn.disabled = false; updateStatus("IDLE", "#fff"); }, 2000);
+    }
+}
+
+setInterval(fetchRL, 2000);
+fetchRL();
+</script>
+</body>
+</html>

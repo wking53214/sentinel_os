@@ -1,0 +1,117 @@
+# Row Count: 129
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iceberg-api
+  labels:
+    app: iceberg-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: iceberg-api
+  template:
+    metadata:
+      labels:
+        app: iceberg-api
+    spec:
+      containers:
+        - name: iceberg-api
+          image: iceberg-runtime:3.x
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: ICEBERG_ENV
+              value: "production"
+            - name: CONFIG_PATH
+              value: "/etc/iceberg/application.yaml"
+          volumeMounts:
+            - name: iceberg-config
+              mountPath: /etc/iceberg
+              readOnly: true
+      volumes:
+        - name: iceberg-config
+          configMap:
+            name: iceberg-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceberg-api
+  labels:
+    app: iceberg-api
+spec:
+  type: ClusterIP
+  selector:
+    app: iceberg-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iceberg-config
+data:
+  application.yaml: |
+    application:
+      name: iceberg-runtime
+      version: "3.x"
+      environment: production
+
+    server:
+      host: 0.0.0.0
+      port: 8000
+      dashboard_enabled: true
+      telemetry_stream_enabled: true
+
+    governance:
+      enable_structural_hash: true
+      enable_replay_verification: true
+      enable_seed_freeze: true
+
+    simulator:
+      max_steps_per_call: 20
+      perceived_wait_increment: 1.0
+      frustration_rate: 0.02
+      latent_memory_increment: 0.01
+
+    routing:
+      graph:
+        builder: build_graph
+        start_node: root
+
+    rl:
+      ppo:
+        lr: 0.0003
+        gamma: 0.99
+        eps_clip: 0.2
+      marl:
+        lr: 0.0003
+        hidden: 32
+        agents: 4
+      staffing:
+        lr: 0.0003
+        delta_limit: 0.5
+
+    telemetry:
+      enabled: true
+      flush_interval_ms: 500
+      snapshot_on_flush: true
+
+    replay:
+      enabled: true
+      include_events: true
+      include_snapshot: true
+
+    dashboard:
+      auto_refresh_ms: 2000
+
+    logging:
+      level: INFO
+      json: true

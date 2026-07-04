@@ -1,0 +1,77 @@
+# Row Count: 131
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iceberg-sim-workers
+  labels:
+    app: iceberg-sim-workers
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: iceberg-sim-workers
+  template:
+    metadata:
+      labels:
+        app: iceberg-sim-workers
+    spec:
+      containers:
+        - name: sim-worker
+          image: iceberg-runtime:3.x
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9000
+          env:
+            - name: ICEBERG_ENV
+              value: "production"
+            - name: CONFIG_PATH
+              value: "/etc/iceberg/application.yaml"
+            - name: WORKER_ROLE
+              value: "simulator"
+          volumeMounts:
+            - name: iceberg-config
+              mountPath: /etc/iceberg
+              readOnly: true
+      volumes:
+        - name: iceberg-config
+          configMap:
+            name: iceberg-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceberg-sim-workers
+  labels:
+    app: iceberg-sim-workers
+spec:
+  type: ClusterIP
+  selector:
+    app: iceberg-sim-workers
+  ports:
+    - name: http
+      port: 9000
+      targetPort: 9000
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: iceberg-sim-workers-hpa
+  labels:
+    app: iceberg-sim-workers
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: iceberg-sim-workers
+  minReplicas: 2
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
