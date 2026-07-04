@@ -24,7 +24,7 @@ import json
 import hashlib
 import pytest
 
-from Domain.LatentPayload import LatentPayload
+from Latent.LatentPayload import LatentPayload
 
 
 # ---------------------------------------------------------

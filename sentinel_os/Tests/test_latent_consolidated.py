@@ -14,7 +14,7 @@ Governance Mandates:
 
 import pytest
 import json
-from Domain.LatentPayload import LatentPayload
+from Latent.LatentPayload import LatentPayload
 
 # ---------------------------------------------------------
 # Mock Utilities
