@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iceberg
+  namespace: iceberg
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: iceberg
+  template:
+    metadata:
+      labels:
+        app: iceberg
+    spec:
+      containers:
+      - name: iceberg
+        image: iceberg:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: ICEBERG_ENV
+          value: production
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            cpu: 2
+            memory: 4Gi
+          limits:
+            cpu: 4
+            memory: 8Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: ledger
+          mountPath: /data
+      volumes:
+      - name: ledger
+        persistentVolumeClaim:
+          claimName: iceberg-ledger-pvc

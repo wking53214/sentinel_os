@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceberg-service
+  namespace: iceberg
+spec:
+  type: LoadBalancer
+  selector:
+    app: iceberg
+  ports:
+  - protocol: TCP
+    port: 9090
+    targetPort: 9090
+    name: metrics

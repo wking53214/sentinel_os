@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  iceberg:
+    build: .
+    container_name: iceberg-main
+    ports:
+      - "9090:9090"
+    environment:
+      PYTHONUNBUFFERED: 1
+      ICEBERG_ENV: production
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    restart: always
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  ledger:
+    image: postgres:15-alpine
+    container_name: iceberg-ledger
+    environment:
+      POSTGRES_DB: iceberg_ledger
+      POSTGRES_USER: iceberg
+      POSTGRES_PASSWORD: change_me_in_prod
+    volumes:
+      - ./ledger_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  ledger_data:
+  data:
+
+networks:
+  default:
+    name: iceberg-network

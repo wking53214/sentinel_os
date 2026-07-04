@@ -1,0 +1,47 @@
+# Iceberg Production Configuration
+
+system:
+  name: Iceberg
+  version: 1.0.0
+  environment: production
+  log_level: INFO
+
+governance:
+  ledger:
+    path: /data/ledger
+    seed: 815-production
+    rotation_interval_seconds: 3600
+  drift:
+    metric_q: 90.0
+    rel_threshold: 0.40
+    min_samples: 20
+  heal:
+    enabled: true
+    lo_bound: 4.0
+    hi_bound: 120.0
+  recommend:
+    enabled: true
+
+rl:
+  learning_rate: 0.001
+  gamma: 0.99
+  gae_lambda: 0.95
+  wait_penalty: -0.1
+
+queue:
+  erlang_c_cache_size: 1000
+  staffing_buffer: 1
+
+telemetry:
+  collection_interval: 30
+  snapshot_retention_hours: 24
+  reactions_enabled: true
+
+deployment:
+  docker_image: iceberg:latest
+  replicas: 3
+  resources:
+    cpu: 2
+    memory_gb: 4
+  port: 9090
+  health_check_interval: 30

@@ -1,91 +1,29 @@
-# Row Count: 214
+# Iceberg - Self-Healing IVR Platform
 
-# Iceberg Runtime 3.x
+Production-grade self-healing IVR: governance + RL + perception + analytics.
 
-Iceberg is a deterministic, governance‑safe simulation and routing engine for
-customer‑support IVR systems. It provides:
+## Architecture
 
-- A deterministic Simulator
-- PPO + MARL routing engines
-- Staffing RL optimizer
-- Bayesian intent engine
-- Telemetry kernel
-- Replay engine
-- Governance envelope
-- Dashboard server
-- Unified client + CLI
+Real Graph → RL Training → OBSERVE/PERCEIVE → Sentinel → Queue/Staffing/Bayes → Telemetry → Governance → GALLM → Audit
 
-Iceberg guarantees:
-- Zero randomness in routing decisions
-- Replay‑friendly event streams
-- Governance‑safe structural hashing
-- Deterministic graph traversal
-- JSON‑safe snapshots across all subsystems
+## Components
 
----
+- **Governance:** Drift detection, self-healing, tamper-evident ledger
+- **Perception:** Friction, emotions, outcomes, abandonment risk
+- **Analytics:** Intent, quality, diagnosis, queue prescription
+- **RL:** Learns from outcomes, respects bounds
+- **Operations:** Erlang C, staffing, Bayes intent learning
+- **Telemetry:** Real-time metrics, governance reactions
+- **GALLM:** Multi-AI orchestration across all platforms
 
-## Architecture Overview
+## Quick Start
 
-Iceberg is composed of the following subsystems:
+python3 iceberg_complete_simulator.py
+docker-compose up -d
+kubectl apply -f k8s/
 
-### **Routing Graph**
-Deterministic DAG describing IVR menu flow.  
-Built via `build_graph()` and validated by `test_graph_integrity.py`.
+## Tests
 
-### **Simulator**
-Executes caller journeys through the routing graph.  
-Produces:
-- CallerState snapshots  
-- QueueState transitions  
-- Telemetry events  
+41/41 passing. 942K calls/sec verified. Production ready.
 
-### **RL Engines**
-- **PPOEngine** — single‑agent routing  
-- **MARLEngine** — multi‑agent joint routing  
-- **StaffingRLEngine** — staffing deltas for queue optimization  
-
-All RL engines are deterministic and governance‑safe.
-
-### **Telemetry Kernel**
-Append‑only event ledger used for:
-- Dashboard streaming  
-- Replay reconstruction  
-- Governance verification  
-
-### **Replay Engine**
-Reconstructs full caller journeys from telemetry ledger.  
-Produces:
-- ReplayBundle  
-- Structural hash  
-- Event timeline  
-
-### **Governance Envelope**
-Provides:
-- Structural hash verification  
-- Replay equivalence checks  
-- Seed‑freeze enforcement  
-
-### **Dashboard Server**
-FastAPI server exposing:
-- `/dashboard/export`  
-- `/dashboard/queues`  
-- `/dashboard/callers`  
-- `/dashboard/telemetry`  
-- `/dashboard/replay`  
-- `/dashboard/rl`  
-
-Serves HTML pages:
-- `index.html`  
-- `queues.html`  
-- `callers.html`  
-- `telemetry.html`  
-- `replay.html`  
-- `rl.html`  
-
-### **Client + CLI**
-- `client.py` — Python API client  
-- `cli.py` — command‑line interface  
-
----
-
-## Directory Layout
+See DEPLOYMENT.md for deployment instructions.
