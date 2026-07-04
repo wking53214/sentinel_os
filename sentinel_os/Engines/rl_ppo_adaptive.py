@@ -72,6 +72,13 @@ class PPORouter:
         W_policy = self._get_weights(len(actions), state.shape[0], self.cfg.seed_policy)
         logits = W_policy @ state
 
+        # Adaptive: adjust logits based on expected_wait of candidate actions
+        # Penalize high-wait nodes slightly to prefer faster paths
+        for i, action in enumerate(actions):
+            wait = self.expected_wait.get(action, 10.0)
+            wait_penalty = -0.1 * (wait / 20.0)  # -0.1 penalty per 20s of wait
+            logits[i] += wait_penalty
+
         logits = logits - np.max(logits)
         exps = np.exp(np.clip(logits, -50, 50))
         probs = exps / (np.sum(exps) + 1e-12)
