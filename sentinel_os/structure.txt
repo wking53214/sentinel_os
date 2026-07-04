@@ -1,0 +1,243 @@
+.
+├── adaptive_config.py
+├── Admin
+│   ├── Dashboard.py
+│   └── Templates
+│       ├── Index.html
+│       ├── Queues.html
+│       ├── Replay.html
+│       └── rl.html
+├── API
+│   ├── schemas.py
+│   └── server.py
+├── api_key_auth.py
+├── api_server.py
+├── api_server_resilient.py
+├── cassette_harness.py
+├── cassette_interface.py
+├── cassette_loader.py
+├── cassettes
+│   ├── banking_cassette.py
+│   ├── __init__.py
+│   ├── ivr_cassette.py
+│   └── __pycache__
+│       ├── banking_cassette.cpython-311.pyc
+│       └── ivr_cassette.cpython-311.pyc
+├── certification
+├── certs
+│   ├── cert.pem
+│   └── key.pem
+├── claude_governance_api.py
+├── CLI
+│   └── CLI.py
+├── core
+│   └── resilience_config.py
+├── Deploy
+│   ├── argocd
+│   │   └── application.yaml
+│   └── k8s
+│       ├── hpa.yaml
+│       ├── iceberg-api.yaml
+│       ├── iceberg-rl.yaml
+│       ├── iceberg-sim-workers.yaml
+│       └── ingress.yaml
+├── docker-compose-prod.yml
+├── docker-compose.yml
+├── Dockerfile
+├── Domain
+│   ├── CallerState.py
+│   ├── Emotion.py
+│   ├── Intent.py
+│   └── QueueState.py
+├── Engines
+│   ├── bayes_gpu.py
+│   ├── ppo_trainer.py
+│   ├── __pycache__
+│   │   ├── ppo_trainer.cpython-311.pyc
+│   │   ├── rl_marl.cpython-311.pyc
+│   │   ├── rl_ppo_adaptive.cpython-311.pyc
+│   │   ├── rl_ppo.cpython-311.pyc
+│   │   ├── simple_rl_trainer.cpython-311.pyc
+│   │   └── staffing_rl.cpython-311.pyc
+│   ├── rl_marl.py
+│   ├── rl_ppo_adaptive.py
+│   ├── rl_ppo.py
+│   ├── rl_ppo_v2.py
+│   ├── simple_rl_trainer.py
+│   └── staffing_rl.py
+├── epistemic
+├── gallm_coordinator.py
+├── governance
+│   ├── drift_core_v1.py
+│   ├── ledger_postgres.py
+│   ├── log_rotation_v1.py
+│   ├── __pycache__
+│   │   ├── drift_core_v1.cpython-311.pyc
+│   │   ├── ledger_postgres.cpython-311.pyc
+│   │   ├── log_rotation_v1.cpython-311.pyc
+│   │   ├── recommend_v1.cpython-311.pyc
+│   │   └── self_heal_v1.cpython-311.pyc
+│   ├── recommend_v1.py
+│   └── self_heal_v1.py
+├── grafana_dashboard.py
+├── iceberg_complete_simulator.py
+├── iceberg_final_orchestrator.py
+├── iceberg_orchestrator.py
+├── integration_adaptive.py
+├── k8s
+│   ├── deployment.yaml
+│   ├── pvc.yaml
+│   └── service.yaml
+├── Latent
+│   ├── LatentPayload.py
+│   └── __pycache__
+│       └── LatentPayload.cpython-311.pyc
+├── ledger
+├── ledger~
+├── load_test_config.py
+├── load_test_live.py
+├── load_test.py
+├── Main.py
+├── Marketing
+│   └── Assets
+├── metrics_prometheus.py
+├── Model
+│   ├── Build_Graph.py
+│   └── __pycache__
+│       └── Build_Graph.cpython-311.pyc
+├── observe
+│   ├── IngestAdapter.py
+│   ├── __pycache__
+│   │   ├── IngestAdapter.cpython-311.pyc
+│   │   └── TwilioSyntheticLogGenerator.cpython-311.pyc
+│   └── TwilioSyntheticLogGenerator.py
+├── observe_perceive_core.py
+├── operational_resilience.py
+├── production_config.yaml
+├── production_harness.py
+├── __pycache__
+│   ├── adaptive_config.cpython-311.pyc
+│   ├── api_key_auth.cpython-311.pyc
+│   ├── cassette_harness.cpython-311.pyc
+│   ├── cassette_interface.cpython-311.pyc
+│   ├── cassette_loader.cpython-311.pyc
+│   ├── claude_governance_api.cpython-311.pyc
+│   ├── gallm_coordinator.cpython-311.pyc
+│   ├── grafana_dashboard.cpython-311.pyc
+│   ├── iceberg_final_orchestrator.cpython-311.pyc
+│   ├── iceberg_orchestrator.cpython-311.pyc
+│   ├── integration_adaptive.cpython-311.pyc
+│   ├── load_test_config.cpython-311.pyc
+│   ├── metrics_prometheus.cpython-311.pyc
+│   ├── observe_perceive_core.cpython-311.pyc
+│   ├── operational_resilience.cpython-311.pyc
+│   ├── production_harness.cpython-311.pyc
+│   ├── queue_staffing_bayes_integration.cpython-311.pyc
+│   ├── resilient_harness.cpython-311.pyc
+│   ├── sentinel_core.cpython-311.pyc
+│   ├── telemetry_pipeline.cpython-311.pyc
+│   └── twilio_log_ingestion.cpython-311.pyc
+├── queue_staffing_bayes_integration.py
+├── README.md
+├── readme.txt
+├── Registry
+│   └── module_registry.py
+├── Replay
+│   ├── ledger.py
+│   ├── recorder.py
+│   ├── replay_runner.py
+│   ├── snapshot.py
+│   └── verifier.py
+├── requirements.txt
+├── resilient_harness.py
+├── run_adaptive.py
+├── SDK
+│   ├── Client.py
+│   ├── Models.py
+│   ├── Replay.py
+│   └── Telemetry.py
+├── sentinel_core.py
+├── Sim
+│   ├── cluster_runner.py
+│   └── Simulator.py
+├── smoke_test.sh
+├── start_production.sh
+├── structure.txt
+├── Telemetry
+│   └── aggregator.py
+├── telemetry_pipeline.py
+├── Tests
+│   ├── conftest.py
+│   ├── __pycache__
+│   │   ├── conftest.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_adaptive_simulator.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_cluster_runner.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_cluster_runner.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_complete_integration.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_critical_integration.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_governance_cassettes.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_gpu_bayes.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_gpu_bayes.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_graph_integrity.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_graph_integrity.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_latent_consolidated.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_latent_consolidated.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_latent.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_latent.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_latent_regression.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_latent_regression.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_remaining_edge_cases.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_replay_engine.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_replay_engine.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_rl_marl.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_rl_marl.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_rl_ppo.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_rl_ppo.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_simulator_core.cpython-311-pytest-7.2.1.pyc
+│   │   ├── test_simulator_core.cpython-311-pytest-9.1.1.pyc
+│   │   ├── test_staffing_rl.cpython-311-pytest-7.2.1.pyc
+│   │   └── test_staffing_rl.cpython-311-pytest-9.1.1.pyc
+│   ├── test_adaptive_simulator.py
+│   ├── test_all_suites.py
+│   ├── test_api_contract.py
+│   ├── test_api_key_auth.py
+│   ├── test_cassette_system.py
+│   ├── test_cluster_runner.py
+│   ├── test_complete_integration.py
+│   ├── test_critical_integration.py
+│   ├── test_e2e_adaptive.py
+│   ├── test_full_orchestration.py
+│   ├── test_gallm.py
+│   ├── test_governance_cassettes.py
+│   ├── test_gpu_bayes.py
+│   ├── test_graph_integrity.py
+│   ├── test_latent_consolidated.py
+│   ├── test_latent.py
+│   ├── test_latent_regression.py
+│   ├── test_observe_perceive_fix.py
+│   ├── test_observe_perceive.py
+│   ├── test_production_integration.py
+│   ├── test_queue_staffing_bayes.py
+│   ├── test_remaining_edge_cases.py
+│   ├── test_replay_engine.py
+│   ├── test_resilience_observability.py
+│   ├── test_rl_governance_integration.py
+│   ├── test_rl_learning.py
+│   ├── test_rl_marl.py
+│   ├── test_rl_ppo.py
+│   ├── test_rl_training.py
+│   ├── test_sentinel.py
+│   ├── test_simulator_core.py
+│   ├── test_staffing_rl.py
+│   ├── test_system_readiness.py
+│   ├── test_telemetry_pipeline.py
+│   ├── test_tls_security.py
+│   └── test_twilio_to_adaptive.py
+├── Training
+│   ├── curriculum.md
+│   └── Modules
+├── twilio_log_ingestion.py
+└── Website
+    └── Assets
+
+42 directories, 199 files
