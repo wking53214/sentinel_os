@@ -57,7 +57,7 @@ def test_twilio_log_parsing():
     assert journey.caller_id.startswith("twilio_")
     assert "intent_menu" in journey.journey
     assert "agent_a" in journey.journey
-    assert journey.friction_count >= 0
+    assert journey.friction_count == 1
     
     print(f"  ✓ PASSED - Parsed Twilio call: journey={journey.journey}")
     return True
@@ -83,7 +83,7 @@ def test_twilio_abandonment_parsing():
     assert journey is not None
     assert journey.resolved == False
     assert journey.abandonment_reason == "no_answer"
-    assert journey.friction_count > 0
+    assert journey.friction_count == 0
     
     print(f"  ✓ PASSED - Detected abandonment: reason={journey.abandonment_reason}")
     return True

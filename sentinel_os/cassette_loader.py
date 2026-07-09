@@ -14,7 +14,16 @@ class CassetteLoader:
     """Load cassettes from files"""
     
     def __init__(self, cassette_dir: str = "./cassettes"):
-        self.cassette_dir = Path(cassette_dir)
+        # Try the provided path first
+        target_path = Path(cassette_dir)
+        
+        # If it doesn't exist, check relative to this loader file's location
+        if not target_path.exists():
+            fallback_path = Path(__file__).parent / "cassettes"
+            if fallback_path.exists():
+                target_path = fallback_path
+                
+        self.cassette_dir = target_path
         self.registry = CassetteRegistry()
     
     def load_cassette(self, cassette_name: str) -> Cassette:
@@ -33,8 +42,8 @@ class CassetteLoader:
             spec.loader.exec_module(module)
             
             # Get class and instantiate
-            cassette_class = getattr(module, class_name)
-            cassette = cassette_class()
+            class_obj = getattr(module, class_name)
+            cassette = class_obj()
             
             return cassette
         except Exception as e:
