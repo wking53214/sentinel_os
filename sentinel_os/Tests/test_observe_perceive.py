@@ -4,7 +4,7 @@ Tests for OBSERVE and PERCEIVE Core Engines
 
 import numpy as np
 import pytest
-from sentinel_os.observe_perceive_core import (
+from observe_perceive_core import (
     ObserveCore, 
     PerceiveCore, 
     EmotionalState, 
