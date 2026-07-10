@@ -12,9 +12,12 @@ class Trajectory:
 class SimpleRLTrainer:
     '''Simplified RL trainer that doesn't require complex caller encoding'''
     
-    def __init__(self, state_dim=10, action_dim=2, lr=0.001):
+    def __init__(self, state_dim=10, action_dim=2, lr=0.001, seed=None):
         self.state_dim = state_dim
         self.action_dim = action_dim
+        rng = np.random.default_rng(seed)
+        self.policy_weights = rng.standard_normal((self.action_dim, self.state_dim)) * 0.01
+        self.value_weights = rng.standard_normal((1, self.state_dim)) * 0.01
         self.lr = lr
         self.policy_weights = np.random.randn(action_dim, state_dim) * 0.01
         self.value_weights = np.random.randn(1, state_dim) * 0.01
@@ -26,7 +29,7 @@ class SimpleRLTrainer:
         logits = logits - np.max(logits)
         probs = np.exp(logits) / np.sum(np.exp(logits))
         action = np.argmax(probs)
-        value = float(self.value_weights @ state)
+        value = (self.value_weights @ state).item()
         return action, float(probs[action]), value
     
     def collect_trajectory(self, state: np.ndarray, action: int, reward: float, done: bool):
@@ -65,7 +68,7 @@ class SimpleRLTrainer:
             policy_loss = -np.log(softmax[traj.action] + 1e-8) * returns[i]
             
             # Value loss
-            value = float(self.value_weights @ traj.state)
+            value = (self.value_weights @ traj.state).item()
             value_loss = (returns[i] - value) ** 2
             
             loss = policy_loss + 0.5 * value_loss
