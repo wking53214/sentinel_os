@@ -89,7 +89,7 @@ class PPORouter:
         logp = float(np.log(probs[action_idx] + 1e-8))
 
         W_value = self._get_weights(1, state.shape[0], self.cfg.seed_value)
-        value = float(W_value @ state)
+        value = (W_value @ state).item()
 
         return next_node, action_idx, logp, value
 
