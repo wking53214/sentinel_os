@@ -1,7 +1,7 @@
 import sys
 import os
 import tempfile
-import numpy as np
+import array_ops as np
 np.random.seed(42)
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 

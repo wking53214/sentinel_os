@@ -17,6 +17,7 @@ from governance.ledger_postgres import PostgreSQLLedger
 from claude_governance_api import ClaudeGovernanceDecider
 from observe_perceive_core import ObserveCore, synthesize_percept, EmotionalState, FrictionEvent
 from sentinel_core import SentinelCore
+from cassette_loader import CassetteLoader
 from queue_staffing_bayes_integration import (
     StaffingCoordinator, BayesianIntentEngine, QueueState
 )
@@ -36,7 +37,7 @@ class IcebergProductionHarness:
         # Observability
         self.metrics = PrometheusMetrics()
         self.observer = ObserveCore()
-        self.sentinel = SentinelCore()
+        self.sentinel = SentinelCore(CassetteLoader().load_cassette("ivr"))
         
         # Persistence
         self.ledger = None  # Will init if DB config provided
@@ -161,8 +162,6 @@ class IcebergProductionHarness:
                     previous_value=journey.total_duration,
                     applied_value=journey.total_duration * 0.8,
                     reason=f"Quality: {quality_score.quality_tier.value}",
-                    previous_hash="previous",
-                    current_hash="current",
                     data={
                         "caller_id": journey.caller_id,
                         "quality_tier": quality_score.quality_tier.value,

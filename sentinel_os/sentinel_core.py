@@ -60,24 +60,29 @@ class QueuePrescription:
     test_cohort_size: int
 
 class SentinelCore:
-    """Canonical Sentinel analytics engine"""
-    
-    # Queue to intent mapping (from your domain truths)
-    QUEUE_INTENT_MAP = {
-        "billing_queue": CallerIntent.BILLING,
-        "tech_queue": CallerIntent.TECHNICAL,
-        "sales_queue": CallerIntent.SALES,
-        "cancel_queue": CallerIntent.CANCEL,
-        "upgrade_queue": CallerIntent.UPGRADE,
-        "complaint_queue": CallerIntent.COMPLAINT,
-        "general_queue": CallerIntent.GENERAL,
-    }
-    
+    """Canonical Sentinel analytics engine
+
+    Domain truth (queue-to-intent mapping, and eventually scoring/
+    diagnosis rules) lives in the loaded cassette, not in this class.
+    A cassette is mandatory: there is no built-in fallback map, by
+    design, so there is exactly one place a given domain's rules can
+    live rather than two that could quietly disagree.
+    """
+
+    def __init__(self, cassette):
+        if cassette is None:
+            raise ValueError(
+                "SentinelCore requires a cassette; there is no built-in "
+                "fallback. Load one first, e.g. "
+                "CassetteLoader().load_cassette('ivr')."
+            )
+        self.cassette = cassette
+
     def infer_intent(self, journey: List[str], first_queue_chosen: str) -> IntentSignal:
-        """Infer caller intent from first queue choice"""
+        """Infer caller intent from first queue choice, via the cassette"""
         
-        intent = self.QUEUE_INTENT_MAP.get(first_queue_chosen, CallerIntent.UNKNOWN)
-        confidence = 0.85 if intent != CallerIntent.UNKNOWN else 0.3
+        raw_intent = self.cassette.infer_intent(first_queue_chosen, {})
+        confidence = 0.85 if raw_intent != "UNKNOWN" else 0.3
         
         reasoning = f"Caller routed to {first_queue_chosen}"
         if len(journey) > 2:
@@ -221,9 +226,17 @@ class SentinelCore:
         )
     
     def structural_hash(self) -> str:
-        """Deterministic hash of Sentinel state"""
+        """Deterministic hash of Sentinel state, including which cassette
+        is active -- so the hash actually changes if the domain rules
+        change, instead of staying identical across two different
+        cassettes the way a hash of core-only state would."""
+        cassette_config = self.cassette.get_config()
         state = {
-            "version": "sentinel_canonical_v1",
-            "queue_intent_map": {k: v.value for k, v in self.QUEUE_INTENT_MAP.items()}
+            "version": "sentinel_canonical_v2",
+            "cassette": {
+                "name": cassette_config.name,
+                "version": cassette_config.version,
+                "domain": cassette_config.domain,
+            },
         }
         return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
