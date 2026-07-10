@@ -1,4 +1,4 @@
-import numpy as np
+import array_ops as np
 from typing import List
 from dataclasses import dataclass
 

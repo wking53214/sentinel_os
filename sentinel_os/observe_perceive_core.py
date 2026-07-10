@@ -8,7 +8,6 @@ PERCEIVE: Infers outcomes, predicts next states, tracks world dynamics
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from enum import Enum
-import numpy as np
 
 class CallOutcome(Enum):
     RESOLVED = "resolved"

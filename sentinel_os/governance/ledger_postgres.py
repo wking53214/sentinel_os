@@ -54,13 +54,47 @@ class PostgreSQLLedger:
             self.pool.putconn(conn)
     
     def append(self, action_type: str, node: str, previous_value: float,
-               applied_value: float, reason: str, previous_hash: str,
-               current_hash: str, data: Dict) -> bool:
-        """Append entry to ledger (transaction)"""
-        
+               applied_value: float, reason: str, data: Dict) -> bool:
+        """Append entry to ledger (transaction).
+
+        Hashes are computed internally -- callers cannot supply
+        previous_hash/current_hash. A ledger that trusted a caller's
+        own fingerprint would just be a table with a hash-shaped
+        column, not a tamper-evident chain.
+
+        An advisory lock, held for the transaction, serializes the
+        read-last-entry / compute-next-hash / insert sequence, so two
+        callers appending at nearly the same instant can't both read
+        the same "last entry" and each honestly build a next link
+        that only one of them should have won.
+        """
+
         conn = self.pool.getconn()
         try:
             cursor = conn.cursor()
+
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries
+                ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry = {
+                "action_type": action_type,
+                "node": node,
+                "previous_value": previous_value,
+                "applied_value": applied_value,
+                "reason": reason,
+                "data": data,
+                "previous_hash": previous_hash,
+            }
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
             cursor.execute("""
                 INSERT INTO ledger_entries 
                 (action_type, node, previous_value, applied_value, reason, 

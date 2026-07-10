@@ -2,7 +2,7 @@
 Tests for OBSERVE and PERCEIVE Core Engines
 """
 
-import numpy as np
+import array_ops as np
 import pytest
 from observe_perceive_core import (
     ObserveCore, 
