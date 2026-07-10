@@ -6,7 +6,7 @@ Connects governance signals → staffing adjustments → queue dynamics → Baye
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional
-import numpy as np
+import math
 
 @dataclass
 class QueueState:
@@ -46,11 +46,11 @@ class QueueDynamics:
         if agents <= traffic_intensity:
             return 1.0
         
-        numerator = (traffic_intensity ** agents) / np.math.factorial(agents)
+        numerator = (traffic_intensity ** agents) / math.factorial(agents)
         denominator = numerator
         
         for i in range(agents):
-            denominator += (traffic_intensity ** i) / np.math.factorial(i)
+            denominator += (traffic_intensity ** i) / math.factorial(i)
         
         pw = numerator / denominator if denominator > 0 else 1.0
         self.erlang_c_cache[key] = pw
@@ -80,7 +80,7 @@ class QueueDynamics:
             return 1
         
         # Start with Erlang formula + buffer
-        min_agents = int(np.ceil(traffic_intensity)) + 1
+        min_agents = int(math.ceil(traffic_intensity)) + 1
         
         for agents in range(min_agents, min_agents + 10):
             predicted_wait = self.predict_wait_time(agents, traffic_intensity, avg_handle_time)

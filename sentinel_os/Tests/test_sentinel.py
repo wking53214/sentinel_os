@@ -5,11 +5,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sentinel_core import (
     SentinelCore, CallerIntent, OutcomeQuality
 )
+from cassettes.ivr_cassette import IvrCassette
 from observe_perceive_core import EmotionalState, FrictionEvent
 
 def test_sentinel_intent_inference():
     print("\n[TEST 1] Sentinel: Intent inference from queue choice")
-    sentinel = SentinelCore()
+    sentinel = SentinelCore(IvrCassette())
     
     # Test billing queue
     signal1 = sentinel.infer_intent(["root", "intent_menu", "billing_queue"], "billing_queue")
@@ -25,7 +26,7 @@ def test_sentinel_intent_inference():
 
 def test_sentinel_quality_scoring():
     print("\n[TEST 2] Sentinel: Outcome quality scoring")
-    sentinel = SentinelCore()
+    sentinel = SentinelCore(IvrCassette())
     
     emotion_good = EmotionalState(frustration=0.1, patience=0.9, trust=0.9)
     emotion_bad = EmotionalState(frustration=0.9, patience=0.1, trust=0.3)
@@ -45,7 +46,7 @@ def test_sentinel_quality_scoring():
 
 def test_sentinel_abandonment_diagnosis():
     print("\n[TEST 3] Sentinel: Abandonment diagnosis")
-    sentinel = SentinelCore()
+    sentinel = SentinelCore(IvrCassette())
     
     emotion_bad = EmotionalState(frustration=0.8, patience=0.1, trust=0.3)
     
@@ -80,7 +81,7 @@ def test_sentinel_abandonment_diagnosis():
 
 def test_sentinel_queue_prescription():
     print("\n[TEST 4] Sentinel: Queue reordering prescription")
-    sentinel = SentinelCore()
+    sentinel = SentinelCore(IvrCassette())
     
     # Simulate call outcomes with different success rates
     outcomes = [
@@ -103,8 +104,8 @@ def test_sentinel_queue_prescription():
 
 def test_sentinel_structural_hash():
     print("\n[TEST 5] Sentinel: Structural hash determinism")
-    sentinel1 = SentinelCore()
-    sentinel2 = SentinelCore()
+    sentinel1 = SentinelCore(IvrCassette())
+    sentinel2 = SentinelCore(IvrCassette())
     
     hash1 = sentinel1.structural_hash()
     hash2 = sentinel2.structural_hash()

@@ -14,7 +14,7 @@ Best–in–Class Notes:
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Any, List, Tuple
-import numpy as np
+import array_ops as np
 
 
 @dataclass
