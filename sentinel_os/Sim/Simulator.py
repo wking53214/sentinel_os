@@ -209,3 +209,4 @@ This simulator is now:
 ✔ stable under partial subsystem failure
 
 It acts as the strict orchestration boundary of Iceberg 3.x.
+"""
