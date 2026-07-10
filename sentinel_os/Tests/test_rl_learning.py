@@ -1,6 +1,7 @@
 import sys
 import os
 import numpy as np
+np.random.seed(42)
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from Engines.simple_rl_trainer import SimpleRLTrainer
