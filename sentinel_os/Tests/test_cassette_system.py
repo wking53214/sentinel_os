@@ -44,7 +44,8 @@ def test_ivr_cassette_structure():
     assert intent == "BILLING"
     
     quality = ivr.score_outcome_quality(True, 100, 0, {"frustration": 0.1})
-    assert quality in ["excellent", "good", "poor", "failed"]
+    assert quality.tier in ["excellent", "good", "poor", "failed"]
+    assert 0.0 <= quality.score <= 1.0, f"Score out of range: {quality.score}"
     
     print(f"  ✓ PASSED - IVR cassette valid, {len(queues)} queues")
     return True

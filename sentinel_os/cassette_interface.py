@@ -17,6 +17,21 @@ class CassetteConfig:
     description: str
     domain: str  # "ivr", "banking", "healthcare", etc.
 
+@dataclass(frozen=True)
+class QualityResult:
+    """A cassette's domain judgment of one outcome: score AND tier.
+
+    The cassette owns both halves -- the score arithmetic and the
+    cutoffs that turn a score into a tier label. Two domains may judge
+    the same call differently by design (banking's "excellent" bar is
+    not IVR's bar). Consumers that need the core's OutcomeQuality enum
+    translate the tier label; they never re-derive a tier from the
+    score with their own cutoffs, because then two places would own
+    the same judgment and could quietly disagree.
+    """
+    score: float  # 0.0-1.0, cassette-computed
+    tier: str  # "excellent" | "good" | "poor" | "failed"
+
 class Cassette(ABC):
     """Abstract base: all cassettes implement this"""
     
@@ -37,8 +52,12 @@ class Cassette(ABC):
     
     @abstractmethod
     def score_outcome_quality(self, resolved: bool, duration: float, 
-                             friction_count: int, emotion_data: Dict) -> str:
-        """Return quality tier: excellent/good/poor/failed"""
+                             friction_count: int, emotion_data: Dict) -> QualityResult:
+        """Score the outcome with this domain's own rules.
+
+        Returns QualityResult(score, tier). The cassette owns its tier
+        cutoffs; callers read .tier and .score, never re-bucket .score.
+        """
         pass
     
     @abstractmethod

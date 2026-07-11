@@ -127,6 +127,18 @@ class PostgreSQLLedger:
             
             entries = []
             for row in cursor.fetchall():
+                # psycopg2 already deserializes JSONB columns into
+                # Python objects; calling json.loads on the resulting
+                # dict raised TypeError and made every read of the
+                # ledger crash. Decode only if the driver hands back a
+                # raw string (e.g. a TEXT-typed legacy column).
+                raw = row[9]
+                if isinstance(raw, (dict, list)):
+                    data = raw
+                elif raw:
+                    data = json.loads(raw)
+                else:
+                    data = {}
                 entries.append({
                     "id": row[0],
                     "timestamp": row[1].isoformat() if row[1] else None,
@@ -137,7 +149,7 @@ class PostgreSQLLedger:
                     "reason": row[6],
                     "previous_hash": row[7],
                     "current_hash": row[8],
-                    "data": json.loads(row[9]) if row[9] else {}
+                    "data": data
                 })
             return entries
         finally:

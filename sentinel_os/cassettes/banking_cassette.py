@@ -4,7 +4,7 @@ Banking Cassette - Domain-specific implementation for financial services
 Same boom box, completely different rules for banking context
 """
 
-from cassette_interface import Cassette, CassetteConfig
+from cassette_interface import Cassette, CassetteConfig, QualityResult
 from typing import Dict, List
 
 class BankingCassette(Cassette):
@@ -42,8 +42,19 @@ class BankingCassette(Cassette):
         return mapping.get(queue_name, "UNKNOWN")
     
     def score_outcome_quality(self, resolved: bool, duration: float,
-                             friction_count: int, emotion_data: Dict) -> str:
-        """Score banking call quality (DIFFERENT from IVR)"""
+                             friction_count: int, emotion_data: Dict) -> QualityResult:
+        """Score banking call quality (DIFFERENT from IVR).
+
+        Deliberately keeps its own 0.80 "excellent" cutoff and its own
+        weights -- banking judging the same call differently than IVR
+        is the point of the cassette system, not a bug to normalize.
+
+        NOTE (open decision, not silently changed): a *correct* fraud
+        escalation to a human still scores as unresolved here, even
+        though compute_reward already treats it as a win. Whether a
+        proper escalation counts as a success needs an explicit call
+        before this cassette grows an escalation carve-out.
+        """
         
         score = 0.0
         
@@ -73,13 +84,15 @@ class BankingCassette(Cassette):
         score = max(0.0, min(1.0, score))
         
         if score > 0.80:
-            return "excellent"
+            tier = "excellent"
         elif score > 0.60:
-            return "good"
+            tier = "good"
         elif score > 0.35:
-            return "poor"
+            tier = "poor"
         else:
-            return "failed"
+            tier = "failed"
+        
+        return QualityResult(score=score, tier=tier)
     
     def diagnose_abandonment(self, journey: List[str], friction: List,
                             emotion: Dict, resolved: bool) -> Dict:
