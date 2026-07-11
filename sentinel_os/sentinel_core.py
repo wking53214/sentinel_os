@@ -32,6 +32,11 @@ class IntentSignal:
     queue_chosen: str
     confidence: float  # 0-1
     reasoning: str
+    # The cassette's domain-native intent label (e.g. "BILLING",
+    # "FRAUD_ALERT"). Previously the cassette classified the intent and
+    # the result was used only to pick a confidence number, then thrown
+    # away -- the one field this signal exists to carry never rode in it.
+    classification: str = "UNKNOWN"
 
 @dataclass
 class QualityScore:
@@ -93,96 +98,122 @@ class SentinelCore:
         return IntentSignal(
             queue_chosen=first_queue_chosen,
             confidence=confidence,
-            reasoning=reasoning
+            reasoning=reasoning,
+            classification=raw_intent,
         )
     
+    # Translation from cassette-native tier labels to the core's
+    # structural enum. The cassette owns the cutoffs that PRODUCE a
+    # label; the core only translates the label it is handed. An
+    # unknown label is a contract violation between cassette and core
+    # and fails loudly rather than being rounded to a nearby tier.
+    _TIER_MAP = {
+        "excellent": OutcomeQuality.EXCELLENT,
+        "good": OutcomeQuality.GOOD,
+        "poor": OutcomeQuality.POOR,
+        "failed": OutcomeQuality.FAILED,
+    }
+
+    @staticmethod
+    def _emotion_as_dict(emotional_state) -> Dict:
+        """Normalize at the boundary: the pipeline speaks objects
+        (EmotionalState), cassettes speak primitives (dicts)."""
+        if emotional_state is None:
+            return {}
+        if isinstance(emotional_state, dict):
+            return emotional_state
+        out = {}
+        for key in ("frustration", "patience", "trust"):
+            value = getattr(emotional_state, key, None)
+            if value is not None:
+                out[key] = float(value)
+        return out
+
+    @staticmethod
+    def _friction_as_dicts(friction_events) -> List[Dict]:
+        """Normalize friction events (objects or dicts) to plain dicts
+        so cassettes never need to know the pipeline's event classes."""
+        out = []
+        for event in friction_events or []:
+            if isinstance(event, dict):
+                out.append(event)
+                continue
+            entry = {}
+            for key in ("type", "node", "severity"):
+                value = getattr(event, key, None)
+                if value is not None:
+                    entry[key] = value
+            out.append(entry)
+        return out
+
     def score_outcome_quality(self, resolved: bool, resolution_time: float,
                              friction_count: int, emotional_state) -> QualityScore:
-        """Score quality of outcome"""
-        
-        # Base score from resolution
-        base_score = 1.0 if resolved else 0.2
-        
-        # Time penalty: ideal < 30s, acceptable < 60s, poor > 120s
-        if resolution_time < 30:
-            time_score = 1.0
-        elif resolution_time < 60:
-            time_score = 0.8
-        elif resolution_time < 120:
-            time_score = 0.5
-        else:
-            time_score = 0.2
-        
-        # Friction penalty
-        friction_score = max(0.0, 1.0 - friction_count * 0.15)
-        
-        # Emotional penalty
-        emotional_penalty = emotional_state.frustration * 0.3
-        emotional_score = max(0.0, 1.0 - emotional_penalty)
-        
-        # Composite
-        overall = (base_score * 0.4 + time_score * 0.3 + 
-                  friction_score * 0.2 + emotional_score * 0.1)
-        
-        if overall > 0.85:
-            tier = OutcomeQuality.EXCELLENT
-        elif overall > 0.65:
-            tier = OutcomeQuality.GOOD
-        elif overall > 0.35:
-            tier = OutcomeQuality.POOR
-        else:
-            tier = OutcomeQuality.FAILED
-        
+        """Score quality of outcome (Path A: the cassette owns the judgment).
+
+        The cassette computes the score AND picks the tier with its own
+        domain cutoffs. The core normalizes inputs on the way down,
+        translates the tier label into OutcomeQuality on the way back,
+        and wraps the verdict with the structural fields callers rely
+        on. There is deliberately no scoring arithmetic left in this
+        class -- a second scorer here is exactly the two-places-that-
+        can-quietly-disagree problem the cassette system exists to end.
+        """
+        emotion_data = self._emotion_as_dict(emotional_state)
+        result = self.cassette.score_outcome_quality(
+            resolved, resolution_time, friction_count, emotion_data
+        )
+        try:
+            tier = self._TIER_MAP[result.tier]
+        except KeyError:
+            raise ValueError(
+                f"Cassette returned unknown quality tier {result.tier!r}; "
+                f"expected one of {sorted(self._TIER_MAP)}"
+            )
         return QualityScore(
             resolution_time=resolution_time,
             friction_count=friction_count,
-            emotional_deterioration=emotional_state.frustration,
-            overall_score=overall,
-            quality_tier=tier
+            emotional_deterioration=float(emotion_data.get("frustration", 0.0)),
+            overall_score=float(result.score),
+            quality_tier=tier,
         )
     
+    # Structural interventions the core can point at WITHOUT domain
+    # knowledge: a wait-shaped cause implicates where the caller stood
+    # (last node); a repeat-shaped cause implicates where they were
+    # sent from (previous node). Causes a cassette names in its own
+    # vocabulary get no structural guess -- None, not a wrong answer.
+    _INTERVENTION_AT_LAST_NODE = {"long_wait"}
+    _INTERVENTION_AT_PREVIOUS_NODE = {"repeat_routing"}
+
     def diagnose_abandonment(self, journey: List[str], friction_events: List,
                             emotional_state, resolved: bool) -> AbandonmentDiagnosis:
-        """Diagnose why abandonment occurred"""
-        
-        if resolved:
-            return AbandonmentDiagnosis(
-                primary_cause="n/a",
-                contributing_factors=[],
-                intervention_point=None,
-                confidence=1.0
-            )
-        
-        primary = "unknown"
-        factors = []
+        """Diagnose why abandonment occurred (Path A: cassette owns the why).
+
+        The cassette names the cause in its own domain vocabulary; the
+        core wraps that verdict with the structural fields -- which
+        node in the journey to look at -- that require no domain
+        knowledge. The abandonment rules themselves no longer live here.
+        """
+        verdict = self.cassette.diagnose_abandonment(
+            journey,
+            self._friction_as_dicts(friction_events),
+            self._emotion_as_dict(emotional_state),
+            resolved,
+        )
+
+        primary = verdict.get("reason", "unknown")
+
         intervention = None
-        
-        # Check for long wait
-        if any(e.type == "long_wait" for e in friction_events):
-            primary = "long_wait"
-            intervention = journey[-1] if journey else None
-            factors.append("Queue wait exceeded tolerance")
-        
-        # Check for repeats
-        if any(e.type == "repeat" for e in friction_events):
-            if not primary or primary == "unknown":
-                primary = "repeat_routing"
-            factors.append("Caller repeated same queue")
-            intervention = journey[-2] if len(journey) > 1 else None
-        
-        # Check emotional deterioration
-        if emotional_state.frustration > 0.7:
-            if not primary or primary == "unknown":
-                primary = "emotional_decline"
-            factors.append("High frustration detected")
-        
-        confidence = 0.8 if primary != "unknown" else 0.3
-        
+        if primary in self._INTERVENTION_AT_LAST_NODE and journey:
+            intervention = journey[-1]
+        elif primary in self._INTERVENTION_AT_PREVIOUS_NODE and len(journey) > 1:
+            intervention = journey[-2]
+
         return AbandonmentDiagnosis(
             primary_cause=primary,
-            contributing_factors=factors,
+            contributing_factors=list(verdict.get("factors", [])),
             intervention_point=intervention,
-            confidence=confidence
+            confidence=float(verdict.get("confidence", 0.0)),
         )
     
     def prescribe_queue_reordering(self, call_outcomes: List[Dict],

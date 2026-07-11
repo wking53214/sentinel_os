@@ -73,7 +73,7 @@ class CassetteHarness:
             friction_count = self._count_friction(call_data, journey)
             emotion = {"frustration": 0.3}  # Placeholder
             
-            quality_tier = self.cassette.score_outcome_quality(
+            quality = self.cassette.score_outcome_quality(
                 resolved, duration, friction_count, emotion
             )
             
@@ -99,7 +99,8 @@ class CassetteHarness:
                 "caller_id": caller_id,
                 "domain": self.cassette_domain,
                 "intent": intent,
-                "quality_tier": quality_tier,
+                "quality_tier": quality.tier,
+                "quality_score": quality.score,
                 "diagnosis": diagnosis,
                 "reward": reward,
                 "resolved": resolved,

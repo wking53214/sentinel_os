@@ -4,7 +4,7 @@ IVR Cassette - Reference implementation for call center IVR
 Domain-specific rules for traditional voice IVR
 """
 
-from cassette_interface import Cassette, CassetteConfig
+from cassette_interface import Cassette, CassetteConfig, QualityResult
 from typing import Dict, List
 
 class IvrCassette(Cassette):
@@ -44,13 +44,23 @@ class IvrCassette(Cassette):
         return mapping.get(queue_name, "UNKNOWN")
     
     def score_outcome_quality(self, resolved: bool, duration: float,
-                             friction_count: int, emotion_data: Dict) -> str:
-        """Score call quality for IVR"""
+                             friction_count: int, emotion_data: Dict) -> QualityResult:
+        """Score call quality for IVR.
+
+        Returns QualityResult: this cassette owns both the score
+        arithmetic and the tier cutoffs below.
+        """
         
         score = 0.0
         
         if resolved:
-            score += 0.6
+            # 0.7, not 0.6: with the old baseline a flawless call
+            # (resolved, fast, zero friction, calm caller) maxed out at
+            # 0.6 + 0.2 = 0.8, which sits under the 0.85 "excellent"
+            # cutoff -- perfection was mathematically capped at "good".
+            # At 0.7 a flawless call scores 0.9 and can actually reach
+            # the top tier.
+            score += 0.7
         else:
             score += 0.1
         
@@ -68,13 +78,15 @@ class IvrCassette(Cassette):
         score = max(0.0, min(1.0, score))
         
         if score > 0.85:
-            return "excellent"
+            tier = "excellent"
         elif score > 0.65:
-            return "good"
+            tier = "good"
         elif score > 0.35:
-            return "poor"
+            tier = "poor"
         else:
-            return "failed"
+            tier = "failed"
+        
+        return QualityResult(score=score, tier=tier)
     
     def diagnose_abandonment(self, journey: List[str], friction: List,
                             emotion: Dict, resolved: bool) -> Dict:
