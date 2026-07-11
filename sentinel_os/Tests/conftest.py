@@ -1,9 +1,35 @@
 import sys
 import os
 
+import pytest
+
 # Add parent directory to path so tests can import modules
 parent = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, parent)
+
+
+def pytest_pyfunc_call(pyfuncitem):
+    """Make a returned False binding instead of silently ignored.
+
+    Several suites in this repo signal failure by returning False (a
+    habit from their __main__ runners). Bare pytest ignores return
+    values, so a test could print a failure banner and return False
+    while pytest counted it as PASSED -- test_ledger_recovery did
+    exactly that at baseline. This hook runs the test itself and fails
+    it when it returns False.
+    """
+    testfunction = pyfuncitem.obj
+    funcargs = {
+        arg: pyfuncitem.funcargs[arg]
+        for arg in pyfuncitem._fixtureinfo.argnames
+    }
+    result = testfunction(**funcargs)
+    if result is False:
+        pytest.fail(
+            f"{pyfuncitem.name} returned False "
+            f"(test signaled failure via its return value)"
+        )
+    return True
 
 # Map old 'Domain' imports to actual locations
 import importlib.util

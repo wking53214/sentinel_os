@@ -15,12 +15,15 @@ class SimpleRLTrainer:
     def __init__(self, state_dim=10, action_dim=2, lr=0.001, seed=None):
         self.state_dim = state_dim
         self.action_dim = action_dim
+        # One seeded generator initializes the weights and nothing
+        # overwrites them afterward. The previous version re-assigned
+        # both weight matrices from the UNSEEDED global RNG two lines
+        # later, which silently made the seed parameter dead: passing
+        # seed=42 twice gave two different policies.
         rng = np.random.default_rng(seed)
         self.policy_weights = rng.standard_normal((self.action_dim, self.state_dim)) * 0.01
         self.value_weights = rng.standard_normal((1, self.state_dim)) * 0.01
         self.lr = lr
-        self.policy_weights = np.random.randn(action_dim, state_dim) * 0.01
-        self.value_weights = np.random.randn(1, state_dim) * 0.01
         self.trajectories: List[Trajectory] = []
         
     def choose_action(self, state: np.ndarray):
