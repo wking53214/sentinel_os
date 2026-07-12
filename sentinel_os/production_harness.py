@@ -294,12 +294,6 @@ class IcebergProductionHarness:
                     not claude_decision.get("safe", False)
                 )
             ),
-            "governance_blocked": (
-                governed and (
-                    claude_decision is None or
-                    not claude_decision.get("safe", False)
-                )
-            ),
             "metrics_recorded": True,
             "friction_count": friction_count,
             "governed": governed,
