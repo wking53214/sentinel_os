@@ -2,6 +2,7 @@ fastapi==0.104.1
 uvicorn==0.24.0
 psycopg2-binary==2.9.12
 anthropic==0.116.0
+httpx<0.28  # anthropic 0.116.0 breaks on client construction ("unexpected keyword argument 'proxies'") with httpx>=0.28
 pytest==7.4.0
 numpy>=2.1,<2.9
 pydantic==2.4.0
