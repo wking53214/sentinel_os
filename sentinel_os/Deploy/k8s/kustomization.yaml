@@ -1,0 +1,23 @@
+# Kustomize overlay: HA/production layer for the Iceberg / Sentinel OS API server.
+#
+# This overlay adds ONLY the production concerns the minimal k8s/ base
+# deliberately omits: horizontal autoscaling, ingress with TLS termination, and
+# a PodDisruptionBudget. It does not redeclare the Deployment, Service, or PVC --
+# those live once in k8s/ (the single source of truth). The resources here attach
+# to that base Deployment/Service by name and label, the standard way HPA,
+# Ingress, and PDB reference a workload in Kubernetes.
+#
+# Deploy the full HA stack by applying the base and this overlay together:
+#   kubectl apply -f k8s/            # base: Deployment, Service, PVC
+#   kubectl apply -k Deploy/k8s/     # this overlay: HPA, Ingress, PDB
+# or via GitOps using Deploy/argocd/application.yaml (a multi-source ArgoCD
+# Application that points at both paths).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: iceberg
+
+resources:
+  - hpa.yaml
+  - ingress.yaml
+  - pdb.yaml
