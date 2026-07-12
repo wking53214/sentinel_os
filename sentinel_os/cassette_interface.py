@@ -70,6 +70,17 @@ class Cassette(ABC):
     def get_friction_thresholds(self) -> Dict[str, float]:
         """Domain-specific friction detection thresholds"""
         pass
+
+    @abstractmethod
+    def get_governance_parameters(self) -> Dict[str, Dict]:
+        """The typed governance declaration this domain runs under.
+
+        Shape and required parameters are defined by cassette_schema
+        (SCHEMA_VERSION). Every value the engine reads on the
+        governance path comes from here -- validated on load, read at
+        decision time. See cassette_schema.validate_cassette.
+        """
+        pass
     
     @abstractmethod
     def get_healing_bounds(self) -> Dict[str, tuple]:
@@ -93,13 +104,20 @@ class CassetteRegistry:
         self.cassettes = {}
     
     def register(self, cassette: Cassette):
-        """Register a cassette"""
+        """Register a cassette (fail-loud).
+
+        Full schema validation runs here, not just the cassette's own
+        self-check: an invalid cassette raises CassetteValidationError
+        carrying the complete violation list. Registration is a load
+        path, and no load path admits an unvalidated cassette.
+        """
+        from cassette_schema import validate_cassette
+
         config = cassette.get_config()
         key = f"{config.domain}:{config.name}"
-        
-        if not cassette.validate():
-            raise Exception(f"Cassette {key} validation failed")
-        
+
+        validate_cassette(cassette)
+
         self.cassettes[key] = cassette
     
     def get(self, domain: str) -> Cassette:

@@ -2,6 +2,8 @@ import sys
 import os
 import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from cassette_loader import CassetteLoader
+from cassette_schema import validate_cassette
 
 from governance.drift_core_v1 import DriftPolicy, detect_drift, DriftSignal
 from governance.self_heal_v1 import heal, HealBand, InMemoryParameterStore
@@ -62,7 +64,8 @@ def test_clamping_boundaries():
     tmp = tempfile.mkdtemp()
     ledger = LogRotationManager(LocalDiskAdapter(tmp), seed="815")
     store = InMemoryParameterStore()
-    band = HealBand(lo=4.0, hi=120.0)
+    lo, hi = validate_cassette(CassetteLoader().load_cassette("ivr")).range_value("expected_wait_bounds")
+    band = HealBand(lo=lo, hi=hi)
     
     signal = DriftSignal(
         node="test", baseline_value=20.0, current_value=500.0,
@@ -71,8 +74,11 @@ def test_clamping_boundaries():
     
     records = heal([signal], store, band, ledger, kind="expected_wait")
     
-    assert records[0].applied == 120.0, f"Should clamp to 120, got {records[0].applied}"
-    print(f"  ✓ PASSED - Extreme value (500s) clamped to ceiling (120s)")
+    # Clamp ceiling is the cassette's expected_wait_bounds hi -- assert
+    # against the cassette, not a literal, so this test tracks the
+    # source of truth instead of duplicating it.
+    assert records[0].applied == hi, f"Should clamp to {hi}, got {records[0].applied}"
+    print(f"  ✓ PASSED - Extreme value (500s) clamped to ceiling ({hi}s)")
     return True
 
 def main():
