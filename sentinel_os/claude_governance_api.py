@@ -40,65 +40,68 @@ class ClaudeGovernanceDecider:
     
     def decide_healing_bounds(self, queue_name: str, current_wait: float,
                              baseline_wait: float, drift_magnitude: float) -> Dict:
-        """Ask Claude: should we heal this queue? What bounds?"""
+        """Ask Claude: should we heal this queue? Fail-closed on any error."""
         
-        prompt = f"""
-You are an IVR governance expert. A call queue has experienced drift:
+        if self.client is None:
+            return {
+                "should_heal": False,
+                "governed": False,
+                "parse_failed": False,
+                "reasoning": "No API client configured",
+                "lo_bound": None,
+                "hi_bound": None,
+                "target_wait": None,
+                "confidence": 0.0
+            }
 
+        prompt = f"""You are an IVR governance expert. A call queue has experienced drift:
 Queue: {queue_name}
 Current wait time: {current_wait:.1f}s
 Baseline wait time: {baseline_wait:.1f}s
 Drift magnitude: {drift_magnitude*100:.1f}%
 
-Your task: Decide if we should self-heal this queue parameter, and if so, what bounds.
-
-Respond ONLY with valid JSON:
-{{
-    "should_heal": true/false,
-    "reasoning": "brief explanation",
-    "lo_bound": <from governance bounds>,
-    "hi_bound": <from governance bounds>,
-    "target_wait": proposed_target_in_seconds,
-    "confidence": 0.0-1.0
-}}
+Decide if we should self-heal. Respond ONLY with valid JSON: {{"should_heal": true/false, "reasoning": "...", "lo_bound": ..., "hi_bound": ..., "target_wait": ..., "confidence": 0.0-1.0}}
 """
 
-        if self.client is None:
-            raise RuntimeError(
-                "ClaudeGovernanceDecider has no API client (no api_key was "
-                "provided); cannot request a live healing-bounds decision"
-            )
-
-        message = self.client.messages.create(
-            model=self.model,
-            max_tokens=200,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-        
-        response_text = message.content[0].text
-        
         try:
+            message = self.client.messages.create(
+                model=self.model,
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            if not message.content or len(message.content) == 0:
+                raise ValueError("Empty response")
+            response_text = message.content[0].text
             decision = json.loads(response_text)
+            if not isinstance(decision.get("should_heal"), bool):
+                raise ValueError("should_heal not bool")
         except json.JSONDecodeError:
-            # Fallback if Claude doesn't return valid JSON. Bounds come
-            # from the cassette, not from literals living in this file.
-            lo_bound, hi_bound = self._fallback_bounds()
-            decision = {
-                "should_heal": True,
-                "reasoning": "Claude response parsing failed, defaulting to heal",
-                "target_wait": baseline_wait * 1.2,
-                "confidence": 0.3
+            return {
+                "should_heal": False,
+                "governed": False,
+                "parse_failed": True,
+                "reasoning": "Governor response not valid JSON",
+                "lo_bound": None,
+                "hi_bound": None,
+                "target_wait": None,
+                "confidence": 0.0
             }
-            if lo_bound is not None:
-                decision["lo_bound"] = lo_bound
-                decision["hi_bound"] = hi_bound
+        except Exception as e:
+            return {
+                "should_heal": False,
+                "governed": False,
+                "parse_failed": True,
+                "reasoning": f"Governor call failed: {str(e)}",
+                "lo_bound": None,
+                "hi_bound": None,
+                "target_wait": None,
+                "confidence": 0.0
+            }
         
-        decision["queue"] = queue_name
+        decision["parse_failed"] = False
         self.decisions.append(decision)
         return decision
-    
+
     def decide_staffing_adjustment(self, queue_name: str, current_agents: int,
                                   current_wait: float, target_wait: float,
                                   abandonment_rate: float) -> Dict:
@@ -198,60 +201,74 @@ Respond ONLY with valid JSON:
         return decision
     
     def safety_check(self, action: str, details: Dict) -> Dict:
-        """Ask Claude: is this governance action safe?"""
+        """Ask Claude: is this governance action safe? Fail-closed on any error."""
 
         if self.client is None:
-            raise RuntimeError(
-                "ClaudeGovernanceDecider has no API client (no api_key was "
-                "provided); cannot run a live safety_check"
-            )
+            return {
+                "safe": False,
+                "governed": False,
+                "parse_failed": False,
+                "risk_level": "critical",
+                "reasoning": "No API client configured",
+                "recommendations": ["Configure API key"],
+                "confidence": 1.0
+            }
 
-        prompt = f"""
-You are an AI safety auditor for IVR systems. Evaluate this governance action:
-
+        prompt = f"""You are an AI safety auditor for IVR systems. Evaluate this governance action:
 Action: {action}
 Details: {json.dumps(details, indent=2)}
 
-Questions to consider:
-- Would this harm customer experience?
-- Could this cause cascading failures?
-- Is this reversible?
-- Does it respect governance bounds?
-
-Respond ONLY with valid JSON:
-{{
-    "safe": true/false,
-    "risk_level": "low"/"medium"/"high",
-    "reasoning": "detailed explanation",
-    "recommendations": ["if", "not", "safe"],
-    "confidence": 0.0-1.0
-}}
+Respond ONLY with valid JSON: {{"safe": true/false, "risk_level": "low"/"medium"/"high", "reasoning": "...", "recommendations": [], "confidence": 0.0-1.0}}
 """
         
-        message = self.client.messages.create(
-            model=self.model,
-            max_tokens=300,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-        
-        response_text = message.content[0].text
-        
         try:
+            message = self.client.messages.create(
+                model=self.model,
+                max_tokens=300,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            if not message.content or len(message.content) == 0:
+                raise ValueError("Empty response")
+            response_text = message.content[0].text
             decision = json.loads(response_text)
+            if not isinstance(decision.get("safe"), bool):
+                raise ValueError(f"'safe' not bool: {type(decision.get('safe'))}")
         except json.JSONDecodeError:
-            decision = {
-                "safe": True,
-                "risk_level": "low",
-                "reasoning": "Claude response parsing failed, defaulting to safe",
-                "recommendations": [],
-                "confidence": 0.3
+            return {
+                "safe": False,
+                "governed": False,
+                "parse_failed": True,
+                "risk_level": "critical",
+                "reasoning": "Governor response not valid JSON",
+                "recommendations": ["Check governor output"],
+                "confidence": 0.0
+            }
+        except ValueError as e:
+            return {
+                "safe": False,
+                "governed": False,
+                "parse_failed": True,
+                "risk_level": "critical",
+                "reasoning": str(e),
+                "recommendations": ["Check governor"],
+                "confidence": 0.0
+            }
+        except Exception as e:
+            return {
+                "safe": False,
+                "governed": False,
+                "parse_failed": True,
+                "risk_level": "critical",
+                "reasoning": f"transport_error: Governor call failed: {str(e)}",
+                "recommendations": ["Check API connectivity"],
+                "confidence": 0.0
             }
         
+        decision["governed"] = decision.get("safe", False)
+        decision["parse_failed"] = False
         self.decisions.append(decision)
         return decision
-    
+
     def get_decision_log(self) -> list:
         """Get all decisions made by Claude"""
         return self.decisions
