@@ -1,76 +1,38 @@
-# Row Count: 118
-
-application:
-  name: iceberg-runtime
-  version: "3.x"
-  environment: development   # development | staging | production
-
-server:
-  host: 0.0.0.0
-  port: 8000
-  dashboard_enabled: true
-  telemetry_stream_enabled: true
-
-governance:
-  enable_structural_hash: true
-  enable_replay_verification: true
-  enable_seed_freeze: true
-  max_telemetry_events: 10000
-
-simulator:
-  max_steps_per_call: 20
-  perceived_wait_increment: 1.0
-  frustration_rate: 0.02
-  latent_memory_increment: 0.01
-
-routing:
-  graph:
-    builder: build_graph
-    start_node: root
-
-rl:
-  ppo:
-    lr: 0.0003
-    gamma: 0.99
-    eps_clip: 0.2
-  marl:
-    lr: 0.0003
-    hidden: 32
-    agents: 4
-  staffing:
-    lr: 0.0003
-    delta_limit: 0.5
-
-cluster:
-  num_workers: 8
-  default_callers: 50
-  default_steps: 12
-
-telemetry:
-  enabled: true
-  flush_interval_ms: 500
-  snapshot_on_flush: true
-
-replay:
-  enabled: true
-  include_events: true
-  include_snapshot: true
-
-dashboard:
-  pages:
-    - index.html
-    - queues.html
-    - callers.html
-    - telemetry.html
-    - replay.html
-    - rl.html
-  auto_refresh_ms: 2000
-
-logging:
-  level: INFO
-  json: true
-
-security:
-  jwt_enabled: false
-  cors:
-    allow_all: true
+# ArgoCD Application for the Iceberg / Sentinel OS deployment.
+#
+# Replaces the previous file at this path, which was not an ArgoCD resource at
+# all -- it was a stray runtime-config block (server/governance/rl/telemetry)
+# from the retired "Iceberg Runtime 3.x" generation.
+#
+# This is a multi-source Application: it deploys the minimal base (k8s/, a plain
+# directory of manifests) together with the HA overlay (Deploy/k8s/, a Kustomize
+# overlay adding HPA, Ingress, and PDB). Keeping the base in one place and
+# layering extras on top means the two cannot drift apart.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iceberg
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    # Base: Deployment, Service, PVC (applied as a plain directory of manifests).
+    - repoURL: https://github.com/wking53214/sentinel_os.git
+      targetRevision: main
+      path: sentinel_os/k8s
+    # HA overlay: HPA, Ingress, PDB (Kustomize, auto-detected via kustomization.yaml).
+    - repoURL: https://github.com/wking53214/sentinel_os.git
+      targetRevision: main
+      path: sentinel_os/Deploy/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: iceberg
+  syncPolicy:
+    # Pruning left OFF deliberately: automated deletion of resources that vanish
+    # from git is disabled so a bad commit cannot tear down running
+    # infrastructure. Sync applies and updates; removals are done manually.
+    automated:
+      prune: false
+      selfHeal: false
+    syncOptions:
+      - CreateNamespace=true

@@ -1,48 +1,34 @@
-# Row Count: 78
-
+# Ingress for the Iceberg / Sentinel OS API server.
+# Single backend: every endpoint the resilient API server exposes (/health,
+# /metrics, /status, /process, /batch, /ledger, /verify, /dashboard, /alerts) is
+# served by one process on one port, so there is no path-splitting across
+# services -- all traffic routes to the `iceberg-service` Service on 9090.
+# TLS is terminated here at the edge; supply the certificate in a Secret named
+# `iceberg-tls` (kubectl create secret tls iceberg-tls --cert=... --key=...).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: iceberg-ingress
+  namespace: iceberg
   labels:
     app: iceberg
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-body-size: 10m
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - iceberg.example.com
+      secretName: iceberg-tls
   rules:
-    - host: iceberg.local
+    - host: iceberg.example.com
       http:
         paths:
-          - path: /api/?(.*)
+          - path: /
             pathType: Prefix
             backend:
               service:
-                name: iceberg-api
+                name: iceberg-service
                 port:
-                  number: 8000
-
-          - path: /dashboard/?(.*)
-            pathType: Prefix
-            backend:
-              service:
-                name: iceberg-api
-                port:
-                  number: 8000
-
-          - path: /rl/?(.*)
-            pathType: Prefix
-            backend:
-              service:
-                name: iceberg-rl
-                port:
-                  number: 9100
-
-          - path: /sim/?(.*)
-            pathType: Prefix
-            backend:
-              service:
-                name: iceberg-sim-workers
-                port:
-                  number: 9000
+                  number: 9090

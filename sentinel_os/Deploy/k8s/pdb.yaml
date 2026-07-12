@@ -1,0 +1,16 @@
+# PodDisruptionBudget: keep at least 2 API pods available during voluntary
+# disruptions (node drains, rolling updates), matching the base Deployment's
+# pods by label. With an HPA minimum of 3, this leaves headroom to evict one
+# pod at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: iceberg-pdb
+  namespace: iceberg
+  labels:
+    app: iceberg
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: iceberg
