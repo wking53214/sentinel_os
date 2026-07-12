@@ -65,7 +65,9 @@ class TwilioLogParser:
         # In real system, would parse IVR logs/recordings
         journey = self._reconstruct_journey(twilio_record)
         
-        # Calculate friction
+        # Calculate friction (ingest-side heuristic ESTIMATE -- see
+        # _count_friction; the production harness measures its own
+        # friction from wait_times against the cassette threshold)
         friction_count = self._count_friction(twilio_record, journey)
         
         # Determine abandonment reason
@@ -75,7 +77,7 @@ class TwilioLogParser:
             caller_id=f"twilio_{sid[:8]}",
             timestamp=timestamp,
             journey=journey,
-            wait_times=self._extract_wait_times(twilio_record),
+            wait_times=self._extract_wait_times(twilio_record, journey),
             total_duration=float(duration),
             resolved=resolved,
             friction_count=friction_count,
@@ -107,20 +109,44 @@ class TwilioLogParser:
         journey.append("exit")
         return journey
     
-    def _extract_wait_times(self, record: Dict) -> Dict[str, float]:
-        """Extract wait times from call metadata"""
-        
+    def _extract_wait_times(self, record: Dict, journey: List[str]) -> Dict[str, float]:
+        """Extract per-node wait times, keyed by the ACTUAL journey nodes.
+
+        Previously this returned generic keys ("queue", "agent") that
+        never matched the reconstructed journey's node names
+        ("billing_queue", "agent_a"), so any per-node lookup downstream
+        silently found nothing -- the harness could never see more than
+        the intent_menu wait. Keying by the real nodes makes per-node
+        friction measurement possible.
+
+        The 0.1/0.5/0.4 split ratios remain an ingest heuristic
+        (Item #7 scope: replace with real IVR event timestamps when the
+        ingest path is integrated into the production flow).
+        """
+
         duration = float(record.get("duration", 0))
-        
-        # Heuristic: split duration across queues
-        return {
-            "intent_menu": duration * 0.1,
-            "queue": duration * 0.5,
-            "agent": duration * 0.4,
-        }
+
+        waits: Dict[str, float] = {}
+        queue_node = next((n for n in journey if "queue" in n), None)
+        if "intent_menu" in journey:
+            waits["intent_menu"] = duration * 0.1
+        if queue_node:
+            waits[queue_node] = duration * 0.5
+        if "agent_a" in journey:
+            waits["agent_a"] = duration * 0.4
+        return waits
     
     def _count_friction(self, record: Dict, journey: List[str]) -> int:
-        """Estimate friction from call patterns"""
+        """Estimate friction from call patterns.
+
+        Item #7 scope: these 300/120/10 duration heuristics are an
+        ingest-side ESTIMATE and deliberately NOT unified with
+        governance/friction_core in Items #4-#6; they unify when the
+        ingest path is integrated into the production flow. The
+        production harness does NOT use this estimate on the
+        governance path -- it measures friction itself from wait_times
+        against the cassette's threshold.
+        """
         
         friction = 0
         duration = int(record.get("duration", 0))
