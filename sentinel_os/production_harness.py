@@ -138,47 +138,106 @@ class IcebergProductionHarness:
             journey.total_duration
         )
         
-        # 7. Claude governance: Ask for decision (if connected)
+        # 7. Claude governance: a decision is REQUIRED when friction is high.
+        #    Fail-CLOSED: if governance is warranted but the governor is
+        #    unavailable or errors, the call is NOT quietly processed as if
+        #    approved -- we record an explicit block instead of running
+        #    ungoverned. (Previously a None decider silently skipped this
+        #    whole step and the harness reported success -- the core defect.)
+        needs_governance = journey.friction_count > 2
         claude_decision = None
-        if self.claude_decider and journey.friction_count > 2:
-            try:
-                claude_decision = self.claude_decider.safety_check(
-                    "heal_queue",
-                    {
-                        "queue": first_queue,
-                        "wait_time": journey.total_duration,
-                        "friction_count": journey.friction_count
+        governance_blocked = False
+
+        if needs_governance:
+            if self.claude_decider is None:
+                # Governor required but not connected -> fail closed.
+                claude_decision = {
+                    "safe": False,
+                    "risk_level": "high",
+                    "reasoning": (
+                        f"Governance required (friction_count="
+                        f"{journey.friction_count}) but no governor is "
+                        f"connected; fail-closed, action blocked."
+                    ),
+                    "governed": False,
+                    "parse_failed": True,
+                    "confidence": 0.0,
+                }
+                governance_blocked = True
+            else:
+                try:
+                    claude_decision = self.claude_decider.safety_check(
+                        "heal_queue",
+                        {
+                            "queue": first_queue,
+                            "wait_time": journey.total_duration,
+                            "friction_count": journey.friction_count,
+                        },
+                    )
+                except Exception as e:
+                    # Any governor error -> fail closed; never proceed silently.
+                    claude_decision = {
+                        "safe": False,
+                        "risk_level": "high",
+                        "reasoning": f"Governor call raised ({e}); fail-closed, "
+                                     f"action blocked.",
+                        "governed": False,
+                        "parse_failed": True,
+                        "confidence": 0.0,
                     }
-                )
-            except Exception as e:
-                print(f"Claude decision failed: {e}")
-        
-        # 8. Ledger: Record decision (if connected)
-        if self.ledger and claude_decision and claude_decision.get("safe"):
+                    governance_blocked = True
+
+        # 8. Gate 2 (ledger boundary): re-validate before we trust, act on, or
+        #    record any decision. APPROVED only if it parsed and validated at
+        #    Gate 1 (governed is True) AND safe is a real True. Anything else
+        #    is a block.
+        approved = bool(
+            isinstance(claude_decision, dict)
+            and claude_decision.get("governed") is True
+            and claude_decision.get("safe") is True
+        )
+        if claude_decision is not None and not approved:
+            governance_blocked = True
+
+        # 9. Ledger: record EVERY governance decision -- approvals, rejections,
+        #    and blocks -- not only approvals. The governor's own reasoning
+        #    becomes the ledger reason/data. No applied_value is fabricated:
+        #    the safety gate decides approve/block, not a heal magnitude, so
+        #    nothing was applied here (delta = 0; parameter_changed=False).
+        if self.ledger is not None and claude_decision is not None:
             try:
                 self.ledger.append(
                     action_type="governance",
                     node=first_queue,
                     previous_value=journey.total_duration,
-                    applied_value=journey.total_duration * 0.8,
-                    reason=f"Quality: {quality_score.quality_tier.value}",
+                    applied_value=journey.total_duration,  # no-op: gate applied no heal
+                    reason=claude_decision.get("reasoning", "no reasoning provided"),
                     data={
                         "caller_id": journey.caller_id,
                         "quality_tier": quality_score.quality_tier.value,
-                        "claude_safe": True
-                    }
+                        "decision": "approved" if approved else "blocked",
+                        "claude_safe": claude_decision.get("safe"),
+                        "governed": claude_decision.get("governed", False),
+                        "parse_failed": claude_decision.get("parse_failed", False),
+                        "risk_level": claude_decision.get("risk_level"),
+                        "confidence": claude_decision.get("confidence"),
+                        "parameter_changed": False,
+                    },
                 )
             except Exception as e:
                 print(f"Ledger append failed: {e}")
-        
+
         return {
             "caller_id": journey.caller_id,
             "resolved": journey.resolved,
             "quality": quality_score.quality_tier.value,
             "intent": intent_signal.queue_chosen,
             "emotion_frustration": emotion.frustration,
+            "governance_required": needs_governance,
+            "governance_approved": approved,
+            "governance_blocked": governance_blocked,
             "claude_safe": claude_decision.get("safe") if claude_decision else None,
-            "metrics_recorded": True
+            "metrics_recorded": True,
         }
     
     def process_batch(self, twilio_records: list) -> Dict:
