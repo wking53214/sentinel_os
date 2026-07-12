@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.responses import PlainTextResponse, JSONResponse
 import uvicorn
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from resilient_harness import ResilientHarness
 from operational_resilience import setup_logging, export_alert_rules
@@ -85,7 +85,7 @@ async def status(api_key: dict = Depends(require_api_key)):
     logger.info(f"Status request from {api_key['name']}")
     
     return {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "health": health,
         "protocol": "HTTPS/TLS",
         "authenticated_as": api_key['name']
@@ -115,7 +115,7 @@ async def process_call(call: dict, api_key: dict = Depends(require_api_key)):
         return {
             "success": True,
             "result": result,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "authenticated_as": api_key['name']
         }
     except Exception as e:
@@ -138,7 +138,7 @@ async def process_batch(batch: dict, api_key: dict = Depends(require_api_key)):
         return {
             "success": True,
             "summary": summary,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "authenticated_as": api_key['name']
         }
     except Exception as e:

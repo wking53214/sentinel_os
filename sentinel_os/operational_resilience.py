@@ -10,13 +10,13 @@ import time
 from functools import wraps
 from typing import Callable, Any, Optional
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # JSON structured logging
 class JSONFormatter(logging.Formatter):
     def format(self, record):
         log_obj = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -148,7 +148,7 @@ class HealthChecker:
     def check_all(self) -> dict:
         """Run all health checks"""
         status = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "overall": "healthy",
             "components": {}
         }
@@ -158,7 +158,7 @@ class HealthChecker:
                 is_healthy = check_fn()
                 status["components"][name] = {
                     "status": "healthy" if is_healthy else "unhealthy",
-                    "checked_at": datetime.utcnow().isoformat()
+                    "checked_at": datetime.now(timezone.utc).isoformat()
                 }
                 
                 if not is_healthy:
@@ -167,7 +167,7 @@ class HealthChecker:
                 status["components"][name] = {
                     "status": "error",
                     "error": str(e),
-                    "checked_at": datetime.utcnow().isoformat()
+                    "checked_at": datetime.now(timezone.utc).isoformat()
                 }
                 status["overall"] = "unhealthy"
                 self.logger.error(f"Health check failed for {name}: {e}")
