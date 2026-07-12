@@ -7,6 +7,8 @@ from adaptive_config import CONFIG
 from governance.drift_core_v1 import DriftPolicy, detect_drift, baseline_from_holds
 from governance.self_heal_v1 import heal, HealBand, InMemoryParameterStore
 from governance.log_rotation_v1 import LogRotationManager, LocalDiskAdapter
+from cassette_loader import CassetteLoader
+from cassette_schema import validate_cassette
 import random
 
 def main():
@@ -62,7 +64,8 @@ def main():
     # Self-heal
     print("\n[5/5] Applying self-healing...")
     store = InMemoryParameterStore()
-    band = HealBand(CONFIG["self_heal"]["band_lo"], CONFIG["self_heal"]["band_hi"])
+    lo, hi = validate_cassette(CassetteLoader().load_cassette("ivr")).range_value("expected_wait_bounds")
+    band = HealBand(lo, hi)
     records = heal(
         breached,
         store,

@@ -4,19 +4,73 @@ Banking Cassette - Domain-specific implementation for financial services
 Same boom box, completely different rules for banking context
 """
 
+import copy
+
 from cassette_interface import Cassette, CassetteConfig, QualityResult
 from typing import Dict, List
 
 class BankingCassette(Cassette):
     """Banking/financial services cassette"""
     
+    # THE declaration site for banking governance numbers (see
+    # cassette_schema). Banking judges the same call differently by
+    # design: longer wait tolerance (security verification), same
+    # inclusive trigger.
+    _GOVERNANCE_PARAMETERS = {
+        "long_wait_threshold": {
+            "value": 45.0,
+            "type": "float",
+            "min": 1.0,
+            "max": 600.0,
+            "unit": "seconds",
+            "description": "A wait longer than this at any node counts as one friction event.",
+            "metadata": {
+                "approval_date": None,
+                "justification": "Security verification steps legitimately hold banking callers longer than a standard IVR.",
+                "last_reviewed": None,
+            },
+        },
+        "governance_trigger": {
+            "value": 2,
+            "type": "int",
+            "min": 0,
+            "max": 100,
+            "unit": "friction events",
+            "description": "Calls with friction_count >= this value are routed to the governor (inclusive).",
+            "metadata": {
+                "approval_date": None,
+                "justification": "Matches the prior min_friction_for_governance=2 declaration for this domain.",
+                "last_reviewed": None,
+            },
+        },
+        "expected_wait_bounds": {
+            "value": [15.0, 300.0],
+            "type": "range",
+            "min": 0.0,
+            "max": 3600.0,
+            "unit": "seconds",
+            "description": "Self-healing clamp band for the expected_wait parameter (stricter floor for verification).",
+            "metadata": {
+                "approval_date": None,
+                "justification": "Healing below 15s would bypass mandatory verification pacing; above 300s is an outage, not a target.",
+                "last_reviewed": None,
+            },
+        },
+    }
+
     def get_config(self) -> CassetteConfig:
         return CassetteConfig(
             name="banking-v1",
-            version="1.0.0",
+            # 1.0.0 -> 1.1.0: governance parameters became typed schema
+            # declarations (Item #3).
+            version="1.1.0",
             description="Financial services & banking",
             domain="banking"
         )
+
+    def get_governance_parameters(self) -> Dict[str, Dict]:
+        """The typed governance declaration (see cassette_schema)."""
+        return copy.deepcopy(self._GOVERNANCE_PARAMETERS)
     
     def get_queue_definitions(self) -> Dict[str, Dict]:
         """Banking-specific queues (completely different from IVR)"""
@@ -132,16 +186,16 @@ class BankingCassette(Cassette):
     def get_friction_thresholds(self) -> Dict[str, float]:
         """Banking-specific friction (MORE SENSITIVE to security)"""
         return {
-            "long_wait_threshold": 45.0,  # Longer tolerance for security
+            "long_wait_threshold": self._GOVERNANCE_PARAMETERS["long_wait_threshold"]["value"],
             "repeat_penalty": 0.3,  # Repeats worse in banking
             "denial_penalty": 0.4,  # Denials worse (security failures)
-            "min_friction_for_governance": 2,
+            "min_friction_for_governance": self._GOVERNANCE_PARAMETERS["governance_trigger"]["value"],
         }
     
     def get_healing_bounds(self) -> Dict[str, tuple]:
         """Banking-specific healing bounds (STRICTER)"""
         return {
-            "expected_wait": (15.0, 300.0),  # Longer for security verification
+            "expected_wait": tuple(self._GOVERNANCE_PARAMETERS["expected_wait_bounds"]["value"]),
             "staffing_agents": (2, 15),  # Minimum 2 for compliance
             "fraud_detection_threshold": (0.1, 0.9),  # Sensitivity range
             "escalation_rate": (0.2, 0.8),  # Expected fraud escalation

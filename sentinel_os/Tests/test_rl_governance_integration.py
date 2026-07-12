@@ -4,6 +4,8 @@ import tempfile
 import array_ops as np
 np.random.seed(42)
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from cassette_loader import CassetteLoader
+from cassette_schema import validate_cassette
 
 from Engines.simple_rl_trainer import SimpleRLTrainer
 from governance.drift_core_v1 import DriftPolicy, detect_drift, baseline_from_holds
@@ -22,7 +24,8 @@ def test_complete_rl_governance_integration():
     baseline_holds = {"fast_queue": [20.0]*50, "slow_queue": [50.0]*50}
     baseline = baseline_from_holds(baseline_holds, DriftPolicy())
     store = InMemoryParameterStore()
-    band = HealBand(4.0, 120.0)
+    lo, hi = validate_cassette(CassetteLoader().load_cassette("ivr")).range_value("expected_wait_bounds")
+    band = HealBand(lo, hi)
     
     print("\n[BATCH 1] Initial routing (before training)")
     print("  RL: Training on mixed quality calls")

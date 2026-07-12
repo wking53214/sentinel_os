@@ -4,19 +4,75 @@ IVR Cassette - Reference implementation for call center IVR
 Domain-specific rules for traditional voice IVR
 """
 
+import copy
+
 from cassette_interface import Cassette, CassetteConfig, QualityResult
 from typing import Dict, List
 
 class IvrCassette(Cassette):
     """Call center IVR cassette - what we've been building"""
     
+    # THE declaration site. Every governance number the engine reads
+    # about this domain lives in this one dict -- typed, bounded,
+    # documented, with forensic metadata slots. The engine reads it
+    # through cassette_schema validation; nothing downstream may
+    # restate these values as literals.
+    _GOVERNANCE_PARAMETERS = {
+        "long_wait_threshold": {
+            "value": 30.0,
+            "type": "float",
+            "min": 1.0,
+            "max": 600.0,
+            "unit": "seconds",
+            "description": "A wait longer than this at any node counts as one friction event.",
+            "metadata": {
+                "approval_date": None,
+                "justification": "Callers audibly disengage past ~30s of dead air in a standard voice IVR.",
+                "last_reviewed": None,
+            },
+        },
+        "governance_trigger": {
+            "value": 2,
+            "type": "int",
+            "min": 0,
+            "max": 100,
+            "unit": "friction events",
+            "description": "Calls with friction_count >= this value are routed to the governor (inclusive).",
+            "metadata": {
+                "approval_date": None,
+                "justification": "Two measured friction events on one call indicates a systemic path problem, not caller noise.",
+                "last_reviewed": None,
+            },
+        },
+        "expected_wait_bounds": {
+            "value": [4.0, 120.0],
+            "type": "range",
+            "min": 0.0,
+            "max": 3600.0,
+            "unit": "seconds",
+            "description": "Self-healing clamp band for the expected_wait parameter.",
+            "metadata": {
+                "approval_date": None,
+                "justification": "Below 4s the sensor chases noise; above 120s the heal target itself is the outage.",
+                "last_reviewed": None,
+            },
+        },
+    }
+
     def get_config(self) -> CassetteConfig:
         return CassetteConfig(
             name="standard-ivr",
-            version="1.0.0",
+            # 1.0.0 -> 1.1.0: governance parameters became typed schema
+            # declarations (Item #3); governance_trigger declared at 2
+            # with inclusive (>=) semantics.
+            version="1.1.0",
             description="Traditional call center IVR",
             domain="ivr"
         )
+
+    def get_governance_parameters(self) -> Dict[str, Dict]:
+        """The typed governance declaration (see cassette_schema)."""
+        return copy.deepcopy(self._GOVERNANCE_PARAMETERS)
     
     def get_queue_definitions(self) -> Dict[str, Dict]:
         """IVR-specific queues"""
@@ -120,18 +176,24 @@ class IvrCassette(Cassette):
         }
     
     def get_friction_thresholds(self) -> Dict[str, float]:
-        """IVR-specific friction thresholds"""
+        """IVR-specific friction thresholds.
+
+        Governance-relevant values are NOT restated here; they are
+        derived from the single declaration above so there is exactly
+        one place this domain's judgment lives.
+        """
         return {
-            "long_wait_threshold": 30.0,
+            "long_wait_threshold": self._GOVERNANCE_PARAMETERS["long_wait_threshold"]["value"],
             "repeat_penalty": 0.2,
             "denial_penalty": 0.3,
-            "min_friction_for_governance": 1,
+            "min_friction_for_governance": self._GOVERNANCE_PARAMETERS["governance_trigger"]["value"],
         }
     
     def get_healing_bounds(self) -> Dict[str, tuple]:
-        """IVR-specific healing bounds"""
+        """IVR-specific healing bounds (expected_wait derives from the
+        governance declaration above -- one source of truth)."""
         return {
-            "expected_wait": (4.0, 120.0),
+            "expected_wait": tuple(self._GOVERNANCE_PARAMETERS["expected_wait_bounds"]["value"]),
             "staffing_agents": (1, 20),
             "menu_size": (3, 10),
         }
