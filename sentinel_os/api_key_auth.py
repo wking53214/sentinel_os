@@ -8,7 +8,7 @@ import os
 import secrets
 import hashlib
 from typing import Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import HTTPException, Header
 
 class APIKeyManager:
@@ -29,7 +29,7 @@ class APIKeyManager:
             dev_key = self._generate_key()
             self.keys[dev_key] = {
                 "name": "development",
-                "created": datetime.utcnow().isoformat(),
+                "created": datetime.now(timezone.utc).isoformat(),
                 "enabled": True
             }
             print(f"⚠️  No API keys configured. Generated development key:")
@@ -44,7 +44,7 @@ class APIKeyManager:
             key, name = key_pair.split(":", 1)
             self.keys[key.strip()] = {
                 "name": name.strip(),
-                "created": datetime.utcnow().isoformat(),
+                "created": datetime.now(timezone.utc).isoformat(),
                 "enabled": True
             }
         
