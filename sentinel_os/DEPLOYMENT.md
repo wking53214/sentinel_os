@@ -63,6 +63,10 @@ variables above. CI provisions one via a `postgres:16` service container
 (see `.github/workflows/tests.yml`) purely for test purposes — it is not a
 production database setup.
 
+`docker-compose-prod.yml` reads `POSTGRES_PASSWORD` from the environment
+(falls back to a placeholder if unset) rather than hardcoding it — set a
+real value in your `.env` before deploying anywhere non-local.
+
 ## Known gaps (see README "Tests" section for current numbers)
 
 - Live Claude API round-trip (governed decision path with a real key) is not

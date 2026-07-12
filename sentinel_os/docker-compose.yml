@@ -9,12 +9,28 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       ICEBERG_ENV: production
+      # Previously unset -- api_server_resilient.py defaulted to
+      # POSTGRES_HOST=localhost, which inside this container does not
+      # resolve to the ledger service below (compose gives each service
+      # its own network namespace; "ledger" is the DNS name to use).
+      POSTGRES_HOST: ledger
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: iceberg_ledger
+      POSTGRES_USER: iceberg
+      POSTGRES_PASSWORD: change_me_in_prod
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
     volumes:
       - ./data:/data
       - ./logs:/app/logs
     restart: always
+    depends_on:
+      - ledger
     healthcheck:
-      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      # Previously "python3 -c 'import sys; sys.exit(0)'" -- always exits
+      # 0 regardless of whether the app is actually up, so Docker would
+      # report this container healthy even if the server crashed on
+      # startup. Curl the real /health endpoint instead.
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
       interval: 30s
       timeout: 10s
       retries: 3
