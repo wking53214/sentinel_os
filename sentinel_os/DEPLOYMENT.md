@@ -56,16 +56,19 @@ Two manifest sets exist in this repo and are **not** the same deployment path:
   instance you provision separately. See `k8s/secret.yaml.example` for
   the secret's shape (never commit a filled-in version of it).
 
-- `Deploy/k8s/` + `Deploy/argocd/` — **flagged, not verified current.**
-  This set describes a different image (`iceberg-runtime:3.x` vs
-  `iceberg:latest`), a different port (8000 vs 9090), and a
-  `CONFIG_PATH`-driven YAML config referencing `rl.ppo` / `rl.marl` and a
-  `build_graph` routing system. Those RL engines
-  (`Engines/rl_ppo.py`, `Engines/rl_marl.py`) no longer exist in this
-  repo. This looks like leftover infrastructure from an earlier
-  architecture generation rather than something that matches the current
-  cassette-governed system — don't apply it as-is without confirming
-  which architecture it's meant to target.
+- `Deploy/k8s/` + `Deploy/argocd/` — **flagged, not verified current, likely dead.**
+  All 5 files in this tree are internally consistent with each other but
+  not with the current codebase: `iceberg-api.yaml` targets a different
+  image (`iceberg-runtime:3.x` vs `iceberg:latest`) and port (8000 vs
+  9090); `iceberg-rl.yaml` and `iceberg-sim-workers.yaml` deploy RL/sim
+  workers for engines (`Engines/rl_ppo.py`, `Engines/rl_marl.py`) that no
+  longer exist in this repo; `hpa.yaml` scales the old `iceberg-api`
+  deployment name. `Deploy/argocd/application.yaml` isn't even a valid
+  ArgoCD `Application` resource — it contains the same
+  `server`/`governance`/`rl` config block as the old ConfigMap, just
+  under the wrong folder, which suggests this tree was generated/copied
+  incorrectly rather than actively maintained. Don't apply any of it
+  without confirming what it's actually meant to target.
 
 ## Database
 
