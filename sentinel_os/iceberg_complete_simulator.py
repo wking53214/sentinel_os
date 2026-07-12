@@ -8,10 +8,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from Model.Build_Graph import build_graph
 from Engines.simple_rl_trainer import SimpleRLTrainer
-from observe_perceive_core import ObserveCore, synthesize_percept
+from observe_perceive_core import ObserveCore, synthesize_percept, FrictionEvent
 from governance.drift_core_v1 import DriftPolicy, detect_drift, baseline_from_holds
 from governance.self_heal_v1 import heal, HealBand, InMemoryParameterStore
 from governance.log_rotation_v1 import LogRotationManager, LocalDiskAdapter
+from governance.friction_core import compute_friction
+from cassette_loader import CassetteLoader
+from cassette_schema import validate_cassette
 
 import numpy as np
 import random
@@ -19,12 +22,26 @@ import random
 class IcebergCompleteSimulator:
     """Full Iceberg: graph routing + RL training + governance + perception"""
     
-    def __init__(self, ledger, rl_trainer, observe_core):
+    def __init__(self, ledger, rl_trainer, observe_core, cassette=None):
         self.graph = build_graph()
         self.ledger = ledger
         self.rl_trainer = rl_trainer
         self.observe = observe_core
+        # Governing cassette: the heal band and the wait-friction
+        # threshold both come from here, validated fail-loud.
+        self.cassette = cassette or CassetteLoader().load_cassette("ivr")
+        validate_cassette(self.cassette)
         self.call_history = []
+
+    def _heal_band(self) -> HealBand:
+        """Heal band straight from the cassette (one source of truth)."""
+        lo, hi = validate_cassette(self.cassette).range_value("expected_wait_bounds")
+        return HealBand(lo, hi)
+
+    def _wait_friction(self, wait: float) -> int:
+        """Wait-friction via the unified rule, cassette threshold."""
+        threshold = validate_cassette(self.cassette).float_value("long_wait_threshold")
+        return compute_friction(wait, threshold)
         
     def simulate_call(self, caller_id: str, intent: str):
         """Route one caller through real graph, collect data, train RL"""
@@ -60,11 +77,22 @@ class IcebergCompleteSimulator:
             
             total_wait += wait
             
-            # OBSERVE: Detect friction
+            # OBSERVE: repeats still come from the observer; long-wait
+            # friction now comes from the unified compute_friction path
+            # with the cassette's threshold (the observer's own internal
+            # long-wait rule is Item #7 scope and is bypassed here so
+            # the two never double-count).
             event = self.observe.observe_transition(caller_id, current_node, next_node, wait)
-            if event:
+            if event and event.type != "long_wait":
                 friction_events.append(event)
-            
+            if self._wait_friction(wait):
+                threshold = validate_cassette(self.cassette).float_value("long_wait_threshold")
+                friction_events.append(FrictionEvent(
+                    node=next_node, type="long_wait",
+                    severity=min((wait - threshold) / max(threshold, 1.0), 1.0),
+                    timestamp=0.0,
+                ))
+
             current_node = next_node
         
         # PERCEIVE: Infer outcome and emotional state
@@ -113,9 +141,9 @@ class IcebergCompleteSimulator:
             breached = [s for s in signals if s.breached]
             
             if breached:
-                # Self-heal
+                # Self-heal -- clamp band from the cassette.
                 store = InMemoryParameterStore()
-                band = HealBand(4.0, 120.0)
+                band = self._heal_band()
                 recs = heal(breached, store, band, self.ledger, kind="expected_wait")
                 print(f"  Governance: Detected {len(breached)} drift(s), healed {len(recs)}")
         
@@ -131,7 +159,9 @@ def main():
     rl_trainer = SimpleRLTrainer(state_dim=10, action_dim=2, lr=0.001)
     observe = ObserveCore()
     
-    simulator = IcebergCompleteSimulator(ledger, rl_trainer, observe)
+    simulator = IcebergCompleteSimulator(
+        ledger, rl_trainer, observe, CassetteLoader().load_cassette("ivr")
+    )
     
     print("\n[BATCH 1] 50 callers through real graph")
     results1, loss1 = simulator.run_batch(50)

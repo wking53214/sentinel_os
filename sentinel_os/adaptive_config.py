@@ -14,8 +14,9 @@ CONFIG = {
     },
     "self_heal": {
         "kind": "expected_wait",
-        "band_lo": 4.0,
-        "band_hi": 120.0,
+        # Heal band is NOT configured here -- it comes from the governing
+        # cassette (expected_wait_bounds). A band literal in this file
+        # would be a second source of truth competing with the cassette.
     },
     "data": {
         "baseline_seed": 815,
