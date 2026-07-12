@@ -29,6 +29,15 @@ openssl req -x509 -newkey rsa:2048 -nodes \
 
 (CI generates an ephemeral cert automatically — see `.github/workflows/tests.yml`.)
 
+**Note on git history:** a self-signed dev cert/key pair (`certs/cert.pem`,
+`certs/key.pem`, generic `CN=localhost` subject) was committed in an early
+commit (`8dfa1c6e`) before `certs/` was gitignored. It's still retrievable
+from git history. Decision: leave history as-is rather than rewrite it —
+the cert is a throwaway self-signed placeholder, never used for any real
+deployment, and rewriting history would break every existing clone. If you
+ever *did* use that specific keypair for something real, treat it as
+compromised and regenerate; otherwise no action needed.
+
 ## Local / single-machine
 
 ```
