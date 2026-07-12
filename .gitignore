@@ -7,3 +7,5 @@ sentinel_os.zip
 .env
 .env.*
 !.env.example
+secret.yaml.local
+k8s/secret.yaml.local

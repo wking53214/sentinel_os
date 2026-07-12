@@ -25,6 +25,34 @@ spec:
           value: production
         - name: PYTHONUNBUFFERED
           value: "1"
+        - name: PORT
+          value: "9090"
+        # Previously unset entirely -- the app defaulted POSTGRES_HOST to
+        # localhost, which inside a pod does not reach any database.
+        # Point these at your actual Postgres (in-cluster Service or an
+        # external managed instance); this manifest set does not include
+        # a Postgres deployment of its own -- provision one separately.
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: iceberg-secrets
+              key: postgres-host
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_DB
+          value: iceberg
+        - name: POSTGRES_USER
+          value: iceberg
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: iceberg-secrets
+              key: postgres-password
+        - name: CLAUDE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: iceberg-secrets
+              key: claude-api-key
         resources:
           requests:
             cpu: 2
