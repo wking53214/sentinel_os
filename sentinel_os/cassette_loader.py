@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional
 from cassette_interface import Cassette, CassetteRegistry
+from cassette_schema import CassetteValidationError, validate_cassette
 
 class CassetteLoader:
     """Load cassettes from files"""
@@ -44,27 +45,62 @@ class CassetteLoader:
             # Get class and instantiate
             class_obj = getattr(module, class_name)
             cassette = class_obj()
-            
-            return cassette
         except Exception as e:
             raise ImportError(f"Failed to load cassette {cassette_name}: {e}")
+
+        # Fail-loud schema validation on the load path itself. A
+        # cassette that cannot state its governance contract does not
+        # load -- there is no partial load and no fallback default.
+        validate_cassette(cassette)
+
+        return cassette
     
-    def load_all_cassettes(self) -> CassetteRegistry:
-        """Auto-discover and load all cassettes"""
-        
+    def load_all_cassettes(self, fail_on_invalid: bool = True) -> CassetteRegistry:
+        """Auto-discover and load all cassettes.
+
+        fail_on_invalid=True (the default) is the ONLY production
+        posture: the first invalid cassette raises and nothing runs.
+        Auto-discovery that silently skips a broken cassette turns a
+        policy failure into a print statement -- the system would keep
+        serving calls under whatever subset happened to load.
+
+        fail_on_invalid=False is for debug/admin tooling only (cassette
+        inventory, migration triage), where seeing the survivors next
+        to the skip warnings is the point.
+        """
+
         cassette_files = self.cassette_dir.glob("*_cassette.py")
-        
+
         for cassette_file in cassette_files:
             cassette_name = cassette_file.stem.replace("_cassette", "")
-            
+
             try:
                 cassette = self.load_cassette(cassette_name)
                 self.registry.register(cassette)
                 print(f"✓ Loaded cassette: {cassette_name}")
+            except CassetteValidationError:
+                if fail_on_invalid:
+                    raise
+                print(f"⚠ Skipped invalid cassette: {cassette_name}")
             except Exception as e:
-                print(f"✗ Failed to load cassette {cassette_name}: {e}")
-        
+                if fail_on_invalid:
+                    raise
+                print(f"⚠ Skipped unloadable cassette: {cassette_name} ({e})")
+
         return self.registry
+
+    @classmethod
+    def production_mode(cls, domain: str, cassette_dir: str = "./cassettes") -> Cassette:
+        """Production entry point: load EXACTLY the named domain's
+        cassette -- explicit selection, full fail-loud validation, and
+        NO directory glob. A broken or malicious neighbor file in the
+        cassette directory cannot break, delay, or hijack this load,
+        because it is never opened.
+        """
+        loader = cls(cassette_dir)
+        cassette = loader.load_cassette(domain)
+        loader.registry.register(cassette)
+        return cassette
     
     def get_cassette_for_domain(self, domain: str) -> Cassette:
         """Get cassette for specific domain"""

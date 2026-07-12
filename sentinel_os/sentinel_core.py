@@ -81,6 +81,12 @@ class SentinelCore:
                 "fallback. Load one first, e.g. "
                 "CassetteLoader().load_cassette('ivr')."
             )
+        # Injection is a load path too: a cassette handed straight to
+        # the core gets the same fail-loud schema validation as one
+        # that came through the loader. (Import is local to keep this
+        # module importable in isolation.)
+        from cassette_schema import validate_cassette
+        validate_cassette(cassette)
         self.cassette = cassette
 
     def infer_intent(self, journey: List[str], first_queue_chosen: str) -> IntentSignal:
