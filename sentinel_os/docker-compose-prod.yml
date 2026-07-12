@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: iceberg
       POSTGRES_USER: iceberg
-      POSTGRES_PASSWORD: iceberg_prod_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iceberg_prod_password}
     ports:
       - "5432:5432"
     volumes:
@@ -27,7 +27,7 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_DB: iceberg
       POSTGRES_USER: iceberg
-      POSTGRES_PASSWORD: iceberg_prod_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iceberg_prod_password}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       PORT: 9090
     ports:
