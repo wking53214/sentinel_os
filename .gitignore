@@ -4,3 +4,6 @@ certs/
 *.pem
 *.key
 sentinel_os.zip
+.env
+.env.*
+!.env.example
