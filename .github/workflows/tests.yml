@@ -1,0 +1,62 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sentinel_os
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: iceberg
+          POSTGRES_PASSWORD: iceberg
+          POSTGRES_DB: iceberg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # anthropic 0.116.0 breaks on client construction with httpx>=0.28
+          # ("unexpected keyword argument 'proxies'"). Pin below that line
+          # until the anthropic SDK/httpx incompatibility is resolved upstream.
+          pip install "httpx<0.28"
+
+      - name: Generate ephemeral TLS cert for tests
+        run: |
+          mkdir -p certs
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout certs/key.pem -out certs/cert.pem \
+            -days 1 -subj "/CN=sentinel-ci-test"
+
+      - name: Run test suite
+        run: |
+          python -m pytest Tests/ -v --tb=short
+
+      - name: Summarize results
+        if: always()
+        run: |
+          python -m pytest Tests/ -q --tb=no || true
