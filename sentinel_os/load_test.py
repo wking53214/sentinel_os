@@ -8,6 +8,8 @@ from load_test_config import LOAD_TEST_CONFIG
 from governance.drift_core_v1 import DriftPolicy, detect_drift, baseline_from_holds
 from governance.self_heal_v1 import heal, HealBand, InMemoryParameterStore
 from governance.log_rotation_v1 import LogRotationManager, LocalDiskAdapter
+from cassette_loader import CassetteLoader
+from cassette_schema import validate_cassette
 import random
 import tempfile
 
@@ -65,7 +67,8 @@ def run_load_test(scale_name: str):
     print(f"[4/4] Applying self-healing...", end="", flush=True)
     t0 = time.time()
     store = InMemoryParameterStore()
-    band = HealBand(4.0, 120.0)
+    lo, hi = validate_cassette(CassetteLoader().load_cassette("ivr")).range_value("expected_wait_bounds")
+    band = HealBand(lo, hi)
     records = heal(breached, store, band, ledger, kind="expected_wait")
     t1 = time.time()
     t_heal = t1 - t0

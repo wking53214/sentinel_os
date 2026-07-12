@@ -8,6 +8,8 @@ import os
 from typing import Dict, Optional
 from cassette_loader import CassetteLoader
 from cassette_interface import Cassette
+from cassette_schema import validate_cassette
+from governance.friction_core import compute_friction
 from resilient_harness import ResilientHarness
 from operational_resilience import setup_logging
 
@@ -162,17 +164,15 @@ class CassetteHarness:
         ]
     
     def _count_friction(self, call_data: Dict, journey: list) -> int:
-        """Count friction events"""
-        friction = 0
-        duration = int(call_data.get("duration", 0))
-        
-        thresholds = self.cassette.get_friction_thresholds()
-        long_wait = thresholds.get("long_wait_threshold", 30)
-        
-        if duration > long_wait:
-            friction += 1
-        
-        return friction
+        """Count friction events through the unified rule.
+
+        The threshold is the cassette's declared long_wait_threshold --
+        read via schema validation, with NO literal fallback. A cassette
+        that cannot state its threshold is a halt, not a silent 30.
+        """
+        duration = float(call_data.get("duration", 0))
+        long_wait = validate_cassette(self.cassette).float_value("long_wait_threshold")
+        return compute_friction(duration, long_wait)
     
     def shutdown(self):
         """Cleanup"""

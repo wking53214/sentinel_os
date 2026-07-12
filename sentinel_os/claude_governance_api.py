@@ -11,11 +11,32 @@ import json
 class ClaudeGovernanceDecider:
     """Uses real Claude API for governance decisions"""
     
-    def __init__(self, api_key: Optional[str] = None):
-        """Initialize Claude client"""
-        self.client = anthropic.Anthropic(api_key=api_key)
+    def __init__(self, api_key: Optional[str] = None, governance_params=None):
+        """Initialize Claude client.
+
+        The client is only constructed when an API key is actually
+        provided -- constructing it unconditionally made the decider
+        impossible to build in any environment without a key (every
+        harness test, every offline run). governance_params, when
+        supplied, is the validated GovernanceParameters view so fallback
+        bounds come from the cassette instead of literals baked in here.
+        """
+        self.client = anthropic.Anthropic(api_key=api_key) if api_key else None
         self.model = "claude-opus-4-6"
+        self.governance_params = governance_params
         self.decisions = []
+
+    def _fallback_bounds(self):
+        """Healing bounds for the JSON-parse fallback path, sourced from
+        the cassette when available. No cassette wired in -> no invented
+        numbers: the fields are omitted rather than defaulted."""
+        if self.governance_params is None:
+            return None, None
+        try:
+            lo, hi = self.governance_params.range_value("expected_wait_bounds")
+            return lo, hi
+        except (KeyError, TypeError):
+            return None, None
     
     def decide_healing_bounds(self, queue_name: str, current_wait: float,
                              baseline_wait: float, drift_magnitude: float) -> Dict:
@@ -35,13 +56,19 @@ Respond ONLY with valid JSON:
 {{
     "should_heal": true/false,
     "reasoning": "brief explanation",
-    "lo_bound": 4.0,
-    "hi_bound": 120.0,
+    "lo_bound": <from governance bounds>,
+    "hi_bound": <from governance bounds>,
     "target_wait": proposed_target_in_seconds,
     "confidence": 0.0-1.0
 }}
 """
-        
+
+        if self.client is None:
+            raise RuntimeError(
+                "ClaudeGovernanceDecider has no API client (no api_key was "
+                "provided); cannot request a live healing-bounds decision"
+            )
+
         message = self.client.messages.create(
             model=self.model,
             max_tokens=200,
@@ -55,15 +82,18 @@ Respond ONLY with valid JSON:
         try:
             decision = json.loads(response_text)
         except json.JSONDecodeError:
-            # Fallback if Claude doesn't return valid JSON
+            # Fallback if Claude doesn't return valid JSON. Bounds come
+            # from the cassette, not from literals living in this file.
+            lo_bound, hi_bound = self._fallback_bounds()
             decision = {
                 "should_heal": True,
                 "reasoning": "Claude response parsing failed, defaulting to heal",
-                "lo_bound": 4.0,
-                "hi_bound": 120.0,
                 "target_wait": baseline_wait * 1.2,
                 "confidence": 0.3
             }
+            if lo_bound is not None:
+                decision["lo_bound"] = lo_bound
+                decision["hi_bound"] = hi_bound
         
         decision["queue"] = queue_name
         self.decisions.append(decision)
@@ -169,7 +199,13 @@ Respond ONLY with valid JSON:
     
     def safety_check(self, action: str, details: Dict) -> Dict:
         """Ask Claude: is this governance action safe?"""
-        
+
+        if self.client is None:
+            raise RuntimeError(
+                "ClaudeGovernanceDecider has no API client (no api_key was "
+                "provided); cannot run a live safety_check"
+            )
+
         prompt = f"""
 You are an AI safety auditor for IVR systems. Evaluate this governance action:
 

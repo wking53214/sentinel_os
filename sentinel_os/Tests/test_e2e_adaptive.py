@@ -3,6 +3,8 @@ import os
 import random
 import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from cassette_loader import CassetteLoader
+from cassette_schema import validate_cassette
 
 from governance.drift_core_v1 import DriftPolicy, detect_drift, baseline_from_holds
 from governance.self_heal_v1 import heal, HealBand, InMemoryParameterStore
@@ -38,7 +40,8 @@ def test_end_to_end_adaptive_pipeline():
     
     # 4. Self-heal
     store = InMemoryParameterStore()
-    band = HealBand(lo=4.0, hi=120.0)
+    lo, hi = validate_cassette(CassetteLoader().load_cassette("ivr")).range_value("expected_wait_bounds")
+    band = HealBand(lo=lo, hi=hi)
     records = heal(breached, store, band, ledger, kind="expected_wait")
     
     print(f"\nHealed {len(records)} parameter(s):")
