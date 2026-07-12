@@ -45,16 +45,27 @@ Two manifest sets exist in this repo and are **not** the same deployment path:
 
 - `k8s/` — `deployment.yaml`, `service.yaml`, `pvc.yaml`. Minimal, direct-apply set:
   ```
+  kubectl create secret generic iceberg-secrets --namespace=iceberg \
+    --from-literal=postgres-host=<your-postgres-host> \
+    --from-literal=postgres-password=<real-password> \
+    --from-literal=claude-api-key=<real-key>
   kubectl apply -f k8s/
   ```
-- `Deploy/k8s/` + `Deploy/argocd/` — a fuller split (`iceberg-api.yaml`,
-  `iceberg-rl.yaml`, `iceberg-sim-workers.yaml`, `hpa.yaml`, `ingress.yaml`)
-  plus an ArgoCD `application.yaml` for GitOps-managed rollout.
+  This set does not include a Postgres deployment of its own — point
+  `postgres-host` at an in-cluster Service or an external managed
+  instance you provision separately. See `k8s/secret.yaml.example` for
+  the secret's shape (never commit a filled-in version of it).
 
-Pick one path per environment — applying both against the same cluster will
-create duplicate/conflicting resources. Neither path has been verified
-end-to-end from this repo; treat both as a starting point, not a tested
-runbook, until a real cluster deploy confirms them.
+- `Deploy/k8s/` + `Deploy/argocd/` — **flagged, not verified current.**
+  This set describes a different image (`iceberg-runtime:3.x` vs
+  `iceberg:latest`), a different port (8000 vs 9090), and a
+  `CONFIG_PATH`-driven YAML config referencing `rl.ppo` / `rl.marl` and a
+  `build_graph` routing system. Those RL engines
+  (`Engines/rl_ppo.py`, `Engines/rl_marl.py`) no longer exist in this
+  repo. This looks like leftover infrastructure from an earlier
+  architecture generation rather than something that matches the current
+  cassette-governed system — don't apply it as-is without confirming
+  which architecture it's meant to target.
 
 ## Database
 
