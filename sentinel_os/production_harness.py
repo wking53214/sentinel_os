@@ -271,7 +271,7 @@ class IcebergProductionHarness:
                     previous_value=journey.total_duration,
                     applied_value=journey.total_duration,
                     parameter_changed=False,
-                ))
+                ), governance_params=params)
             except Exception as e:
                 print(f"Ledger append failed: {e}")
         
