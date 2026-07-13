@@ -260,6 +260,17 @@ class IcebergProductionHarness:
                         "governance_trigger": governance_trigger,
                         "wait_time": journey.total_duration,
                         "quality_tier": quality_score.quality_tier.value,
+                        # Intent inference that informed this decision.
+                        # Carried inline so the cassette-native intent
+                        # label, its confidence, and its reasoning ride
+                        # inside the same SHA-256 chain as the decision --
+                        # a regulator can ask "what intent did you infer
+                        # for this governed call?" and get a tamper-evident
+                        # answer, not a number the engine computed and
+                        # dropped.
+                        "intent_classification": intent_signal.classification,
+                        "intent_confidence": intent_signal.confidence,
+                        "intent_reasoning": intent_signal.reasoning,
                     },
                     policy_parameters=params.snapshot(),
                     reasoning=claude_decision.get("reasoning", ""),
@@ -280,6 +291,7 @@ class IcebergProductionHarness:
             "resolved": journey.resolved,
             "quality": quality_score.quality_tier.value,
             "intent": intent_signal.queue_chosen,
+            "intent_classification": intent_signal.classification,
             "emotion_frustration": emotion.frustration,
             "claude_safe": claude_decision.get("safe") if claude_decision else None,
             "governance_required": governed,
