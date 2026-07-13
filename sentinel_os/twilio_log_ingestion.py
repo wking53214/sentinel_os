@@ -46,6 +46,14 @@ class TwilioLogParser:
         "canceled": {"resolved": False, "reason": "abandoned"},
     }
     
+    def __init__(self, cassette=None):
+        """Initialize Twilio parser with optional cassette for config.
+        
+        If cassette is provided, _count_friction will read thresholds
+        from it; otherwise falls back to hardcoded defaults.
+        """
+        self.cassette = cassette
+
     def parse_call_log(self, twilio_record: Dict) -> Optional[IcebergJourney]:
         """Convert single Twilio record to Iceberg journey"""
         
@@ -68,7 +76,7 @@ class TwilioLogParser:
         # Calculate friction (ingest-side heuristic ESTIMATE -- see
         # _count_friction; the production harness measures its own
         # friction from wait_times against the cassette threshold)
-        friction_count = self._count_friction(twilio_record, journey)
+        friction_count = self._count_friction(twilio_record, journey, cassette=self.cassette)
         
         # Determine abandonment reason
         abandonment_reason = None if resolved else outcome["reason"]
