@@ -1,0 +1,40 @@
+# Insert these lines before line 59 (the closing } of _GOVERNANCE_PARAMETERS)
+        "twilio_long_duration_threshold": {
+            "value": 300,
+            "type": "int",
+            "min": 1,
+            "max": 3600,
+            "unit": "seconds",
+            "description": "Twilio ingest: calls longer than this duration contribute 2 friction points.",
+            "metadata": {
+                "approval_date": None,
+                "justification": "5 minutes (300s) is the standard call-center threshold for 'long call' in IVR contexts.",
+                "last_reviewed": None,
+            },
+        },
+        "twilio_medium_duration_threshold": {
+            "value": 120,
+            "type": "int",
+            "min": 1,
+            "max": 3600,
+            "unit": "seconds",
+            "description": "Twilio ingest: calls longer than this duration contribute 1 friction point.",
+            "metadata": {
+                "approval_date": None,
+                "justification": "2 minutes (120s) is the threshold for 'medium length' in IVR contexts.",
+                "last_reviewed": None,
+            },
+        },
+        "twilio_short_duration_threshold": {
+            "value": 10,
+            "type": "int",
+            "min": 1,
+            "max": 60,
+            "unit": "seconds",
+            "description": "Twilio ingest: calls shorter than this duration with non-completed status indicate dropped calls (1 friction point).",
+            "metadata": {
+                "approval_date": None,
+                "justification": "10 seconds is insufficient for an IVR to play a prompt and capture input; shorter non-completed calls suggest early hang-ups.",
+                "last_reviewed": None,
+            },
+        },
