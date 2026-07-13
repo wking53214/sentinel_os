@@ -13,11 +13,12 @@ from psycopg2.pool import SimpleConnectionPool
 
 # Forensic cassette handling (ledger item: cassette snapshots for audit)
 try:
-    from cassette_forensics import serialize_cassette_for_ledger, compute_cassette_hash
+    from cassette_forensics import serialize_cassette_for_ledger, compute_cassette_hash, reconstruct_cassette_for_decision
 except ImportError:
     # Fallback if cassette_forensics not yet available
     serialize_cassette_for_ledger = None
     compute_cassette_hash = None
+    reconstruct_cassette_for_decision = None
 
 
 @dataclass
@@ -496,6 +497,12 @@ class PostgreSQLLedger:
                 "cassette_forensics module not available; "
                 "cannot validate cassette snapshots"
             )
+        
+        if compute_cassette_hash is None:
+            raise RuntimeError(
+                "cassette_forensics module not available; "
+                "cannot compute cassette hashes"
+            )
 
         # Retrieve all decisions
         all_decisions = self.get_decisions(limit=10000)
@@ -510,14 +517,29 @@ class PostgreSQLLedger:
 
         for decision in all_decisions:
             decision_id = decision.get("id")
+            stored_cassette_snapshot = decision.get("cassette_snapshot")
+            stored_cassette_hash = decision.get("cassette_hash")
 
-            if not decision.get("cassette_snapshot"):
+            if not stored_cassette_snapshot:
                 result["pre_migration"].append(decision_id)
                 continue
 
             try:
+                # Reconstruct cassette from decision record
                 reconstruct_cassette_for_decision(decision)
-                result["snapshots_verified"] += 1
+                
+                # Explicit hash verification: compute hash of stored snapshot
+                # and compare against stored cassette_hash
+                computed_hash = compute_cassette_hash(stored_cassette_snapshot)
+                if computed_hash != stored_cassette_hash:
+                    result["corrupted"].append({
+                        "decision_id": decision_id,
+                        "error": f"cassette_hash mismatch: stored={stored_cassette_hash[:8]}..., computed={computed_hash[:8]}..."
+                    })
+                    result["all_ok"] = False
+                else:
+                    result["snapshots_verified"] += 1
+                    
             except ValueError as e:
                 result["corrupted"].append(
                     {"decision_id": decision_id, "error": str(e)}
@@ -527,13 +549,22 @@ class PostgreSQLLedger:
         return result
 
     def verify_chain(self, mode: str = "strict") -> Dict:
-        """Verify ledger integrity (hash chain validation)"""
+        """Verify ledger integrity: chain links AND content hash recomputation.
+        
+        Checks both that previous_hash links form an unbroken chain AND that
+        each row's current_hash matches a fresh recomputation from its contents.
+        Detects in-place tampering (e.g., flipping decision_output.approved).
+        """
         
         conn = self.pool.getconn()
         try:
             cursor = conn.cursor()
+            # Fetch all columns needed to reconstruct canonical forms
             cursor.execute("""
-                SELECT id, previous_hash, current_hash
+                SELECT id, record_kind, previous_hash, current_hash,
+                       action_type, node, previous_value, applied_value, reason,
+                       data, cassette_version, input_data, policy_parameters,
+                       decision_output, cassette_hash
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -546,9 +577,64 @@ class PostgreSQLLedger:
             violations = []
             prev_hash = "genesis"
             
-            for row_id, stored_prev, stored_current in rows:
+            for row in rows:
+                (row_id, record_kind, stored_prev, stored_current,
+                 action_type, node, previous_value, applied_value, reason,
+                 data, cassette_version, input_data, policy_parameters,
+                 decision_output, cassette_hash) = row
+                
+                # Check chain link integrity
                 if stored_prev != prev_hash:
-                    violations.append(f"Entry {row_id}: chain broken")
+                    violations.append(f"Entry {row_id}: chain broken (prev_hash mismatch)")
+                
+                # Reconstruct canonical form based on record type and recompute hash
+                try:
+                    if record_kind == "governance_decision":
+                        # Structured decision path (append_decision)
+                        canonical_entry = {
+                            "record_kind": "governance_decision",
+                            "action_type": action_type,
+                            "node": node,
+                            "cassette_version": cassette_version,
+                            "input_data": self._as_json(input_data),
+                            "policy_parameters": self._as_json(policy_parameters),
+                            "reasoning": reason,
+                            "output": self._as_json(decision_output),
+                            "previous_value": previous_value,
+                            "applied_value": applied_value,
+                            "parameter_changed": self._as_json(data).get("parameter_changed", False),
+                            "previous_hash": stored_prev,
+                        }
+                        # Include cassette_hash in canonical form if present
+                        if cassette_hash:
+                            canonical_entry["cassette_hash"] = cassette_hash
+                    else:
+                        # Legacy path (append)
+                        canonical_entry = {
+                            "action_type": action_type,
+                            "node": node,
+                            "previous_value": previous_value,
+                            "applied_value": applied_value,
+                            "reason": reason,
+                            "data": self._as_json(data),
+                            "previous_hash": stored_prev,
+                        }
+                    
+                    # Recompute hash from canonical form
+                    recomputed_hash = hashlib.sha256(
+                        json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+                    ).hexdigest()
+                    
+                    # Check for tampering
+                    if recomputed_hash != stored_current:
+                        violations.append(
+                            f"Entry {row_id}: content hash mismatch "
+                            f"(stored={stored_current[:8]}..., "
+                            f"recomputed={recomputed_hash[:8]}...)"
+                        )
+                    
+                except Exception as e:
+                    violations.append(f"Entry {row_id}: hash recomputation failed ({e})")
                 
                 prev_hash = stored_current
             
