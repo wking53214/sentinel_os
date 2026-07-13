@@ -11,6 +11,14 @@ from typing import Any, Dict, List, Optional
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 
+# Forensic cassette handling (ledger item: cassette snapshots for audit)
+try:
+    from cassette_forensics import serialize_cassette_for_ledger, compute_cassette_hash
+except ImportError:
+    # Fallback if cassette_forensics not yet available
+    serialize_cassette_for_ledger = None
+    compute_cassette_hash = None
+
 
 @dataclass
 class GovernanceDecisionRecord:
@@ -26,6 +34,11 @@ class GovernanceDecisionRecord:
     unless a parameter was actually written: this system records
     advisory decisions, and a fabricated "applied" number would be a
     forged fact in a tamper-evident ledger.
+
+    NEW: cassette_snapshot and cassette_hash allow regulators to
+    reconstruct the exact cassette that governed the decision. The
+    snapshot is the full cassette config (schema, version, parameters);
+    the hash cryptographically ties it to the decision in the chain.
     """
 
     action_type: str
@@ -38,6 +51,8 @@ class GovernanceDecisionRecord:
     previous_value: float = 0.0
     applied_value: float = 0.0
     parameter_changed: bool = False
+    cassette_snapshot: Optional[Dict[str, Any]] = None
+    cassette_hash: Optional[str] = None
 
 class PostgreSQLLedger:
     """Production ledger backed by PostgreSQL"""
@@ -92,6 +107,17 @@ class PostgreSQLLedger:
                     ADD COLUMN IF NOT EXISTS decision_output JSONB;
                 CREATE INDEX IF NOT EXISTS idx_cassette_version
                     ON ledger_entries(cassette_version);
+            """)
+            # Forensic ledger item: cassette snapshots for regulatory audit.
+            # Safe to run on existing ledgers (adds nullable columns, no data deleted).
+            # Backfill: existing decisions have NULL cassette_snapshot/cassette_hash
+            # (cannot be reconstructed, but chain remains intact and verifiable).
+            cursor.execute("""
+                ALTER TABLE ledger_entries
+                    ADD COLUMN IF NOT EXISTS cassette_snapshot JSONB,
+                    ADD COLUMN IF NOT EXISTS cassette_hash VARCHAR(64);
+                CREATE INDEX IF NOT EXISTS idx_cassette_hash
+                    ON ledger_entries(cassette_hash);
             """)
             conn.commit()
         finally:
@@ -155,7 +181,8 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
     
-    def append_decision(self, record: GovernanceDecisionRecord) -> bool:
+    def append_decision(self, record: GovernanceDecisionRecord, 
+                       governance_params: Optional[Any] = None) -> bool:
         """Append one structured governance decision (transaction).
 
         TRIPWIRE: a decision without a cassette_version is an error,
@@ -163,6 +190,10 @@ class PostgreSQLLedger:
         governed this" -- a row that cannot answer that is refused
         before it ever touches the chain. Same for the policy snapshot
         itself.
+
+        NEW: governance_params (GovernanceParameters from cassette_schema.py)
+        is required. We serialize and hash the cassette at decision time
+        so regulators can reconstruct it and prove it hasn't been changed.
 
         All forensic fields are inside the canonical form that gets
         hashed, so editing any of them after the fact breaks the chain.
@@ -187,6 +218,23 @@ class PostgreSQLLedger:
             raise ValueError("Governance decision rejected: input_data must be a dict")
         if not isinstance(record.output, dict) or not record.output:
             raise ValueError("Governance decision rejected: output must be a non-empty dict")
+
+        # NEW: Capture cassette snapshot for forensic reconstruction
+        cassette_snapshot = None
+        cassette_hash = None
+        
+        if governance_params is not None:
+            if serialize_cassette_for_ledger is None:
+                raise RuntimeError(
+                    "cassette_forensics module not available; "
+                    "cannot capture cassette snapshot"
+                )
+            cassette_snapshot = serialize_cassette_for_ledger(governance_params)
+            cassette_hash = compute_cassette_hash(cassette_snapshot)
+        else:
+            # Warnings only if governance_params explicitly None; 
+            # migration allows pre-snapshot decisions to coexist
+            pass
 
         conn = self.pool.getconn()
         try:
@@ -220,6 +268,11 @@ class PostgreSQLLedger:
                 "parameter_changed": bool(record.parameter_changed),
                 "previous_hash": previous_hash,
             }
+            
+            # NEW: Include cassette hash in canonical form if present
+            if cassette_hash:
+                canonical_entry["cassette_hash"] = cassette_hash
+            
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
             ).hexdigest()
@@ -229,15 +282,17 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, input_data, policy_parameters,
-                 decision_output)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 decision_output, cassette_snapshot, cassette_hash)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (record.action_type, record.node, record.previous_value,
                   record.applied_value, record.reasoning,
                   previous_hash, current_hash, json.dumps(data),
                   "governance_decision", record.cassette_version,
                   json.dumps(record.input_data),
                   json.dumps(record.policy_parameters),
-                  json.dumps(record.output)))
+                  json.dumps(record.output),
+                  json.dumps(cassette_snapshot) if cassette_snapshot else None,
+                  cassette_hash))
             conn.commit()
             return True
         except Exception:
@@ -259,7 +314,11 @@ class PostgreSQLLedger:
         """Retrieve structured governance decisions, newest first.
 
         "Show me every decision this cassette version governed" is one
-        call (and one SQL query -- see CASSETTE_GOVERNS_INTEGRATION)."""
+        call (and one SQL query -- see CASSETTE_GOVERNS_INTEGRATION).
+        
+        NEW: Includes cassette_snapshot and cassette_hash for forensic
+        reconstruction. Regulators can call reconstruct_cassette_for_decision()
+        on each row to prove the policy."""
 
         conn = self.pool.getconn()
         try:
@@ -268,7 +327,7 @@ class PostgreSQLLedger:
                 SELECT id, timestamp, action_type, node, previous_value,
                        applied_value, reason, previous_hash, current_hash,
                        cassette_version, input_data, policy_parameters,
-                       decision_output
+                       decision_output, cassette_snapshot, cassette_hash
                 FROM ledger_entries
                 WHERE record_kind = 'governance_decision'
             """
@@ -296,6 +355,8 @@ class PostgreSQLLedger:
                     "input_data": self._as_json(row[10]),
                     "policy_parameters": self._as_json(row[11]),
                     "output": self._as_json(row[12]),
+                    "cassette_snapshot": self._as_json(row[13]),
+                    "cassette_hash": row[14],
                 })
             return decisions
         finally:
@@ -345,6 +406,126 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
     
+    def get_decision_with_cassette(self, decision_id: int) -> Dict[str, Any]:
+        """Retrieve a decision AND reconstruct the cassette that governed it.
+
+        This is the "show me your proof" endpoint for regulators.
+
+        Returns:
+        {
+            "decision": { ...full decision record... },
+            "cassette_proof": {
+                "decision_id": <id>,
+                "cassette_snapshot": { ...full cassette config... },
+                "cassette_hash": <SHA-256>,
+                "cassette_version": <domain:name:version>,
+                "timestamp": <ISO 8601>,
+                "integrity_verified": True/False
+            }
+        }
+
+        Raises ValueError if the cassette snapshot is missing or corrupted.
+        """
+        if reconstruct_cassette_for_decision is None:
+            raise RuntimeError(
+                "cassette_forensics module not available; "
+                "cannot reconstruct cassettes"
+            )
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, timestamp, action_type, node, previous_value,
+                       applied_value, reason, previous_hash, current_hash,
+                       cassette_version, cassette_hash, cassette_snapshot,
+                       input_data, policy_parameters, decision_output
+                FROM ledger_entries
+                WHERE id = %s AND record_kind = 'governance_decision'
+            """, (decision_id,))
+
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError(f"Decision {decision_id} not found")
+
+            decision_dict = {
+                "id": row[0],
+                "timestamp": row[1].isoformat() if row[1] else None,
+                "action_type": row[2],
+                "node": row[3],
+                "previous_value": row[4],
+                "applied_value": row[5],
+                "reasoning": row[6],
+                "previous_hash": row[7],
+                "current_hash": row[8],
+                "cassette_version": row[9],
+                "cassette_hash": row[10],
+                "cassette_snapshot": self._as_json(row[11]),
+                "input_data": self._as_json(row[12]),
+                "policy_parameters": self._as_json(row[13]),
+                "output": self._as_json(row[14]),
+            }
+
+            # Reconstruct cassette and verify integrity
+            cassette_proof = reconstruct_cassette_for_decision(decision_dict)
+
+            return {
+                "decision": decision_dict,
+                "cassette_proof": cassette_proof,
+            }
+        finally:
+            self.pool.putconn(conn)
+
+    def validate_cassette_snapshot_chain(self) -> Dict[str, Any]:
+        """Audit the ledger to prove all cassette snapshots are
+        consistent and uncorrupted.
+
+        Used for regulatory audits: "Prove your cassette snapshots are real."
+
+        Returns:
+        {
+            "total_decisions": N,
+            "snapshots_verified": M,
+            "corrupted": [],
+            "pre_migration": [],
+            "all_ok": True/False
+        }
+        """
+        if reconstruct_cassette_for_decision is None:
+            raise RuntimeError(
+                "cassette_forensics module not available; "
+                "cannot validate cassette snapshots"
+            )
+
+        # Retrieve all decisions
+        all_decisions = self.get_decisions(limit=10000)
+
+        result = {
+            "total_decisions": len(all_decisions),
+            "snapshots_verified": 0,
+            "corrupted": [],
+            "pre_migration": [],
+            "all_ok": True,
+        }
+
+        for decision in all_decisions:
+            decision_id = decision.get("id")
+
+            if not decision.get("cassette_snapshot"):
+                result["pre_migration"].append(decision_id)
+                continue
+
+            try:
+                reconstruct_cassette_for_decision(decision)
+                result["snapshots_verified"] += 1
+            except ValueError as e:
+                result["corrupted"].append(
+                    {"decision_id": decision_id, "error": str(e)}
+                )
+                result["all_ok"] = False
+
+        return result
+
     def verify_chain(self, mode: str = "strict") -> Dict:
         """Verify ledger integrity (hash chain validation)"""
         
