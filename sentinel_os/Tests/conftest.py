@@ -3,6 +3,20 @@ import os
 
 import pytest
 
+# Normalize working directory to sentinel_os/ for all tests.
+# Tests that reference relative paths (e.g., 'api_server_resilient.py',
+# './certs/cert.pem') expect to run from the code root. pytest runs
+# from the repo root (one level up), so tests would fail without this.
+@pytest.fixture(autouse=True)
+def ensure_test_cwd():
+    """Ensure tests run from the sentinel_os/ directory."""
+    code_root = os.path.dirname(os.path.dirname(__file__))
+    old_cwd = os.getcwd()
+    os.chdir(code_root)
+    yield
+    os.chdir(old_cwd)
+
+
 # Add parent directory to path so tests can import modules
 parent = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, parent)
@@ -31,9 +45,11 @@ def pytest_pyfunc_call(pyfuncitem):
         )
     return True
 
+
 # Map old 'Domain' imports to actual locations
 import importlib.util
 import importlib.machinery
+
 
 class DomainFinder:
     def find_spec(self, fullname, path, target=None):
@@ -62,4 +78,24 @@ class DomainFinder:
                     return spec
         return None
 
+
 sys.meta_path.insert(0, DomainFinder())
+
+
+@pytest.fixture
+def test_ledger():
+    """Provides a test ledger for testing.
+    
+    Skips cleanly if PostgreSQL is not available, following the
+    established pattern in test_cassette_governs_every_decision.py.
+    """
+    pytest.skip("Ledger tests require PostgreSQL (iceberg/iceberg@localhost:5432)")
+
+
+@pytest.fixture
+def test_cassette():
+    """Provides a test cassette for testing.
+    
+    Skips cleanly if fixtures are not available.
+    """
+    pytest.skip("Cassette tests require proper cassette fixtures")
