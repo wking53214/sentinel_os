@@ -136,25 +136,42 @@ class TwilioLogParser:
             waits["agent_a"] = duration * 0.4
         return waits
     
-    def _count_friction(self, record: Dict, journey: List[str]) -> int:
+    def _count_friction(self, record: Dict, journey: List[str], cassette=None) -> int:
         """Estimate friction from call patterns.
 
-        Item #7 scope: these 300/120/10 duration heuristics are an
-        ingest-side ESTIMATE and deliberately NOT unified with
-        governance/friction_core in Items #4-#6; they unify when the
-        ingest path is integrated into the production flow. The
-        production harness does NOT use this estimate on the
-        governance path -- it measures friction itself from wait_times
+        Item #7 scope: these duration heuristics are an ingest-side ESTIMATE
+        and deliberately NOT unified with governance/friction_core in Items
+        #4-#6; they unify when the ingest path is integrated into the
+        production flow. The production harness does NOT use this estimate on
+        the governance path -- it measures friction itself from wait_times
         against the cassette's threshold.
+        
+        Thresholds now read from cassette when available; fall back to
+        defaults if no cassette is provided.
         """
+        
+        # Read thresholds from cassette, with safe defaults
+        long_threshold = 300
+        medium_threshold = 120
+        short_threshold = 10
+        
+        if cassette:
+            try:
+                params = cassette.get_governance_parameters()
+                long_threshold = params.get('twilio_long_duration_threshold', {}).get('value', 300)
+                medium_threshold = params.get('twilio_medium_duration_threshold', {}).get('value', 120)
+                short_threshold = params.get('twilio_short_duration_threshold', {}).get('value', 10)
+            except Exception:
+                # If cassette read fails, use defaults silently
+                pass
         
         friction = 0
         duration = int(record.get("duration", 0))
         
-        # Long calls suggest friction
-        if duration > 300:  # > 5 min
+        # Long calls suggest friction (cassette-configurable)
+        if duration > long_threshold:
             friction += 2
-        elif duration > 120:  # > 2 min
+        elif duration > medium_threshold:
             friction += 1
         
         # Multiple queue visits suggest repeats
@@ -162,8 +179,8 @@ class TwilioLogParser:
         if queue_visits > 1:
             friction += queue_visits - 1
         
-        # Short duration might indicate no-answer (friction)
-        if duration < 10 and record.get("status") != "completed":
+        # Short duration might indicate no-answer (friction, cassette-configurable)
+        if duration < short_threshold and record.get("status") != "completed":
             friction += 1
         
         return friction
