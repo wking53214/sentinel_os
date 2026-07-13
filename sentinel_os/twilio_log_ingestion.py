@@ -8,6 +8,7 @@ import json
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from datetime import datetime
+from cassette_schema import validate_cassette
 
 @dataclass
 class TwilioCallLog:
@@ -154,24 +155,30 @@ class TwilioLogParser:
         the governance path -- it measures friction itself from wait_times
         against the cassette's threshold.
         
-        Thresholds now read from cassette when available; fall back to
-        defaults if no cassette is provided.
+        Thresholds MUST be read from cassette (fail-loud, no silent fallback).
+        If cassette is None or lacks required Twilio thresholds, raises error.
         """
         
-        # Read thresholds from cassette, with safe defaults
-        long_threshold = 300
-        medium_threshold = 120
-        short_threshold = 10
+        if cassette is None:
+            raise ValueError(
+                "_count_friction requires a cassette with Twilio thresholds; "
+                "cassette=None is not permitted"
+            )
         
-        if cassette:
-            try:
-                params = cassette.get_governance_parameters()
-                long_threshold = params.get('twilio_long_duration_threshold', {}).get('value', 300)
-                medium_threshold = params.get('twilio_medium_duration_threshold', {}).get('value', 120)
-                short_threshold = params.get('twilio_short_duration_threshold', {}).get('value', 10)
-            except Exception:
-                # If cassette read fails, use defaults silently
-                pass
+        # Validate cassette and read parameters with fail-loud semantics
+        # (same as production_harness.py -- no defaults, KeyError if missing)
+        try:
+            params = validate_cassette(cassette)
+        except Exception as e:
+            raise ValueError(f"Cassette validation failed: {e}")
+        
+        # Read Twilio thresholds with NO fallback (type-strict, fail-loud)
+        try:
+            long_threshold = params.float_value("twilio_long_duration_threshold")
+            medium_threshold = params.float_value("twilio_medium_duration_threshold")
+            short_threshold = params.float_value("twilio_short_duration_threshold")
+        except KeyError as e:
+            raise ValueError(f"Cassette missing required Twilio threshold: {e}")
         
         friction = 0
         duration = int(record.get("duration", 0))
