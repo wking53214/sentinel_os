@@ -40,7 +40,7 @@ def test_ivr_cassette_structure():
     assert "tech_queue" in queues
     
     # Test methods
-    intent = ivr.infer_intent("billing_queue", {})
+    intent = ivr._infer_intent_to_label("billing_queue", {})
     assert intent == "BILLING"
     
     quality = ivr.score_outcome_quality(True, 100, 0, {"frustration": 0.1})
@@ -64,7 +64,7 @@ def test_banking_cassette_structure():
     assert "dispute_resolution_queue" in queues, "Banking must have dispute queue"
     
     # Different intent mapping
-    intent = banking.infer_intent("fraud_detection_queue", {})
+    intent = banking._infer_intent_to_label("fraud_detection_queue", {})
     assert intent == "FRAUD_ALERT", f"Expected FRAUD_ALERT, got {intent}"
     
     print(f"  ✓ PASSED - Banking cassette valid, {len(queues)} queues")

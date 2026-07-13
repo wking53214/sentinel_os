@@ -83,7 +83,7 @@ class BankingCassette(Cassette):
             "compliance_queue": {"agents": 1, "priority": 1},
         }
     
-    def infer_intent(self, queue_name: str, caller_data: Dict) -> str:
+    def _infer_intent_to_label(self, queue_name: str, caller_data: Dict) -> str:
         """Map banking queue to financial intent"""
         mapping = {
             "account_inquiry_queue": "ACCOUNT_LOOKUP",
