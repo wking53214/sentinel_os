@@ -47,7 +47,7 @@ class IcebergProductionHarness:
         validate_cassette(self.cassette)
 
         # Data sources
-        self.twilio_parser = TwilioLogParser()
+        self.twilio_parser = TwilioLogParser(cassette=cassette)
         self.twilio_adapter = None  # Will init if API key provided
 
         # Observability
