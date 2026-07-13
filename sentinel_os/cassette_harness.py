@@ -67,7 +67,7 @@ class CassetteHarness:
             journey = self._extract_journey(call_data)
             
             # 3. CASSETTE: Infer intent (domain-specific)
-            intent = self.cassette.infer_intent(journey[1] if len(journey) > 1 else "", call_data)
+            intent = self.cassette._infer_intent_to_label(journey[1] if len(journey) > 1 else "", call_data)
             
             # 4. CASSETTE: Score quality (domain-specific)
             resolved = call_data.get("status") == "completed"

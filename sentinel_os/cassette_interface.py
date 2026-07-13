@@ -46,7 +46,7 @@ class Cassette(ABC):
         pass
     
     @abstractmethod
-    def infer_intent(self, queue_name: str, caller_data: Dict) -> str:
+    def _infer_intent_to_label(self, queue_name: str, caller_data: Dict) -> str:
         """Map queue choice to caller intent"""
         pass
     
