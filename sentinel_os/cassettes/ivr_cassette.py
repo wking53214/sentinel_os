@@ -125,7 +125,7 @@ class IvrCassette(Cassette):
             "general_queue": {"agents": 2, "priority": 2},
         }
     
-    def infer_intent(self, queue_name: str, caller_data: Dict) -> str:
+    def _infer_intent_to_label(self, queue_name: str, caller_data: Dict) -> str:
         """Map IVR queue to caller intent"""
         mapping = {
             "billing_queue": "BILLING",

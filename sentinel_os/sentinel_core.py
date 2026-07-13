@@ -92,7 +92,7 @@ class SentinelCore:
     def infer_intent(self, journey: List[str], first_queue_chosen: str) -> IntentSignal:
         """Infer caller intent from first queue choice, via the cassette"""
         
-        raw_intent = self.cassette.infer_intent(first_queue_chosen, {})
+        raw_intent = self.cassette._infer_intent_to_label(first_queue_chosen, {})
         confidence = 0.85 if raw_intent != "UNKNOWN" else 0.3
         
         reasoning = f"Caller routed to {first_queue_chosen}"
