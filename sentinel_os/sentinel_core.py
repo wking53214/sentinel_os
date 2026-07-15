@@ -4,7 +4,7 @@ Sentinel - IVR Analytics & Diagnostics Layer
 Infers caller intent, scores quality, diagnoses abandonment, prescribes fixes
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Dict, Optional
 from enum import Enum
 import hashlib

@@ -8,8 +8,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from Model.Build_Graph import build_graph
 from Engines.simple_rl_trainer import SimpleRLTrainer
-from observe_perceive_core import ObserveCore, synthesize_percept, FrictionEvent
-from governance.drift_core_v1 import DriftPolicy, detect_drift, baseline_from_holds
+from observe_perceive_core import ObserveCore, FrictionEvent
+from governance.drift_core_v1 import DriftPolicy, detect_drift
 from governance.self_heal_v1 import heal, HealBand, InMemoryParameterStore
 from governance.log_rotation_v1 import LogRotationManager, LocalDiskAdapter
 from governance.friction_core import compute_friction
@@ -180,7 +180,7 @@ def main():
     
     print("\n" + "="*70)
     print("COMPLETE ICEBERG RESULTS")
-    print(f"  Total callers: 100")
+    print("  Total callers: 100")
     print(f"  Real graph nodes traversed: {len(simulator.graph.nodes)}")
     print(f"  Resolution rate: {resolved1*100:.1f}% → {resolved2*100:.1f}%")
     print(f"  RL improvement: {(loss1-loss2)/loss1*100:.1f}%")

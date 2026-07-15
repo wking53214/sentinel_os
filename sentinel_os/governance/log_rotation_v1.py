@@ -3,10 +3,9 @@ import hashlib
 import os
 import tempfile
 import threading
-import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 class StorageAdapter(ABC):
     @abstractmethod

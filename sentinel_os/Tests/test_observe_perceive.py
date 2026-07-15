@@ -3,14 +3,12 @@ Tests for OBSERVE and PERCEIVE Core Engines
 """
 
 import array_ops as np
-import pytest
 from observe_perceive_core import (
     ObserveCore, 
     PerceiveCore, 
     EmotionalState, 
     FrictionEvent, 
     CallOutcome, 
-    CallPercept,
     synthesize_percept
 )
 
@@ -109,7 +107,7 @@ def test_full_percept_synthesis():
     assert len(percept.next_action_distribution) > 0, "Should have next actions"
     assert percept.outcome == CallOutcome.IN_PROGRESS, "Should be in progress"
     
-    print(f"  ✓ PASSED - Full percept synthesized")
+    print("  ✓ PASSED - Full percept synthesized")
     print(f"    Journey length: {len(percept.journey)}")
     print(f"    Abandonment risk: {percept.abandonment_risk:.2f}")
     print(f"    Inferred outcome: {percept.outcome.value}")

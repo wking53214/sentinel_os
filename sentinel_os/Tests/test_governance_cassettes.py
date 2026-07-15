@@ -3,7 +3,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from governance.log_rotation_v1 import LogRotationManager, LocalDiskAdapter
-from governance.drift_core_v1 import DriftPolicy, detect_drift, baseline_from_holds
+from governance.drift_core_v1 import DriftPolicy, detect_drift
 
 def test_log_rotation_basic(tmp_path):
     ledger = LogRotationManager(LocalDiskAdapter(str(tmp_path)), seed="815")

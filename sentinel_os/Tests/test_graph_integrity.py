@@ -26,7 +26,7 @@ import json
 import hashlib
 import pytest
 
-from Domain.build_graph import build_graph, RoutingGraph, GraphNode
+from Domain.build_graph import build_graph, RoutingGraph
 
 
 # ---------------------------------------------------------

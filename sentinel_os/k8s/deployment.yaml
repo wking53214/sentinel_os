@@ -13,10 +13,26 @@ spec:
       labels:
         app: iceberg
     spec:
+      securityContext:
+        # Pod-level: enforced regardless of what the image's own USER
+        # directive says, so a compromised/rebuilt image can't silently
+        # start running as root.
+        runAsNonRoot: true
+        runAsUser: 1000   # matches the Dockerfile's `useradd --uid 1000 iceberg`
+        runAsGroup: 1000
+        fsGroup: 1000      # so the mounted PVC is writable by that uid
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: iceberg
         image: iceberg:latest
         imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
         ports:
         - containerPort: 9090
           name: metrics
@@ -48,6 +64,25 @@ spec:
             secretKeyRef:
               name: iceberg-secrets
               key: postgres-password
+        # Restricted, non-superuser role the ledger actually connects as
+        # for all reads/writes after startup (see ledger_immutability.sql
+        # and PostgreSQLLedger's runtime_user/runtime_password). POSTGRES_USER
+        # above stays privileged, but only for the one-time schema migration.
+        # Optional so a deployment that hasn't provisioned ledger_reader yet
+        # still starts (PostgreSQLLedger falls back to the schema-owner
+        # credentials with a printed warning if these are unset).
+        - name: ICEBERG_LEDGER_RUNTIME_USER
+          valueFrom:
+            secretKeyRef:
+              name: iceberg-secrets
+              key: ledger-runtime-user
+              optional: true
+        - name: ICEBERG_LEDGER_RUNTIME_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: iceberg-secrets
+              key: ledger-runtime-password
+              optional: true
         - name: CLAUDE_API_KEY
           valueFrom:
             secretKeyRef:
@@ -75,7 +110,11 @@ spec:
         volumeMounts:
         - name: ledger
           mountPath: /data
+        - name: tmp
+          mountPath: /tmp
       volumes:
       - name: ledger
         persistentVolumeClaim:
           claimName: iceberg-ledger-pvc
+      - name: tmp
+        emptyDir: {}

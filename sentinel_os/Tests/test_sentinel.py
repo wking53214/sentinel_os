@@ -3,10 +3,10 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sentinel_core import (
-    SentinelCore, CallerIntent, OutcomeQuality
+    SentinelCore, OutcomeQuality
 )
 from cassettes.ivr_cassette import IvrCassette
-from observe_perceive_core import EmotionalState, FrictionEvent
+from observe_perceive_core import EmotionalState
 
 def test_sentinel_intent_inference():
     print("\n[TEST 1] Sentinel: Intent inference from queue choice")

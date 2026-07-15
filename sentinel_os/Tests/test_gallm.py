@@ -31,7 +31,7 @@ def test_gallm_routing():
     work4 = router.assign_task(work4)
     assert work4.assigned_ai == AIRole.CLAUDE, f"Should route to Claude, got {work4.assigned_ai}"
     
-    print(f"  ✓ PASSED - Routed 4 tasks to correct AIs")
+    print("  ✓ PASSED - Routed 4 tasks to correct AIs")
     return True
 
 def test_gallm_execution():
@@ -49,7 +49,7 @@ def test_gallm_execution():
     result2 = executor.execute(work2)
     assert "✓" in result2, "Should succeed"
     
-    print(f"  ✓ PASSED - Executed 2 tasks with AI responses")
+    print("  ✓ PASSED - Executed 2 tasks with AI responses")
     return True
 
 def test_gallm_audit():
@@ -73,7 +73,7 @@ def test_gallm_audit():
     for decision in audit.decisions:
         assert len(decision["hash"]) == 64, "Hash should be SHA256"
     
-    print(f"  ✓ PASSED - Recorded 3 decisions with valid hash chain")
+    print("  ✓ PASSED - Recorded 3 decisions with valid hash chain")
     return True
 
 def test_gallm_end_to_end():

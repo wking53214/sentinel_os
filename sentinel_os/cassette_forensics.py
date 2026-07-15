@@ -19,7 +19,7 @@ it matches the cassette hash stored in the chain.
 
 import json
 import hashlib
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 def serialize_cassette_for_ledger(governance_params: Any) -> Dict[str, Any]:

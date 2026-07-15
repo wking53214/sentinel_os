@@ -16,7 +16,7 @@ def test_queue_dynamics():
     
     # Heavy traffic
     wait2 = coord.queue_dynamics.predict_wait_time(agents=5, traffic_intensity=4.5, avg_handle_time=5.0)
-    assert wait2 > wait1, f"Heavy traffic should have longer wait"
+    assert wait2 > wait1, "Heavy traffic should have longer wait"
     
     # Recommend agents for target
     agents_needed = coord.queue_dynamics.recommended_agents(traffic_intensity=4.5, target_wait=30.0, avg_handle_time=5.0)

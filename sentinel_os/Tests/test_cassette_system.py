@@ -68,7 +68,7 @@ def test_banking_cassette_structure():
     assert intent == "FRAUD_ALERT", f"Expected FRAUD_ALERT, got {intent}"
     
     print(f"  ✓ PASSED - Banking cassette valid, {len(queues)} queues")
-    print(f"             Completely different from IVR")
+    print("             Completely different from IVR")
     return True
 
 def test_cassette_swapping():
@@ -98,7 +98,7 @@ def test_cassette_swapping():
     assert ivr_info["queues"] != banking_info["queues"], "Different cassettes should have different queues"
     assert ivr_info["domain"] != banking_info["domain"], "Different domains"
     
-    print(f"  ✓ PASSED - Boom box works with multiple cassettes")
+    print("  ✓ PASSED - Boom box works with multiple cassettes")
     print(f"             IVR domain: {ivr_info['domain']}, queues: {len(ivr_info['queues'])}")
     print(f"             Banking domain: {banking_info['domain']}, queues: {len(banking_info['queues'])}")
     return True
@@ -134,7 +134,7 @@ def test_call_processing_different_cassettes():
     
     assert banking_result["domain"] == "banking"
     
-    print(f"  ✓ PASSED - Same call, different cassettes")
+    print("  ✓ PASSED - Same call, different cassettes")
     print(f"             IVR: intent={ivr_result.get('intent')}, quality={ivr_result.get('quality_tier')}")
     print(f"             Banking: intent={banking_result.get('intent')}, quality={banking_result.get('quality_tier')}")
     return True
@@ -149,7 +149,7 @@ def test_cassette_validates():
     assert ivr.validate() == True, "IVR should validate"
     assert banking.validate() == True, "Banking should validate"
     
-    print(f"  ✓ PASSED - All cassettes valid")
+    print("  ✓ PASSED - All cassettes valid")
     return True
 
 def main():

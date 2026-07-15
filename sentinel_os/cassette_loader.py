@@ -5,9 +5,8 @@ Enables boom box to work with any cassette without code changes
 """
 
 import importlib.util
-import sys
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 from cassette_interface import Cassette, CassetteRegistry
 from cassette_schema import CassetteValidationError, validate_cassette
 

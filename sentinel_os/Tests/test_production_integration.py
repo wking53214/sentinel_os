@@ -3,7 +3,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from metrics_prometheus import PrometheusMetrics
-from twilio_log_ingestion import TwilioLogParser, IcebergJourney
+from twilio_log_ingestion import TwilioLogParser
 from cassettes.ivr_cassette import IvrCassette
 
 def test_prometheus_metrics():
@@ -127,7 +127,7 @@ def test_full_production_integration():
     assert len(prometheus_text) > 100
     assert "iceberg_calls_total" in prometheus_text
     
-    print(f"  ✓ PASSED - Full integration: 5 calls processed")
+    print("  ✓ PASSED - Full integration: 5 calls processed")
     print(f"             Resolution: {summary['calls_resolved']}/5")
     print(f"             Abandonment: {summary['abandonment_rate']*100:.0f}%")
     return True

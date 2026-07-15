@@ -63,7 +63,7 @@ def test_health_checker():
     assert status["components"]["good"]["status"] == "healthy"
     assert status["components"]["bad"]["status"] == "unhealthy"
     
-    print(f"  ✓ PASSED - Health checker detected degraded system")
+    print("  ✓ PASSED - Health checker detected degraded system")
     return True
 
 def test_logging():
@@ -77,7 +77,7 @@ def test_logging():
     # Log a message (won't raise)
     logger.info("Test message")
     
-    print(f"  ✓ PASSED - Structured logging initialized")
+    print("  ✓ PASSED - Structured logging initialized")
     return True
 
 def test_grafana_dashboard():
@@ -117,7 +117,7 @@ def test_resilient_harness_initialization():
     assert "overall" in health
     assert "components" in health
     
-    print(f"  ✓ PASSED - Resilient harness initialized, health check working")
+    print("  ✓ PASSED - Resilient harness initialized, health check working")
     return True
 
 def test_resilient_process_call():
@@ -145,7 +145,7 @@ def test_resilient_process_call():
     assert "resolved" in result
     assert "quality" in result
     
-    print(f"  ✓ PASSED - Resilient harness processed call successfully")
+    print("  ✓ PASSED - Resilient harness processed call successfully")
     return True
 
 def test_metrics_export_with_fallback():

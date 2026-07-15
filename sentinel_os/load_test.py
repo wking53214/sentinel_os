@@ -55,7 +55,7 @@ def run_load_test(scale_name: str):
     print(f" {t_current:.2f}s")
     
     # Stage 3: Detect drift
-    print(f"[3/4] Detecting drift...", end="", flush=True)
+    print("[3/4] Detecting drift...", end="", flush=True)
     t0 = time.time()
     signals = detect_drift(baseline, current_holds, DriftPolicy())
     breached = [s for s in signals if s.breached]
@@ -64,7 +64,7 @@ def run_load_test(scale_name: str):
     print(f" {t_detect:.4f}s ({len(breached)} breached)")
     
     # Stage 4: Self-heal
-    print(f"[4/4] Applying self-healing...", end="", flush=True)
+    print("[4/4] Applying self-healing...", end="", flush=True)
     t0 = time.time()
     store = InMemoryParameterStore()
     lo, hi = validate_cassette(CassetteLoader().load_cassette("ivr")).range_value("expected_wait_bounds")
