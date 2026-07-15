@@ -6,8 +6,7 @@ Allows any industry to plug in their own cassette without touching boom box
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional
-from enum import Enum
+from typing import Dict, List
 
 @dataclass
 class CassetteConfig:

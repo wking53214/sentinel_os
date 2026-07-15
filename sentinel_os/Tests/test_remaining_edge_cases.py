@@ -77,10 +77,10 @@ def test_ledger_recovery():
     
     # Strict should fail on corrupted chunk
     if not report["ok"]:
-        print(f"  ✓ PASSED - Strict mode correctly rejected corrupted tail")
+        print("  ✓ PASSED - Strict mode correctly rejected corrupted tail")
         return True
     else:
-        print(f"  ✗ FAILED - Should have detected corruption")
+        print("  ✗ FAILED - Should have detected corruption")
         return False
 
 def test_parameter_persistence():

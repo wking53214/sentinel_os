@@ -6,7 +6,7 @@ PERCEIVE: Infers outcomes, predicts next states, tracks world dynamics
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import List, Dict
 from enum import Enum
 
 class CallOutcome(Enum):

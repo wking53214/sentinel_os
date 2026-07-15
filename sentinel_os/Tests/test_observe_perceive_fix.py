@@ -27,7 +27,7 @@ def test_full_percept_synthesis():
     assert len(percept.next_action_distribution) > 0, "Should have next actions"
     assert percept.outcome == CallOutcome.RESOLVED, f"Should be resolved, got {percept.outcome}"
     
-    print(f"  ✓ PASSED - Full percept synthesized")
+    print("  ✓ PASSED - Full percept synthesized")
     print(f"    Journey length: {len(percept.journey)}")
     print(f"    Abandonment risk: {percept.abandonment_risk:.2f}")
     print(f"    Outcome: {percept.outcome.value}")

@@ -24,7 +24,7 @@ def test_ppo_router_expected_wait():
     
     print(f"  Router1 expected_wait: {router1.expected_wait}")
     print(f"  Router2 expected_wait: {router2.expected_wait}")
-    print(f"  ✓ PASSED")
+    print("  ✓ PASSED")
     return True
 
 def test_zero_drift():
@@ -37,7 +37,7 @@ def test_zero_drift():
     breached = [s for s in signals if s.breached]
     
     assert len(breached) == 0, "Should detect no drift in stable conditions"
-    print(f"  ✓ PASSED - No false positives")
+    print("  ✓ PASSED - No false positives")
     return True
 
 def test_multiple_drifts():
@@ -56,7 +56,7 @@ def test_multiple_drifts():
     breached = [s for s in signals if s.breached]
     
     assert len(breached) == 3, f"Should detect 3 drifts, got {len(breached)}"
-    print(f"  ✓ PASSED - All 3 simultaneous drifts detected")
+    print("  ✓ PASSED - All 3 simultaneous drifts detected")
     return True
 
 def test_clamping_boundaries():

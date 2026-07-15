@@ -124,48 +124,67 @@ LIMIT 10;
 
 **Claim:** Ledger entries form an unbroken SHA-256 chain (tamper-evident).
 
-### Query: Verify hash chain integrity
-```sql
--- Check ledger hash chain
--- For each entry, compute SHA256(previous_hash || action_type || data)
--- and verify it matches the stored hash
+### Command: Verify hash chain integrity
 
-WITH hash_check AS (
-  SELECT 
-    id,
-    hash as stored_hash,
-    SHA256(
-      COALESCE(
-        (LAG(hash) OVER (ORDER BY id))::text, 
-        '0'
-      ) || action_type || data::text
-    ) as computed_hash,
-    (hash = SHA256(
-      COALESCE(
-        (LAG(hash) OVER (ORDER BY id))::text, 
-        '0'
-      ) || action_type || data::text
-    )) as hash_valid
-  FROM ledger_entries
-  ORDER BY id DESC
-  LIMIT 100
-)
-SELECT 
-  id,
-  hash_valid,
-  CASE WHEN hash_valid THEN 'OK' ELSE 'MISMATCH' END as status
-FROM hash_check
-ORDER BY id;
+The stored hash is `SHA256` of a full canonical JSON object (sorted keys),
+not a simple concatenation of three columns -- and the canonical shape
+differs between legacy `append()` rows and structured `append_decision()`
+governance rows (see `governance/ledger_postgres.py`, `verify_chain()`).
+That canonicalization is Python-specific (`json.dumps(..., sort_keys=True)`)
+and is **not** reliably reproducible as a single raw SQL query -- Postgres's
+own JSON key ordering does not guarantee a byte-identical match. An earlier
+version of this playbook shipped a SQL query that both referenced a
+nonexistent `hash` column (the real column is `current_hash`) and used a
+canonical form that does not match the real one -- it would either error
+outright or silently report false MISMATCHes against a perfectly valid
+ledger. Use the app's own verifier instead; it is the single source of
+truth for what "valid" means here, and re-deriving an equivalent in SQL is
+exactly how the previous version drifted out of sync.
+
+```bash
+python3 -c "
+from governance.ledger_postgres import PostgreSQLLedger
+led = PostgreSQLLedger(host='<HOST>', port=5432, dbname='iceberg',
+                        user='<SCHEMA_OWNER_USER>', password='<SCHEMA_OWNER_PASSWORD>',
+                        runtime_user='<RUNTIME_USER>', runtime_password='<RUNTIME_PASSWORD>')
+r = led.verify_chain(mode='tolerant')
+print(f\"ok={r['ok']} entries={r['entries']} violations={len(r['violations'])}\")
+for v in r['violations']:
+    print(' -', v)
+"
+```
+`user`/`password` need enough privilege to run the one-time schema migration
+(`_initialize_schema()`) -- they are discarded immediately after. All actual
+reads, including this verification, run over `runtime_user`/`runtime_password`
+(the restricted `ledger_reader` role from `ledger_immutability.sql`, or set
+`ICEBERG_LEDGER_RUNTIME_USER`/`ICEBERG_LEDGER_RUNTIME_PASSWORD` instead of
+passing them as arguments). Passing the restricted role's credentials as
+`user`/`password` here will fail with `InsufficientPrivilege` -- that role
+deliberately cannot run schema DDL.
+
+### Query: Structural sanity check (row count, ID gaps)
+
+This is what raw SQL is actually reliable for -- note it catches **deletions**
+(a gap in the ID sequence) but **not in-place edits** (a tampered row keeps
+its ID; only the content-hash recomputation above catches that):
+
+```sql
+SELECT
+  count(*) AS total_rows,
+  min(id) AS min_id,
+  max(id) AS max_id,
+  (max(id) - min(id) + 1) AS expected_count_if_no_gaps,
+  (max(id) - min(id) + 1) - count(*) AS missing_rows
+FROM ledger_entries;
 ```
 
 ### Expected Result
-- All rows have `hash_valid = true`
-- Status column shows 'OK' for all rows
-- No breaks in the chain (no gaps in sequential IDs)
+- `verify_chain()` returns `ok=True` with zero violations
+- `missing_rows` = 0 (no gaps in the ID sequence)
 
 ### Pass / Fail
-- **PASS:** All 100 rows have hash_valid=true AND no gaps in ID sequence
-- **FAIL:** Any row has hash_valid=false (tampering detected!) OR gap in IDs (missing entries)
+- **PASS:** `verify_chain()` ok=True AND missing_rows=0
+- **FAIL:** any violation reported by `verify_chain()` (tampering detected in-place) OR missing_rows>0 (rows deleted)
 
 ---
 

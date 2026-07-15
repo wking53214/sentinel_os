@@ -4,10 +4,8 @@ Cassette Harness - Boom box that accepts any cassette
 Routes all domain logic through loaded cassette
 """
 
-import os
-from typing import Dict, Optional
+from typing import Dict
 from cassette_loader import CassetteLoader
-from cassette_interface import Cassette
 from cassette_schema import validate_cassette
 from governance.friction_core import compute_friction
 from resilient_harness import ResilientHarness

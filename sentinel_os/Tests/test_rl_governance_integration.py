@@ -83,11 +83,11 @@ def test_complete_rl_governance_integration():
     
     print("\n" + "="*70)
     print("INTEGRATION RESULTS")
-    print(f"  RL Training:")
+    print("  RL Training:")
     print(f"    Phase 1 loss: {losses[0]:.4f}")
     print(f"    Phase 2 loss: {losses[1]:.4f}")
     print(f"    Improvement: {(losses[0]-losses[1])/losses[0]*100:.1f}%")
-    print(f"  Governance:")
+    print("  Governance:")
     print(f"    Drifts detected: {len(breached)}")
     print(f"    Parameters healed: {len(recs) if breached else 0}")
     print(f"    Ledger verified: {'✓ YES' if report['ok'] else '✗ NO'}")

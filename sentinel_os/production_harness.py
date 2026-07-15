@@ -5,24 +5,21 @@ Real Twilio → Real Prometheus → Real PostgreSQL → Real Claude → Real Gov
 """
 
 import os
-import json
-import sys
-from typing import Dict, Optional
-from datetime import datetime
+from typing import Dict
 
 # Import all production components
 from twilio_log_ingestion import TwilioLogParser, TwilioStreamAdapter
 from metrics_prometheus import PrometheusMetrics
 from governance.ledger_postgres import PostgreSQLLedger
 from claude_governance_api import ClaudeGovernanceDecider
-from observe_perceive_core import ObserveCore, synthesize_percept, EmotionalState, FrictionEvent
+from observe_perceive_core import ObserveCore, FrictionEvent
 from sentinel_core import SentinelCore
 from cassette_loader import CassetteLoader
 from cassette_schema import validate_cassette
 from governance.ledger_postgres import GovernanceDecisionRecord
 from governance.friction_core import compute_friction
 from queue_staffing_bayes_integration import (
-    StaffingCoordinator, BayesianIntentEngine, QueueState
+    StaffingCoordinator, BayesianIntentEngine
 )
 
 class IcebergProductionHarness:
@@ -380,7 +377,7 @@ def main():
     
     summary = harness.process_batch(mock_calls)
     
-    print(f"\n[RESULTS]")
+    print("\n[RESULTS]")
     print(f"  Calls processed: {summary['calls_processed']}")
     print(f"  Total calls: {summary['calls_total']}")
     print(f"  Resolved: {summary['calls_resolved']}")
@@ -390,13 +387,13 @@ def main():
     print(f"  Governance actions: {summary['governance_actions']}")
     
     # Export metrics
-    print(f"\n[PROMETHEUS METRICS]")
+    print("\n[PROMETHEUS METRICS]")
     metrics_text = harness.export_metrics()
     print(metrics_text[:500] + "..." if len(metrics_text) > 500 else metrics_text)
     
     # Verify ledger if connected
     if harness.ledger:
-        print(f"\n[LEDGER VERIFICATION]")
+        print("\n[LEDGER VERIFICATION]")
         verify = harness.verify_ledger()
         print(f"  Ledger OK: {verify.get('ok')}")
         print(f"  Entries: {verify.get('entries', 0)}")

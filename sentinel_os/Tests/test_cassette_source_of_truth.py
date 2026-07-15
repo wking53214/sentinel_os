@@ -22,13 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from cassette_schema import (
     SCHEMA_VERSION,
     CassetteValidationError,
-    GovernanceParameters,
     validate_cassette,
-    validate_governance_parameters,
-    cassette_version_of,
 )
-from cassette_interface import Cassette, CassetteConfig, QualityResult, CassetteRegistry
-from cassette_loader import CassetteLoader
+from cassette_interface import CassetteConfig, CassetteRegistry
 from cassettes.ivr_cassette import IvrCassette
 from cassettes.banking_cassette import BankingCassette
 from sentinel_core import SentinelCore
