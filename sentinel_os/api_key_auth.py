@@ -146,14 +146,25 @@ rate_limiter = RateLimiter(
 api_key_manager = APIKeyManager()
 
 def require_api_key(request: Request, x_api_key: str = Header(None)) -> Dict:
-    """FastAPI dependency: require a valid API key AND enforce a per-key
-    (or per-IP, if the key is missing/invalid) rate limit.
+    """FastAPI dependency: require a valid API key AND enforce a per-IP
+    rate limit on the *attempt*, before that key is known to be valid.
 
-    Rate-limiting on the identity used for the *attempt* -- not only on
-    successfully-authenticated keys -- so an attacker hammering invalid
-    keys (which is exactly the brute-force scenario the timing-safe
-    comparison above is hardening against) is throttled too.
+    Previously the identity rate-limited was the caller-supplied key
+    itself when one was present, falling back to IP only when the
+    header was missing. Since a caller can supply a different string
+    on every request at zero cost, that gave a brute-force attacker a
+    fresh quota on every guess -- confirmed live: 500 distinct guessed
+    keys, 0 throttled, plus one unbounded in-memory bucket per guess
+    (nothing evicts a bucket that's never checked again). Identity is
+    now always the connecting IP for this pre-auth check, which is the
+    actual limiting resource an attacker can't mint for free.
+
+    This limits ATTEMPTS, not validated keys -- callers behind a
+    shared NAT/proxy share one bucket here, which is a deliberate
+    trade for closing the brute-force bypass. A separate per-key quota
+    for legitimate authenticated traffic is a reasonable addition, but
+    is a distinct feature, not part of this fix.
     """
-    identity = x_api_key if x_api_key else (request.client.host if request.client else "unknown")
+    identity = request.client.host if request.client else "unknown"
     rate_limiter.check(identity)
     return api_key_manager.validate_key(x_api_key)

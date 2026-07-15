@@ -16,12 +16,15 @@ from observe_perceive_core import ObserveCore, FrictionEvent
 from sentinel_core import SentinelCore
 from cassette_loader import CassetteLoader
 from cassette_schema import validate_cassette
-from tracing import tracer
+from tracing import tracer, mark_error
 from governance.ledger_postgres import GovernanceDecisionRecord
 from governance.friction_core import compute_friction
 from queue_staffing_bayes_integration import (
     StaffingCoordinator, BayesianIntentEngine
 )
+from operational_resilience import setup_logging
+
+logger = setup_logging("IcebergProductionHarness")
 
 class IcebergProductionHarness:
     """Complete production system: all components wired together"""
@@ -208,12 +211,23 @@ class IcebergProductionHarness:
             # 7. Governance gate
             claude_decision = None
 
-            governance_friction_count = max(
-                friction_count,
-                getattr(journey, "friction_count", 0) or 0
-            )
-
-            governed = governance_friction_count >= governance_trigger
+            # Gate on friction_count alone -- the measured value from
+            # step 2, which is also what's handed to the governor
+            # (below) and written to the ledger. This used to gate on
+            # max(friction_count, journey.friction_count), mixing the
+            # measured value with twilio_log_ingestion's separate
+            # ingest-side ESTIMATE (different heuristic, different
+            # thresholds -- see _count_friction's own docstring, which
+            # already states "the production harness does NOT use this
+            # estimate on the governance path"; the max() contradicted
+            # that). Confirmed live with an in-bounds retuned cassette:
+            # the gate could govern and approve a call while the
+            # governor and the ledger both saw friction_count=0 against
+            # governance_trigger=2 -- a row that couldn't reproduce its
+            # own decision. On the shipped default cassette this never
+            # changed the outcome (measured >= ingest in every governed
+            # case), so behavior here is unchanged for existing traffic.
+            governed = friction_count >= governance_trigger
             root_span.set_attribute("call.governed", governed)
             root_span.set_attribute("call.queue", first_queue)
             root_span.set_attribute("call.friction_count", friction_count)
@@ -233,6 +247,7 @@ class IcebergProductionHarness:
                     except Exception as e:
                         print(f"Claude decision failed: {e}")
                         gov_span.record_exception(e)
+                        mark_error(gov_span, f"Governor exception: {e}")
                         claude_decision = {
                             "safe": False,
                             "governed": False,
@@ -251,8 +266,9 @@ class IcebergProductionHarness:
                 }
         
             # 8. Ledger: record the governance DECISION
+            ledger_write_failed = False
             if self.ledger and claude_decision is not None:
-                with tracer.start_as_current_span("ledger_write"):
+                with tracer.start_as_current_span("ledger_write") as ledger_span:
                     try:
                         approved = bool(claude_decision.get("safe"))
                         root_span.set_attribute("call.approved", approved)
@@ -283,8 +299,53 @@ class IcebergProductionHarness:
                             parameter_changed=False,
                         ), governance_params=params)
                     except Exception as e:
-                        print(f"Ledger append failed: {e}")
-        
+                        # A decision that isn't durably recorded is not an
+                        # audited decision. This used to be a print() with
+                        # the function falling through to report
+                        # governance_approved straight from claude_decision
+                        # -- a caller could be told "approved" with no row
+                        # to show for it. Confirmed live under concurrent
+                        # duplicate-sid submissions at realistic governor
+                        # latency: 3 of 4 approvals went unrecorded and
+                        # were still reported as approved.
+                        #
+                        # This is returned in the response below, not
+                        # raised: process_call runs under
+                        # ResilientHarness's retry_with_backoff, which
+                        # retries ANY exception up to 3x and opens the
+                        # circuit breaker after 5 failures -- raising here
+                        # would re-invoke the governor on every retry for
+                        # what is often a transient write failure, and
+                        # could trip the breaker on a brief blip.
+                        ledger_write_failed = True
+                        logger.error(
+                            "Ledger write failed for a governed decision -- "
+                            "decision was NOT durably recorded",
+                            extra={"extra_data": {
+                                "call_sid": call_sid,
+                                "node": first_queue,
+                                "claude_safe": claude_decision.get("safe"),
+                                "error": str(e),
+                            }},
+                        )
+                        ledger_span.record_exception(e)
+                        ledger_span.set_attribute("ledger_write.failed", True)
+                        mark_error(ledger_span, f"Ledger write failed: {e}")
+
+            # A call only counts as approved if the approval is both
+            # granted AND durably recorded; either half missing means the
+            # call was not successfully governed end-to-end.
+            governance_approved = (
+                bool(claude_decision.get("safe", False))
+                if claude_decision is not None and not ledger_write_failed
+                else False
+            )
+            governance_blocked = governed and (
+                claude_decision is None or
+                not claude_decision.get("safe", False) or
+                ledger_write_failed
+            )
+
             return {
                 "caller_id": journey.caller_id,
                 "resolved": journey.resolved,
@@ -294,17 +355,9 @@ class IcebergProductionHarness:
                 "emotion_frustration": emotion.frustration,
                 "claude_safe": claude_decision.get("safe") if claude_decision else None,
                 "governance_required": governed,
-                "governance_approved": (
-                    claude_decision.get("safe", False)
-                    if claude_decision is not None
-                    else False
-                ),
-                "governance_blocked": (
-                    governed and (
-                        claude_decision is None or
-                        not claude_decision.get("safe", False)
-                    )
-                ),
+                "governance_approved": governance_approved,
+                "governance_blocked": governance_blocked,
+                "ledger_write_failed": ledger_write_failed,
                 "metrics_recorded": True,
                 "friction_count": friction_count,
                 "governed": governed,

@@ -36,6 +36,14 @@ ALLOWED_TYPES = ("float", "int", "range")
 
 # Parameters the governance path cannot run without. A cassette may
 # declare more; it may not declare fewer.
+#
+# The twilio_* thresholds were added after finding a cassette (banking)
+# that passed this contract and validate_cassette(), loaded, and swapped
+# in cleanly -- then raised ValueError on every single process_call,
+# because twilio_log_ingestion._count_friction reads these three
+# fail-loud and they were never part of the declared contract. A
+# cassette that satisfies REQUIRED_GOVERNANCE_PARAMETERS must now be
+# able to actually run a call, not just pass schema validation.
 REQUIRED_GOVERNANCE_PARAMETERS: Dict[str, str] = {
     # A wait longer than this, at any node, is one friction event.
     "long_wait_threshold": "float",
@@ -45,6 +53,12 @@ REQUIRED_GOVERNANCE_PARAMETERS: Dict[str, str] = {
     "governance_trigger": "int",
     # Self-healing clamp band for the expected_wait parameter.
     "expected_wait_bounds": "range",
+    # Twilio ingest: calls longer than this contribute 2 friction points.
+    "twilio_long_duration_threshold": "int",
+    # Twilio ingest: calls longer than this contribute 1 friction point.
+    "twilio_medium_duration_threshold": "int",
+    # Twilio ingest: non-completed calls shorter than this are dropped-call friction.
+    "twilio_short_duration_threshold": "int",
 }
 
 
