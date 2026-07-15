@@ -8,3 +8,6 @@ pytest==7.4.0
 numpy>=2.1,<2.9
 pydantic>=2.9,<3  # fastapi 0.139.0 requires pydantic>=2.9.0
 python-dotenv==1.0.0
+opentelemetry-api>=1.20
+opentelemetry-sdk>=1.20
+opentelemetry-exporter-otlp-proto-grpc>=1.20  # only needed if OTEL_EXPORTER_OTLP_ENDPOINT is set
