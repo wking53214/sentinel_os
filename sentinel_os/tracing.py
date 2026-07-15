@@ -38,6 +38,14 @@ try:
 
     tracer = trace.get_tracer("sentinel_os")
 
+    def mark_error(span, description: str = "") -> None:
+        """Mark a span ERROR, so it surfaces in an error-filtered trace
+        query even in a collector that doesn't infer status from
+        record_exception() alone. Callers don't need to know whether
+        real OpenTelemetry is installed -- see the no-op version below.
+        """
+        span.set_status(trace.Status(trace.StatusCode.ERROR, description))
+
 except ImportError:
     # opentelemetry packages not installed at all — provide a stub
     # tracer whose start_as_current_span is a trivial context manager
@@ -55,3 +63,6 @@ except ImportError:
         def record_exception(self, exc): pass
 
     tracer = _NoOpTracer()
+
+    def mark_error(span, description: str = "") -> None:
+        pass

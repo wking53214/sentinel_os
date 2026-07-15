@@ -62,14 +62,24 @@ def _decider_with(create_fn):
 
 
 def _high_friction_journey():
+    # wait_times keys must match this journey's own node names --
+    # "billing_queue"/"agent_a", not the generic "queue"/"agent" this
+    # fixture used before. With the mismatched keys, per-node lookup
+    # found nothing for either real node and measured friction was 0;
+    # these tests only governed because production_harness.py used to
+    # take max(measured, journey.friction_count) and fall back to the
+    # friction_count field below. That max() is gone (see R-6) -- it
+    # produced a ledger row that couldn't reproduce its own decision
+    # whenever the two disagreed. Governance now runs on measured
+    # friction alone, so the fixture has to genuinely earn it.
     return IcebergJourney(
         caller_id="twilio_TEST",
         timestamp=0,
         journey=["root", "intent_menu", "billing_queue", "agent_a", "exit"],
-        wait_times={"intent_menu": 10.0, "queue": 60.0, "agent": 40.0},
+        wait_times={"intent_menu": 40.0, "billing_queue": 90.0, "agent_a": 70.0},
         total_duration=350.0,
         resolved=True,
-        friction_count=5,          # > 2 -> governance REQUIRED
+        friction_count=5,          # ingest-side estimate only; not used for gating (R-6)
         abandonment_reason=None,
     )
 
@@ -79,7 +89,7 @@ def _low_friction_journey():
         caller_id="twilio_LOW",
         timestamp=0,
         journey=["root", "intent_menu", "billing_queue", "agent_a", "exit"],
-        wait_times={"intent_menu": 5.0, "queue": 10.0, "agent": 5.0},
+        wait_times={"intent_menu": 5.0, "billing_queue": 10.0, "agent_a": 5.0},
         total_duration=60.0,
         resolved=True,
         friction_count=0,          # <= 2 -> governance NOT required

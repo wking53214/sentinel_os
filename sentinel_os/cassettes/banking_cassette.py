@@ -56,6 +56,55 @@ class BankingCassette(Cassette):
                 "last_reviewed": None,
             },
         },
+        # PLACEHOLDER VALUES -- scaled from the IVR cassette's 300/120/10
+        # by the same ~1.5x long-wait-tolerance ratio banking already
+        # uses above (45.0 vs ivr's 30.0), NOT derived from real banking
+        # call data. Added because these three are now required
+        # (cassette_schema.REQUIRED_GOVERNANCE_PARAMETERS) and, before
+        # that, their absence made every banking call raise ValueError
+        # at the Twilio ingest step -- this cassette validated and
+        # loaded cleanly but could not process a single call. Needs
+        # review against real banking-IVR call data before deploying
+        # this domain.
+        "twilio_long_duration_threshold": {
+            "value": 450,
+            "type": "int",
+            "min": 1,
+            "max": 3600,
+            "unit": "seconds",
+            "description": "Twilio ingest: calls longer than this duration contribute 2 friction points.",
+            "metadata": {
+                "approval_date": None,
+                "justification": "PLACEHOLDER: 300s (ivr) scaled by banking's ~1.5x wait tolerance. Not yet reviewed against banking call data.",
+                "last_reviewed": None,
+            },
+        },
+        "twilio_medium_duration_threshold": {
+            "value": 180,
+            "type": "int",
+            "min": 1,
+            "max": 3600,
+            "unit": "seconds",
+            "description": "Twilio ingest: calls longer than this duration contribute 1 friction point.",
+            "metadata": {
+                "approval_date": None,
+                "justification": "PLACEHOLDER: 120s (ivr) scaled by banking's ~1.5x wait tolerance. Not yet reviewed against banking call data.",
+                "last_reviewed": None,
+            },
+        },
+        "twilio_short_duration_threshold": {
+            "value": 15,
+            "type": "int",
+            "min": 1,
+            "max": 60,
+            "unit": "seconds",
+            "description": "Twilio ingest: calls shorter than this duration with non-completed status indicate dropped calls (1 friction point).",
+            "metadata": {
+                "approval_date": None,
+                "justification": "PLACEHOLDER: 10s (ivr) scaled by banking's ~1.5x wait tolerance. Not yet reviewed against banking call data.",
+                "last_reviewed": None,
+            },
+        },
     }
 
     def get_config(self) -> CassetteConfig:
