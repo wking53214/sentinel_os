@@ -304,6 +304,8 @@ class PostgreSQLLedger:
 
     @staticmethod
     def _as_json(raw):
+        if raw is None:
+            return None
         if isinstance(raw, (dict, list)):
             return raw
         if raw:

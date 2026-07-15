@@ -32,18 +32,23 @@ def test_count_friction_uses_cassette_thresholds():
     assert friction == 1, f"Expected 1 friction for 250s call, got {friction}"
 
 
-def test_count_friction_falls_back_to_defaults():
-    """_count_friction uses hardcoded defaults if no cassette provided."""
+def test_count_friction_requires_cassette():
+    """_count_friction is fail-loud: cassette=None raises rather than
+    silently falling back to hardcoded defaults. A friction estimate with
+    no declared source of truth for its thresholds is a policy the system
+    invented, not one that governed anything -- so it's refused outright."""
     parser = TwilioLogParser()
-    
+
     record_medium = {
         "duration": 250,
         "status": "completed"
     }
-    
-    # With no cassette, should still use default 300/120/10
-    friction = parser._count_friction(record_medium, [], cassette=None)
-    assert friction == 1, f"Expected 1 friction (default 120 threshold), got {friction}"
+
+    try:
+        parser._count_friction(record_medium, [], cassette=None)
+        assert False, "expected ValueError for cassette=None, got a result instead"
+    except ValueError as e:
+        assert "cassette" in str(e).lower()
 
 
 def test_count_friction_long_call():
