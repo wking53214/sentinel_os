@@ -11,13 +11,12 @@ Proves that:
 
 import pytest
 import json
-from governance.ledger_postgres import PostgreSQLLedger, GovernanceDecisionRecord
+from governance.ledger_postgres import GovernanceDecisionRecord
 from cassette_schema import validate_cassette, cassette_version_of
 from cassette_forensics import (
     serialize_cassette_for_ledger,
     compute_cassette_hash,
     reconstruct_cassette_for_decision,
-    validate_cassette_snapshot_chain,
 )
 
 

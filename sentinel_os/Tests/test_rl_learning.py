@@ -38,7 +38,7 @@ def test_rl_training_learns():
     
     loss2 = trainer.update_weights()
     
-    print(f"\n  Training Results:")
+    print("\n  Training Results:")
     print(f"    Phase 1 loss (bad routing): {loss1:.4f}")
     print(f"    Phase 2 loss (good routing): {loss2:.4f}")
     
@@ -49,8 +49,8 @@ def test_rl_training_learns():
     # Verify learning happened
     assert loss2 < loss1, f"Should improve: {loss1:.4f} -> {loss2:.4f}"
     
-    print(f"\n  ✓ PASSED - RL agent learns to prefer better actions")
-    print(f"  ✓ Router can optimize policy based on call outcomes")
+    print("\n  ✓ PASSED - RL agent learns to prefer better actions")
+    print("  ✓ Router can optimize policy based on call outcomes")
     return True
 
 if __name__ == "__main__":

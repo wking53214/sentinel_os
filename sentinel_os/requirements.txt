@@ -1,9 +1,10 @@
-fastapi==0.104.1
+fastapi==0.139.0
+starlette>=1.0.1  # CVE-2026-48710 (BadHost) fix floor -- pinned explicitly, not just via fastapi's transitive bound
 uvicorn==0.24.0
 psycopg2-binary==2.9.12
 anthropic==0.116.0
 httpx<0.28  # anthropic 0.116.0 breaks on client construction ("unexpected keyword argument 'proxies'") with httpx>=0.28
 pytest==7.4.0
 numpy>=2.1,<2.9
-pydantic==2.4.0
+pydantic>=2.9,<3  # fastapi 0.139.0 requires pydantic>=2.9.0
 python-dotenv==1.0.0

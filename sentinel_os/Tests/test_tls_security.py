@@ -15,7 +15,7 @@ def test_tls_certificates_exist():
     assert os.path.getsize(cert_file) > 0, "Certificate is empty"
     assert os.path.getsize(key_file) > 0, "Key is empty"
     
-    print(f"  ✓ PASSED - TLS certificates found")
+    print("  ✓ PASSED - TLS certificates found")
     print(f"             Cert: {cert_file} ({os.path.getsize(cert_file)} bytes)")
     print(f"             Key:  {key_file} ({os.path.getsize(key_file)} bytes)")
     return True
@@ -31,7 +31,7 @@ def test_tls_certificate_validity():
     assert "BEGIN CERTIFICATE" in content, "Not a valid PEM certificate"
     assert "END CERTIFICATE" in content, "Certificate format invalid"
     
-    print(f"  ✓ PASSED - Certificate is valid PEM format")
+    print("  ✓ PASSED - Certificate is valid PEM format")
     return True
 
 def test_tls_key_validity():
@@ -45,7 +45,7 @@ def test_tls_key_validity():
     assert "BEGIN PRIVATE KEY" in content or "BEGIN RSA PRIVATE KEY" in content, "Not a valid PEM private key"
     assert "END PRIVATE KEY" in content or "END RSA PRIVATE KEY" in content, "Key format invalid"
     
-    print(f"  ✓ PASSED - Private key is valid PEM format")
+    print("  ✓ PASSED - Private key is valid PEM format")
     return True
 
 def test_tls_can_be_used():
@@ -61,7 +61,7 @@ def test_tls_can_be_used():
     )
     
     if result.returncode == 0:
-        print(f"  ✓ PASSED - Certificate is valid X.509")
+        print("  ✓ PASSED - Certificate is valid X.509")
         # Extract CN from cert
         for line in result.stdout.split("\n"):
             if "CN=" in line or "Subject:" in line:
@@ -83,10 +83,10 @@ def test_api_server_tls_ready():
     assert "CERT_FILE" in content, "CERT_FILE env var not configured"
     assert "KEY_FILE" in content, "KEY_FILE env var not configured"
     
-    print(f"  ✓ PASSED - API server configured for TLS")
-    print(f"             - ssl_certfile support")
-    print(f"             - ssl_keyfile support")
-    print(f"             - Environment variable configuration")
+    print("  ✓ PASSED - API server configured for TLS")
+    print("             - ssl_certfile support")
+    print("             - ssl_keyfile support")
+    print("             - Environment variable configuration")
     return True
 
 def main():

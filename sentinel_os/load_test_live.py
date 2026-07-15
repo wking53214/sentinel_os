@@ -7,7 +7,6 @@ Measures latency, throughput, error rates
 
 import requests
 import time
-import json
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
@@ -128,11 +127,11 @@ class LiveLoadTester:
                     print(f"  Processed: {i+1}/{num_calls}")
         
         # Test batch
-        print(f"\n[3/3] Testing batch endpoint...")
+        print("\n[3/3] Testing batch endpoint...")
         self.test_batch(batch_size=10)
         
         # Test metrics
-        print(f"\nTesting metrics endpoint...")
+        print("\nTesting metrics endpoint...")
         self.test_metrics()
         
         return True

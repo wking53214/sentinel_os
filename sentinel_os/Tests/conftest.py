@@ -120,6 +120,19 @@ def test_ledger():
     conn.close()
 
     ledger = PostgreSQLLedger(**PG_CONFIG)
+
+    # The DROP TABLE above wipes any immutability triggers/grants along with
+    # the table (they're attached to the table, not the schema). Reapply
+    # them so the fixture doesn't silently leave H-A's protections undone
+    # for whatever uses this database next.
+    immutability_sql_path = os.path.join(parent, "ledger_immutability.sql")
+    if os.path.exists(immutability_sql_path):
+        conn = psycopg2.connect(connect_timeout=2, **PG_CONFIG)
+        conn.autocommit = True
+        with open(immutability_sql_path) as f:
+            conn.cursor().execute(f.read())
+        conn.close()
+
     yield ledger
     ledger.close()
 

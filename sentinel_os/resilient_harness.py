@@ -4,11 +4,10 @@ Resilient Harness - Production harness with error handling, logging, health chec
 Wraps production_harness.py with operational hardening
 """
 
-import logging
-from typing import Dict, Optional
+from typing import Dict
 from operational_resilience import (
     setup_logging, CircuitBreaker, retry_with_backoff,
-    HealthChecker, GracefulDegradation
+    HealthChecker
 )
 from production_harness import IcebergProductionHarness
 

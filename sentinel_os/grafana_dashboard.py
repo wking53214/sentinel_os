@@ -5,7 +5,7 @@ Auto-generates Grafana dashboard JSON for visualization
 """
 
 import json
-from typing import List, Dict
+from typing import Dict
 
 class GrafanaDashboard:
     """Generate Grafana dashboard for Iceberg monitoring"""

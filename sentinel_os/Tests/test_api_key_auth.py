@@ -46,7 +46,7 @@ def test_api_key_validation_valid():
         assert "name" in info
         assert "enabled" in info
         
-        print(f"  ✓ PASSED - Valid API key accepted")
+        print("  ✓ PASSED - Valid API key accepted")
         print(f"             Key name: {info['name']}")
         return True
     except Exception as e:
@@ -62,11 +62,11 @@ def test_api_key_validation_invalid():
     
     try:
         manager.validate_key("invalid_key_12345")
-        print(f"  ✗ FAILED - Should have rejected invalid key")
+        print("  ✗ FAILED - Should have rejected invalid key")
         return False
     except HTTPException as e:
         assert e.status_code == 403
-        print(f"  ✓ PASSED - Invalid key rejected with 403")
+        print("  ✓ PASSED - Invalid key rejected with 403")
         return True
 
 def test_api_key_validation_missing():
@@ -78,11 +78,11 @@ def test_api_key_validation_missing():
     
     try:
         manager.validate_key(None)
-        print(f"  ✗ FAILED - Should have rejected missing key")
+        print("  ✗ FAILED - Should have rejected missing key")
         return False
     except HTTPException as e:
         assert e.status_code == 401
-        print(f"  ✓ PASSED - Missing key rejected with 401")
+        print("  ✓ PASSED - Missing key rejected with 401")
         return True
 
 def test_api_key_from_env():
@@ -129,14 +129,14 @@ def test_api_server_has_auth():
                     has_auth = True
     
     if has_auth:
-        print(f"  ✗ FAILED - /health endpoint should be public")
+        print("  ✗ FAILED - /health endpoint should be public")
         return False
     
-    print(f"  ✓ PASSED - API server configured with authentication")
-    print(f"             - /health: public (no auth)")
-    print(f"             - /process: protected")
-    print(f"             - /batch: protected")
-    print(f"             - /metrics: protected")
+    print("  ✓ PASSED - API server configured with authentication")
+    print("             - /health: public (no auth)")
+    print("             - /process: protected")
+    print("             - /batch: protected")
+    print("             - /metrics: protected")
     return True
 
 def main():

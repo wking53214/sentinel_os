@@ -98,7 +98,7 @@ def test_end_to_end_flow():
     assert result["avg_frustration"] > 0.2
     assert result["reaction_count"] >= 0
     
-    print(f"  ✓ PASSED - E2E flow:")
+    print("  ✓ PASSED - E2E flow:")
     print(f"             Metrics: {result['metrics_collected']}")
     print(f"             Resolution rate: {result['avg_resolution_rate']*100:.1f}%")
     print(f"             Frustration: {result['avg_frustration']:.2f}")

@@ -37,6 +37,28 @@ FOR EACH ROW
 EXECUTE FUNCTION block_ledger_delete();
 
 
+-- Block TRUNCATE on ledger_entries
+-- Rationale: row-level BEFORE DELETE/UPDATE triggers above do NOT fire on
+-- TRUNCATE (Postgres fires TRUNCATE triggers separately, statement-level
+-- only). Without this, TRUNCATE ledger_entries; empties the entire
+-- tamper-evident audit trail in one statement, bypassing both triggers
+-- above entirely -- confirmed live: it succeeded even with both row
+-- triggers installed and even as a non-owner role, because TRUNCATE only
+-- requires TRUNCATE privilege on the table, not row-trigger permission.
+CREATE OR REPLACE FUNCTION block_ledger_truncate()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'ledger_entries is append-only: TRUNCATE not permitted';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS prevent_ledger_truncate ON ledger_entries;
+CREATE TRIGGER prevent_ledger_truncate
+BEFORE TRUNCATE ON ledger_entries
+FOR EACH STATEMENT
+EXECUTE FUNCTION block_ledger_truncate();
+
+
 -- ============================================================================
 -- Optional: Create a non-superuser role for the application
 -- ============================================================================
@@ -64,6 +86,20 @@ GRANT INSERT ON ledger_entries TO ledger_reader;
 GRANT USAGE, SELECT ON SEQUENCE ledger_entries_id_seq TO ledger_reader;
 
 -- Explicitly deny UPDATE and DELETE (defense-in-depth)
-REVOKE UPDATE, DELETE ON ledger_entries FROM ledger_reader;
+REVOKE UPDATE, DELETE, TRUNCATE ON ledger_entries FROM ledger_reader;
 REVOKE ALL ON SEQUENCE ledger_entries_id_seq FROM ledger_reader;
 GRANT USAGE, SELECT ON SEQUENCE ledger_entries_id_seq TO ledger_reader;
+
+-- ============================================================================
+-- Setting the ledger_reader password
+-- ============================================================================
+-- CREATE ROLE above intentionally does not set a password inline (don't want
+-- a credential baked into a file that gets committed to version control).
+-- Set it out-of-band after applying this file, from the same
+-- ICEBERG_LEDGER_RUNTIME_PASSWORD value the app reads at startup:
+--
+--     python3 set_ledger_reader_password.py
+--
+-- (reads ICEBERG_LEDGER_RUNTIME_PASSWORD from the environment, connects as
+-- the schema-owning superuser, and issues ALTER ROLE ledger_reader WITH
+-- PASSWORD ...). Re-run it any time the password rotates.

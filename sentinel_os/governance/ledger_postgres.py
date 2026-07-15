@@ -6,9 +6,9 @@ Replaces LocalDiskAdapter with real database: transactions, durability, ACID
 
 import json
 import hashlib
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
-import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 
 # Forensic cassette handling (ledger item: cassette snapshots for audit)
@@ -60,15 +60,51 @@ class PostgreSQLLedger:
     
     def __init__(self, host: str = "localhost", port: int = 5432, 
                  dbname: str = "iceberg", user: str = "iceberg", 
-                 password: str = "iceberg", min_connections: int = 1, max_connections: int = 10):
-        """Initialize connection pool"""
-        
+                 password: str = "iceberg", min_connections: int = 1, max_connections: int = 10,
+                 runtime_user: str = None, runtime_password: str = None):
+        """Initialize connection pool.
+
+        `user`/`password` must be privileged enough to create/alter the
+        ledger schema (run once, at startup, then discarded).
+
+        `runtime_user`/`runtime_password` (or the ICEBERG_LEDGER_RUNTIME_USER /
+        ICEBERG_LEDGER_RUNTIME_PASSWORD env vars) are what every append/read
+        after startup actually connects as. This should be a restricted role
+        (see ledger_immutability.sql's `ledger_reader`: SELECT + INSERT only,
+        no UPDATE/DELETE/DDL) so the app itself cannot tamper with or drop the
+        immutability triggers even if compromised or misused. If unset, falls
+        back to the schema-init credentials with a warning -- immutability is
+        then enforced by triggers alone, not by connection privilege.
+        """
+
+        # One-off privileged connection: create/migrate schema, then discard.
+        # Never reused for ongoing reads/writes.
         self.pool = SimpleConnectionPool(
-            min_connections, max_connections,
+            1, 1,
             host=host, port=port, database=dbname,
             user=user, password=password
         )
         self._initialize_schema()
+        self.pool.closeall()
+
+        runtime_user = runtime_user or os.getenv("ICEBERG_LEDGER_RUNTIME_USER")
+        runtime_password = runtime_password or os.getenv("ICEBERG_LEDGER_RUNTIME_PASSWORD")
+        if not runtime_user:
+            print(
+                "[WARN] ICEBERG_LEDGER_RUNTIME_USER not set -- ledger is running "
+                "with full schema-init privileges for all operations (no "
+                "connection-level defense-in-depth). Set ICEBERG_LEDGER_RUNTIME_USER "
+                "/ ICEBERG_LEDGER_RUNTIME_PASSWORD (e.g. the ledger_reader role from "
+                "ledger_immutability.sql) in production so the app connection itself "
+                "cannot UPDATE/DELETE/DROP TRIGGER even if compromised."
+            )
+            runtime_user, runtime_password = user, password
+
+        self.pool = SimpleConnectionPool(
+            min_connections, max_connections,
+            host=host, port=port, database=dbname,
+            user=runtime_user, password=runtime_password
+        )
     
     def _initialize_schema(self):
         """Create ledger table if not exists"""

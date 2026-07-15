@@ -8,9 +8,9 @@ import logging
 import json
 import time
 from functools import wraps
-from typing import Callable, Any, Optional
+from typing import Callable, Any
 from enum import Enum
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 # JSON structured logging
 class JSONFormatter(logging.Formatter):
@@ -75,7 +75,7 @@ class CircuitBreaker:
             result = func(*args, **kwargs)
             self._on_success()
             return result
-        except Exception as e:
+        except Exception:
             self._on_failure()
             raise
     

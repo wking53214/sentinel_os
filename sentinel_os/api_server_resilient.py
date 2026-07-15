@@ -4,7 +4,7 @@ Iceberg API Server (Resilient + TLS + API Key Auth)
 With SSL/HTTPS and API key authentication
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import PlainTextResponse, JSONResponse
 import uvicorn
 import os
