@@ -47,7 +47,7 @@ class IcebergProductionHarness:
         validate_cassette(self.cassette)
 
         # Data sources
-        self.twilio_parser = TwilioLogParser(cassette=cassette)
+        self.twilio_parser = TwilioLogParser(cassette=self.cassette)
         self.twilio_adapter = None  # Will init if API key provided
 
         # Observability
@@ -123,6 +123,7 @@ class IcebergProductionHarness:
         validate_cassette(cassette)
         self.cassette = cassette
         self.sentinel = SentinelCore(cassette)
+        self.twilio_parser.cassette = cassette
 
     def process_call(self, twilio_record: Dict) -> Dict:
         """Process one call through complete pipeline"""

@@ -82,20 +82,56 @@ class DomainFinder:
 sys.meta_path.insert(0, DomainFinder())
 
 
+PG_CONFIG = dict(host="localhost", port=5432, dbname="iceberg",
+                  user="iceberg", password="iceberg")
+
+
+def _pg_available() -> bool:
+    try:
+        import psycopg2
+        conn = psycopg2.connect(connect_timeout=2, **PG_CONFIG)
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
 @pytest.fixture
 def test_ledger():
-    """Provides a test ledger for testing.
-    
-    Skips cleanly if PostgreSQL is not available, following the
-    established pattern in test_cassette_governs_every_decision.py.
+    """Real PostgreSQLLedger against a live database, fresh table per test.
+
+    Skips only if PostgreSQL is genuinely unreachable at
+    iceberg/iceberg@localhost:5432 -- this used to skip unconditionally
+    regardless of whether a database was available, which meant these
+    tests could never actually run even in an environment with Postgres
+    configured. Now it probes first, same pattern as the
+    requires_pg / _pg_available check in
+    test_cassette_governs_every_decision.py.
     """
-    pytest.skip("Ledger tests require PostgreSQL (iceberg/iceberg@localhost:5432)")
+    if not _pg_available():
+        pytest.skip("Ledger tests require PostgreSQL (iceberg/iceberg@localhost:5432)")
+
+    import psycopg2
+    from governance.ledger_postgres import PostgreSQLLedger
+
+    conn = psycopg2.connect(connect_timeout=2, **PG_CONFIG)
+    conn.autocommit = True
+    conn.cursor().execute("DROP TABLE IF EXISTS ledger_entries CASCADE;")
+    conn.close()
+
+    ledger = PostgreSQLLedger(**PG_CONFIG)
+    yield ledger
+    ledger.close()
 
 
 @pytest.fixture
 def test_cassette():
-    """Provides a test cassette for testing.
-    
-    Skips cleanly if fixtures are not available.
+    """Real governing cassette (the default IVR cassette).
+
+    Previously skipped unconditionally with no attempt to construct one;
+    the default IvrCassette is what the rest of the codebase treats as
+    "a cassette" (see cassette_loader.CassetteLoader / production_harness),
+    so it's a faithful stand-in here.
     """
-    pytest.skip("Cassette tests require proper cassette fixtures")
+    from cassettes.ivr_cassette import IvrCassette
+    return IvrCassette()

@@ -174,9 +174,9 @@ class TwilioLogParser:
         
         # Read Twilio thresholds with NO fallback (type-strict, fail-loud)
         try:
-            long_threshold = params.float_value("twilio_long_duration_threshold")
-            medium_threshold = params.float_value("twilio_medium_duration_threshold")
-            short_threshold = params.float_value("twilio_short_duration_threshold")
+            long_threshold = params.int_value("twilio_long_duration_threshold")
+            medium_threshold = params.int_value("twilio_medium_duration_threshold")
+            short_threshold = params.int_value("twilio_short_duration_threshold")
         except KeyError as e:
             raise ValueError(f"Cassette missing required Twilio threshold: {e}")
         

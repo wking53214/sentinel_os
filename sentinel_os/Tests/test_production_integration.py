@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from metrics_prometheus import PrometheusMetrics
 from twilio_log_ingestion import TwilioLogParser, IcebergJourney
+from cassettes.ivr_cassette import IvrCassette
 
 def test_prometheus_metrics():
     print("\n[TEST 1] Prometheus metrics export")
@@ -36,7 +37,7 @@ def test_prometheus_metrics():
 
 def test_twilio_log_parsing():
     print("\n[TEST 2] Twilio log parsing")
-    parser = TwilioLogParser()
+    parser = TwilioLogParser(cassette=IvrCassette())
     
     # Mock Twilio record
     twilio_record = {
@@ -64,7 +65,7 @@ def test_twilio_log_parsing():
 
 def test_twilio_abandonment_parsing():
     print("\n[TEST 3] Twilio abandonment detection")
-    parser = TwilioLogParser()
+    parser = TwilioLogParser(cassette=IvrCassette())
     
     # Abandoned call
     twilio_record = {
@@ -92,7 +93,7 @@ def test_full_production_integration():
     print("\n[TEST 4] Full production integration: metrics + Twilio + governance")
     
     metrics = PrometheusMetrics()
-    parser = TwilioLogParser()
+    parser = TwilioLogParser(cassette=IvrCassette())
     
     # Simulate batch of real Twilio calls
     twilio_records = [
