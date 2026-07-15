@@ -8,6 +8,7 @@ import json
 import hashlib
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from psycopg2.pool import SimpleConnectionPool
 
@@ -57,7 +58,16 @@ class GovernanceDecisionRecord:
 
 class PostgreSQLLedger:
     """Production ledger backed by PostgreSQL"""
-    
+
+    # Trigger names ledger_immutability.sql installs. Verified present
+    # after applying the file so a missing or failed apply halts
+    # construction instead of silently leaving the ledger mutable.
+    _REQUIRED_IMMUTABILITY_TRIGGERS = (
+        "prevent_ledger_update",
+        "prevent_ledger_delete",
+        "prevent_ledger_truncate",
+    )
+
     def __init__(self, host: str = "localhost", port: int = 5432, 
                  dbname: str = "iceberg", user: str = "iceberg", 
                  password: str = "iceberg", min_connections: int = 1, max_connections: int = 10,
@@ -85,6 +95,7 @@ class PostgreSQLLedger:
             user=user, password=password
         )
         self._initialize_schema()
+        self._apply_immutability_and_verify()
         self.pool.closeall()
 
         runtime_user = runtime_user or os.getenv("ICEBERG_LEDGER_RUNTIME_USER")
@@ -172,7 +183,54 @@ class PostgreSQLLedger:
             conn.commit()
         finally:
             self.pool.putconn(conn)
-    
+
+    def _apply_immutability_and_verify(self):
+        """Apply ledger_immutability.sql and verify it actually took effect.
+
+        Previously this file was applied ONLY by the test fixture
+        (Tests/conftest.py) -- nothing in the application startup path
+        ever ran it. A real deployment got a ledger_entries table with
+        zero immutability triggers: UPDATE/DELETE/TRUNCATE all succeed
+        against a production-constructed ledger (confirmed live). This
+        runs on the same privileged connection that creates the schema,
+        applies the same file the test fixture used, then queries
+        pg_trigger to confirm the three protective triggers exist --
+        refusing to construct the ledger otherwise. No fallback: a
+        ledger that cannot prove its own immutability does not start.
+        """
+        sql_path = Path(__file__).resolve().parent.parent / "ledger_immutability.sql"
+        if not sql_path.exists():
+            raise RuntimeError(
+                f"Cannot apply ledger immutability: {sql_path} not found. "
+                "Refusing to start an unprotected ledger."
+            )
+
+        conn = self.pool.getconn()
+        try:
+            conn.autocommit = False
+            cursor = conn.cursor()
+            cursor.execute(sql_path.read_text())
+            conn.commit()
+
+            cursor.execute("""
+                SELECT tgname FROM pg_trigger t
+                JOIN pg_class r ON t.tgrelid = r.oid
+                WHERE r.relname = 'ledger_entries' AND NOT t.tgisinternal;
+            """)
+            installed = {row[0] for row in cursor.fetchall()}
+            missing = [t for t in self._REQUIRED_IMMUTABILITY_TRIGGERS if t not in installed]
+            if missing:
+                raise RuntimeError(
+                    f"Ledger immutability triggers missing after applying "
+                    f"{sql_path.name}: {missing}. The ledger would be mutable "
+                    f"(UPDATE/DELETE/TRUNCATE unprotected). Refusing to start."
+                )
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
     def append(self, action_type: str, node: str, previous_value: float,
                applied_value: float, reason: str, data: Dict) -> bool:
         """Append entry to ledger (transaction).
