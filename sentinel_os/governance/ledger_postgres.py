@@ -156,6 +156,19 @@ class PostgreSQLLedger:
                 CREATE INDEX IF NOT EXISTS idx_cassette_hash
                     ON ledger_entries(cassette_hash);
             """)
+            # Idempotency: store the raw Twilio sid so duplicate
+            # submissions can be rejected before processing. UNIQUE
+            # constraint on the column itself is the last-resort guard
+            # (catches races the application-level check can't); the
+            # normal path rejects earlier via sid_exists(). Nullable
+            # so legacy/non-Twilio rows don't collide.
+            cursor.execute("""
+                ALTER TABLE ledger_entries
+                    ADD COLUMN IF NOT EXISTS call_sid VARCHAR(100);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_call_sid
+                    ON ledger_entries(call_sid)
+                    WHERE call_sid IS NOT NULL;
+            """)
             conn.commit()
         finally:
             self.pool.putconn(conn)
@@ -319,8 +332,8 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, input_data, policy_parameters,
-                 decision_output, cassette_snapshot, cassette_hash)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 decision_output, cassette_snapshot, cassette_hash, call_sid)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (record.action_type, record.node, record.previous_value,
                   record.applied_value, record.reasoning,
                   previous_hash, current_hash, json.dumps(data),
@@ -329,7 +342,8 @@ class PostgreSQLLedger:
                   json.dumps(record.policy_parameters),
                   json.dumps(record.output),
                   json.dumps(cassette_snapshot) if cassette_snapshot else None,
-                  cassette_hash))
+                  cassette_hash,
+                  record.input_data.get("call_sid")))
             conn.commit()
             return True
         except Exception:
@@ -689,6 +703,25 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
     
+    def sid_exists(self, call_sid: str) -> bool:
+        """Check whether a call with this sid has already been recorded.
+
+        Used by the harness to reject duplicate submissions before any
+        processing happens (Option A: hard reject). The partial unique
+        index on call_sid (WHERE call_sid IS NOT NULL) is the DB-level
+        backstop for races this check can't catch.
+        """
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM ledger_entries WHERE call_sid = %s LIMIT 1;",
+                (call_sid,)
+            )
+            return cursor.fetchone() is not None
+        finally:
+            self.pool.putconn(conn)
+
     def close(self):
         """Close connection pool"""
         self.pool.closeall()

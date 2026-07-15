@@ -16,6 +16,7 @@ from observe_perceive_core import ObserveCore, FrictionEvent
 from sentinel_core import SentinelCore
 from cassette_loader import CassetteLoader
 from cassette_schema import validate_cassette
+from tracing import tracer
 from governance.ledger_postgres import GovernanceDecisionRecord
 from governance.friction_core import compute_friction
 from queue_staffing_bayes_integration import (
@@ -125,191 +126,191 @@ class IcebergProductionHarness:
     def process_call(self, twilio_record: Dict) -> Dict:
         """Process one call through complete pipeline"""
 
-        # Read the governing policy fresh, at decision time.
-        params = self._params()
-        long_wait = params.float_value("long_wait_threshold")
-        governance_trigger = params.int_value("governance_trigger")
+        with tracer.start_as_current_span("process_call") as root_span:
+            call_sid = twilio_record.get("sid")
+            root_span.set_attribute("call.sid", call_sid or "unknown")
 
-        # 1. Parse Twilio record
-        journey = self.twilio_parser.parse_call_log(twilio_record)
-        if not journey:
-            return {"error": "Failed to parse call"}
+            # 0. Reject duplicate submissions (Option A: hard reject).
+            if call_sid and self.ledger:
+                with tracer.start_as_current_span("dedup_check"):
+                    if self.ledger.sid_exists(call_sid):
+                        root_span.set_attribute("call.duplicate", True)
+                        return {
+                            "error": "duplicate_sid",
+                            "detail": f"Call {call_sid} has already been processed",
+                            "sid": call_sid,
+                        }
 
-        # 2. Observe friction -- ONE rule (friction_core), ONE threshold
-        # (the cassette's), applied to the per-node waits actually
-        # measured on this call. This measured friction_count is what
-        # governs everything downstream: quality scoring, the metrics
-        # drift record, and the governance gate. The parser's own
-        # heuristic estimate (journey.friction_count) no longer rides
-        # the governance path.
-        friction_events = []
+            # Read the governing policy fresh, at decision time.
+            params = self._params()
+            long_wait = params.float_value("long_wait_threshold")
+            governance_trigger = params.int_value("governance_trigger")
 
-        measured_waits = getattr(journey, "wait_times", {}) or {}
+            # 1. Parse Twilio record
+            with tracer.start_as_current_span("twilio_parse") as parse_span:
+                journey = self.twilio_parser.parse_call_log(twilio_record)
+                if not journey:
+                    parse_span.set_attribute("parse.success", False)
+                    return {"error": "Failed to parse call"}
+                parse_span.set_attribute("parse.success", True)
+                parse_span.set_attribute("call.duration", journey.total_duration)
 
-        # Production rule:
-        # If measured waits exist, cassette threshold is authoritative.
-        # If no waits exist, preserve supplied friction observations.
-        if measured_waits:
-            friction_count = 0
-            for node in journey.journey:
-                node_wait = measured_waits.get(node, 0)
-                if compute_friction(node_wait, long_wait):
-                    friction_count += 1
-                    friction_events.append(
-                        FrictionEvent(
-                            node=node,
-                            type="long_wait",
-                            severity=0.5,
-                            timestamp=0
+            # 2. Observe friction
+            friction_events = []
+            measured_waits = getattr(journey, "wait_times", {}) or {}
+            if measured_waits:
+                friction_count = 0
+                for node in journey.journey:
+                    node_wait = measured_waits.get(node, 0)
+                    if compute_friction(node_wait, long_wait):
+                        friction_count += 1
+                        friction_events.append(
+                            FrictionEvent(
+                                node=node,
+                                type="long_wait",
+                                severity=0.5,
+                                timestamp=0
+                            )
                         )
-                    )
-        else:
-            friction_count = getattr(journey, "friction_count", 0)
+            else:
+                friction_count = getattr(journey, "friction_count", 0)
 
-        
-        # 3. Perceive emotional state
-        emotion = self.observer.get_emotional_state(
-            journey.caller_id, friction_events, journey.total_duration
-        )
-        
-        # 4. Sentinel: Infer intent & quality
-        first_queue = next((n for n in journey.journey if "queue" in n), "general_queue")
-        intent_signal = self.sentinel.infer_intent(journey.journey, first_queue)
-        quality_score = self.sentinel.score_outcome_quality(
-            journey.resolved, journey.total_duration,
-            friction_count, emotion
-        )
-        
-        # 5. Record metrics
-        self.metrics.record_call(
-            wait_time=journey.total_duration * 0.3,
-            resolved=journey.resolved,
-            resolution_time=journey.total_duration
-        )
-        
-        if friction_count > 0:
-            self.metrics.record_drift_detection(first_queue, 0.2)
-        
-        # 6. Bayes: Update intent success rates
-        self.bayes.observe_outcome(
-            intent_signal.queue_chosen,
-            journey.resolved,
-            journey.total_duration
-        )
-        
-        # 7. Governance gate: cassette trigger decides who is governed.
-        # Normal production calls use calculated friction.
-        # Test/injected journeys may carry observed friction_count and must
-        # remain authoritative for safety gating.
-        claude_decision = None
+            # 3. Perceive emotional state
+            emotion = self.observer.get_emotional_state(
+                journey.caller_id, friction_events, journey.total_duration
+            )
 
-        governance_friction_count = max(
-            friction_count,
-            getattr(journey, "friction_count", 0) or 0
-        )
+            # 4. Sentinel: Infer intent & quality
+            first_queue = next((n for n in journey.journey if "queue" in n), "general_queue")
+            intent_signal = self.sentinel.infer_intent(journey.journey, first_queue)
+            quality_score = self.sentinel.score_outcome_quality(
+                journey.resolved, journey.total_duration,
+                friction_count, emotion
+            )
 
-        governed = governance_friction_count >= governance_trigger
+            # 5. Record metrics
+            self.metrics.record_call(
+                wait_time=journey.total_duration * 0.3,
+                resolved=journey.resolved,
+                resolution_time=journey.total_duration
+            )
 
-        if self.claude_decider and governed:
-            try:
-                claude_decision = self.claude_decider.safety_check(
-                    "heal_queue",
-                    {
-                        "queue": first_queue,
-                        "wait_time": journey.total_duration,
-                        "friction_count": friction_count
-                    }
-                )
-            except Exception as e:
-                print(f"Claude decision failed: {e}")
+            if friction_count > 0:
+                self.metrics.record_drift_detection(first_queue, 0.2)
+
+            # 6. Bayes: Update intent success rates
+            self.bayes.observe_outcome(
+                intent_signal.queue_chosen,
+                journey.resolved,
+                journey.total_duration
+            )
+
+            # 7. Governance gate
+            claude_decision = None
+
+            governance_friction_count = max(
+                friction_count,
+                getattr(journey, "friction_count", 0) or 0
+            )
+
+            governed = governance_friction_count >= governance_trigger
+            root_span.set_attribute("call.governed", governed)
+            root_span.set_attribute("call.queue", first_queue)
+            root_span.set_attribute("call.friction_count", friction_count)
+
+            if self.claude_decider and governed:
+                with tracer.start_as_current_span("governance_decision") as gov_span:
+                    try:
+                        claude_decision = self.claude_decider.safety_check(
+                            "heal_queue",
+                            {
+                                "queue": first_queue,
+                                "wait_time": journey.total_duration,
+                                "friction_count": friction_count
+                            }
+                        )
+                        gov_span.set_attribute("decision.approved", bool(claude_decision.get("safe")))
+                    except Exception as e:
+                        print(f"Claude decision failed: {e}")
+                        gov_span.record_exception(e)
+                        claude_decision = {
+                            "safe": False,
+                            "governed": False,
+                            "parse_failed": True,
+                            "reasoning": f"Governor exception: {str(e)}",
+                            "confidence": 0.0
+                        }
+
+            elif governed:
                 claude_decision = {
                     "safe": False,
                     "governed": False,
-                    "parse_failed": True,
-                    "reasoning": f"Governor exception: {str(e)}",
+                    "parse_failed": False,
+                    "reasoning": "Governance required but no governor configured",
                     "confidence": 0.0
                 }
-
-        elif governed:
-            claude_decision = {
-                "safe": False,
-                "governed": False,
-                "parse_failed": False,
-                "reasoning": "Governance required but no governor configured",
-                "confidence": 0.0
+        
+            # 8. Ledger: record the governance DECISION
+            if self.ledger and claude_decision is not None:
+                with tracer.start_as_current_span("ledger_write"):
+                    try:
+                        approved = bool(claude_decision.get("safe"))
+                        root_span.set_attribute("call.approved", approved)
+                        self.ledger.append_decision(GovernanceDecisionRecord(
+                            action_type="governance_decision",
+                            node=first_queue,
+                            cassette_version=params.cassette_version,
+                            input_data={
+                                "caller_id": journey.caller_id,
+                                "call_sid": call_sid,
+                                "friction_count": friction_count,
+                                "governance_trigger": governance_trigger,
+                                "wait_time": journey.total_duration,
+                                "quality_tier": quality_score.quality_tier.value,
+                                "intent_classification": intent_signal.classification,
+                                "intent_confidence": intent_signal.confidence,
+                                "intent_reasoning": intent_signal.reasoning,
+                            },
+                            policy_parameters=params.snapshot(),
+                            reasoning=claude_decision.get("reasoning", ""),
+                            output={
+                                "approved": approved,
+                                "risk_level": claude_decision.get("risk_level"),
+                                "confidence": claude_decision.get("confidence"),
+                            },
+                            previous_value=journey.total_duration,
+                            applied_value=journey.total_duration,
+                            parameter_changed=False,
+                        ), governance_params=params)
+                    except Exception as e:
+                        print(f"Ledger append failed: {e}")
+        
+            return {
+                "caller_id": journey.caller_id,
+                "resolved": journey.resolved,
+                "quality": quality_score.quality_tier.value,
+                "intent": intent_signal.queue_chosen,
+                "intent_classification": intent_signal.classification,
+                "emotion_frustration": emotion.frustration,
+                "claude_safe": claude_decision.get("safe") if claude_decision else None,
+                "governance_required": governed,
+                "governance_approved": (
+                    claude_decision.get("safe", False)
+                    if claude_decision is not None
+                    else False
+                ),
+                "governance_blocked": (
+                    governed and (
+                        claude_decision is None or
+                        not claude_decision.get("safe", False)
+                    )
+                ),
+                "metrics_recorded": True,
+                "friction_count": friction_count,
+                "governed": governed,
+                "governance_trigger": governance_trigger,
+                "cassette_version": params.cassette_version,
             }
-        
-        # 8. Ledger: record the governance DECISION -- approvals and
-        # rejections alike, whenever the governor actually ran. The
-        # record carries the cassette version and the full policy
-        # snapshot that governed it, so every row is traceable to the
-        # policy in force. applied_value mirrors previous (advisory:
-        # nothing was written), parameter_changed=False.
-        if self.ledger and claude_decision is not None:
-            try:
-                approved = bool(claude_decision.get("safe"))
-                self.ledger.append_decision(GovernanceDecisionRecord(
-                    action_type="governance_decision",
-                    node=first_queue,
-                    cassette_version=params.cassette_version,
-                    input_data={
-                        "caller_id": journey.caller_id,
-                        "friction_count": friction_count,
-                        "governance_trigger": governance_trigger,
-                        "wait_time": journey.total_duration,
-                        "quality_tier": quality_score.quality_tier.value,
-                        # Intent inference that informed this decision.
-                        # Carried inline so the cassette-native intent
-                        # label, its confidence, and its reasoning ride
-                        # inside the same SHA-256 chain as the decision --
-                        # a regulator can ask "what intent did you infer
-                        # for this governed call?" and get a tamper-evident
-                        # answer, not a number the engine computed and
-                        # dropped.
-                        "intent_classification": intent_signal.classification,
-                        "intent_confidence": intent_signal.confidence,
-                        "intent_reasoning": intent_signal.reasoning,
-                    },
-                    policy_parameters=params.snapshot(),
-                    reasoning=claude_decision.get("reasoning", ""),
-                    output={
-                        "approved": approved,
-                        "risk_level": claude_decision.get("risk_level"),
-                        "confidence": claude_decision.get("confidence"),
-                    },
-                    previous_value=journey.total_duration,
-                    applied_value=journey.total_duration,
-                    parameter_changed=False,
-                ), governance_params=params)
-            except Exception as e:
-                print(f"Ledger append failed: {e}")
-        
-        return {
-            "caller_id": journey.caller_id,
-            "resolved": journey.resolved,
-            "quality": quality_score.quality_tier.value,
-            "intent": intent_signal.queue_chosen,
-            "intent_classification": intent_signal.classification,
-            "emotion_frustration": emotion.frustration,
-            "claude_safe": claude_decision.get("safe") if claude_decision else None,
-            "governance_required": governed,
-            "governance_approved": (
-                claude_decision.get("safe", False)
-                if claude_decision is not None
-                else False
-            ),
-            "governance_blocked": (
-                governed and (
-                    claude_decision is None or
-                    not claude_decision.get("safe", False)
-                )
-            ),
-            "metrics_recorded": True,
-            "friction_count": friction_count,
-            "governed": governed,
-            "governance_trigger": governance_trigger,
-            "cassette_version": params.cassette_version,
-        }
     
     def process_batch(self, twilio_records: list) -> Dict:
         """Process batch of calls through complete pipeline"""
