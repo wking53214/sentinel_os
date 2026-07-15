@@ -11,9 +11,9 @@ Proves that:
 
 import pytest
 import json
-from sentinel_os.governance.ledger_postgres import PostgreSQLLedger, GovernanceDecisionRecord
-from sentinel_os.cassette_schema import validate_cassette, cassette_version_of
-from sentinel_os.cassette_forensics import (
+from governance.ledger_postgres import PostgreSQLLedger, GovernanceDecisionRecord
+from cassette_schema import validate_cassette, cassette_version_of
+from cassette_forensics import (
     serialize_cassette_for_ledger,
     compute_cassette_hash,
     reconstruct_cassette_for_decision,
