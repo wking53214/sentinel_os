@@ -159,10 +159,29 @@ if os.getenv("ICEBERG_API_KEYS") or _REQUIRE_KEYS:
                 f"imported ({exc}); refusing to start an open ingress."
             ) from exc
         logger.warning(f"ingress auth: api_key_auth unavailable ({exc}); starting OPEN")
+
+    # F-F: rate limiting keyed on validated caller identity, never
+    # connecting IP (this ingress sits behind nginx — one IP for every
+    # caller — and never on any payload-supplied identity). Attached
+    # ONLY here, alongside auth: without a validated principal there is
+    # no safe identity to bucket by, and falling back to IP for an
+    # unauthenticated deployment would silently reintroduce the exact
+    # shared-IP defect (F-F) this file exists to fix. Appended after
+    # the auth guard above so it always runs second: an unvalidated key
+    # 401/403s at require_api_key first and never reaches this bucket.
+    try:
+        from rate_limiter_v2 import rate_limit_v2  # type: ignore
+        INGRESS_GUARDS.append(Depends(rate_limit_v2))
+        logger.info("ingress rate limiting: rate_limiter_v2.rate_limit_v2 attached")
+    except Exception as exc:  # pragma: no cover - config error path
+        logger.warning(f"ingress rate limiting: rate_limiter_v2 unavailable ({exc}); starting WITHOUT it")
 else:
     logger.warning(
         "ingress auth: DISABLED (no ICEBERG_API_KEYS set) — dev mode only. "
-        "Set ICEBERG_API_KEYS=key:name to attach the existing guard."
+        "Set ICEBERG_API_KEYS=key:name to attach the existing guard. "
+        "Rate limiting (rate_limiter_v2) also does not attach in this mode: "
+        "there is no validated caller identity to bucket by without auth, "
+        "and bucketing by connecting IP behind nginx would reintroduce F-F."
     )
 
 # --------------------------------------------------------------------------
