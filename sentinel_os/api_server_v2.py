@@ -125,7 +125,26 @@ logger = _project_logger("IngressV2")
 # lease policy belongs to queue_schema.py defaults and the worker.
 # --------------------------------------------------------------------------
 REDIS_URL = os.getenv("TRANSMISSION_REDIS_URL", "redis://localhost:6379/0")
-NAMESPACE = os.getenv("TRANSMISSION_NAMESPACE", "tq")
+
+# Converter, not a handshake (F-J: the ingress and worker used to have
+# two INDEPENDENT queue-identity knobs -- TRANSMISSION_NAMESPACE here,
+# --queue-name/SENTINEL_QUEUE_NAME on the worker -- that had to be set
+# to values which happened to resolve to the same physical Redis key
+# prefix. With stock defaults on both sides they did NOT (confirmed
+# live: a submitted job sat at 'pending' forever, the worker polled an
+# empty keyspace, no error anywhere). A handshake would only catch that
+# mismatch after the fact, at startup. This removes the second knob
+# instead: SENTINEL_QUEUE_ID is the one shared identifier both
+# processes read by default. The worker's queue library (queue_schema.py)
+# already turns a bare name into prefix "sq:{name}" for its dialect;
+# the ingress derives the identical prefix here rather than taking an
+# independently-set raw namespace. TRANSMISSION_NAMESPACE remains as an
+# explicit escape hatch for direct dialect-level control (e.g. running
+# the ingress against a namespace with no worker attached at all), and
+# takes precedence when set -- but nobody has to remember to set it for
+# the common case to work.
+_QUEUE_ID = os.getenv("SENTINEL_QUEUE_ID", "v12")
+NAMESPACE = os.getenv("TRANSMISSION_NAMESPACE") or f"sq:{_QUEUE_ID}"
 MAX_BODY_BYTES = int(os.getenv("INGRESS_MAX_BODY_BYTES", str(256 * 1024)))
 RETRY_AFTER_S = int(os.getenv("INGRESS_RETRY_AFTER_SECONDS", "5"))
 
