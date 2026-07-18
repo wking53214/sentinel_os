@@ -23,6 +23,7 @@ from queue_staffing_bayes_integration import (
     StaffingCoordinator, BayesianIntentEngine
 )
 from operational_resilience import setup_logging
+from circuit_breaker import CircuitBreaker
 
 logger = setup_logging("IcebergProductionHarness")
 
@@ -65,7 +66,19 @@ class IcebergProductionHarness:
         # Operations
         self.staffing = StaffingCoordinator()
         self.bayes = BayesianIntentEngine()
-        
+
+        # Roadster phase-1 (F-A): per-resource breakers. Two separate
+        # instances -- a struggling Postgres connection must never gate
+        # the Claude governor call, or vice versa. Always constructed
+        # (cheap, no I/O); only exercised when the corresponding client
+        # below is actually configured.
+        self.claude_breaker = CircuitBreaker(
+            name="claude_governor", failure_threshold=5, reset_timeout_s=30,
+        )
+        self.ledger_breaker = CircuitBreaker(
+            name="postgres_ledger", failure_threshold=3, reset_timeout_s=15,
+        )
+
         self._init_optional_components()
     
     def _init_optional_components(self):
@@ -235,16 +248,32 @@ class IcebergProductionHarness:
             if self.claude_decider and governed:
                 with tracer.start_as_current_span("governance_decision") as gov_span:
                     try:
-                        claude_decision = self.claude_decider.safety_check(
+                        claude_decision = self.claude_breaker.call(
+                            self.claude_decider.safety_check,
                             "heal_queue",
                             {
                                 "queue": first_queue,
                                 "wait_time": journey.total_duration,
                                 "friction_count": friction_count
-                            }
+                            },
+                            # safety_check() fails closed by RETURNING a
+                            # dict, never raising (see its own
+                            # docstring) -- an exception-only breaker
+                            # would never see these. Only the
+                            # "transport_error:"-prefixed reasoning is a
+                            # real API/network failure worth tripping
+                            # the breaker on; a malformed-JSON or
+                            # bad-shape response from a live, reachable
+                            # API is not an outage and must not count.
+                            is_failure=lambda r: isinstance(r, dict) and str(
+                                r.get("reasoning", "")
+                            ).startswith("transport_error:"),
                         )
                         gov_span.set_attribute("decision.approved", bool(claude_decision.get("safe")))
                     except Exception as e:
+                        # CircuitOpenError (breaker OPEN) lands here too --
+                        # same fail-closed shape as any other governor
+                        # exception, no new branch needed.
                         print(f"Claude decision failed: {e}")
                         gov_span.record_exception(e)
                         mark_error(gov_span, f"Governor exception: {e}")
@@ -272,33 +301,40 @@ class IcebergProductionHarness:
                     try:
                         approved = bool(claude_decision.get("safe"))
                         root_span.set_attribute("call.approved", approved)
-                        self.ledger.append_decision(GovernanceDecisionRecord(
-                            action_type="governance_decision",
-                            node=first_queue,
-                            cassette_version=params.cassette_version,
-                            input_data={
-                                "caller_id": journey.caller_id,
-                                "call_sid": call_sid,
-                                "friction_count": friction_count,
-                                "governance_trigger": governance_trigger,
-                                "wait_time": journey.total_duration,
-                                "quality_tier": quality_score.quality_tier.value,
-                                "intent_classification": intent_signal.classification,
-                                "intent_confidence": intent_signal.confidence,
-                                "intent_reasoning": intent_signal.reasoning,
-                            },
-                            policy_parameters=params.snapshot(),
-                            reasoning=claude_decision.get("reasoning", ""),
-                            output={
-                                "approved": approved,
-                                "risk_level": claude_decision.get("risk_level"),
-                                "confidence": claude_decision.get("confidence"),
-                            },
-                            previous_value=journey.total_duration,
-                            applied_value=journey.total_duration,
-                            parameter_changed=False,
-                        ), governance_params=params)
+                        self.ledger_breaker.call(
+                            self.ledger.append_decision,
+                            GovernanceDecisionRecord(
+                                action_type="governance_decision",
+                                node=first_queue,
+                                cassette_version=params.cassette_version,
+                                input_data={
+                                    "caller_id": journey.caller_id,
+                                    "call_sid": call_sid,
+                                    "friction_count": friction_count,
+                                    "governance_trigger": governance_trigger,
+                                    "wait_time": journey.total_duration,
+                                    "quality_tier": quality_score.quality_tier.value,
+                                    "intent_classification": intent_signal.classification,
+                                    "intent_confidence": intent_signal.confidence,
+                                    "intent_reasoning": intent_signal.reasoning,
+                                },
+                                policy_parameters=params.snapshot(),
+                                reasoning=claude_decision.get("reasoning", ""),
+                                output={
+                                    "approved": approved,
+                                    "risk_level": claude_decision.get("risk_level"),
+                                    "confidence": claude_decision.get("confidence"),
+                                },
+                                previous_value=journey.total_duration,
+                                applied_value=journey.total_duration,
+                                parameter_changed=False,
+                            ),
+                            governance_params=params,
+                        )
                     except Exception as e:
+                        # CircuitOpenError (breaker OPEN) lands here too --
+                        # same ledger_write_failed=True / retryable shape
+                        # sentinel_worker.py already fails correctly on.
                         # A decision that isn't durably recorded is not an
                         # audited decision. This used to be a print() with
                         # the function falling through to report
