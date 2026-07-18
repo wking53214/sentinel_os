@@ -1,0 +1,6 @@
+venv/
+*.log
+chaos_metrics.json
+__pycache__/
+*.pyc
+.pytest_cache/
