@@ -234,7 +234,7 @@ class SentinelWorker:
         self.start_reaper()
         idle_streak = 0
         logger.info("Worker starting", extra={"extra_data": {
-            "worker_id": self.worker_id}})
+            "worker_id": self.worker_id, "queue_prefix": self.queue.prefix}})
         try:
             while not self._stop.is_set():
                 job = self.queue.claim(
@@ -262,8 +262,16 @@ def main() -> None:
     parser.add_argument("--worker-id", default=None)
     parser.add_argument("--redis-url", default=os.getenv(
         "SENTINEL_REDIS_URL", "redis://localhost:6379/0"))
+    # Converter (see api_server_v2.py's matching comment for the full
+    # story): SENTINEL_QUEUE_ID is the one identifier both this worker
+    # and the ingress read by default, so there is nothing for an
+    # operator to keep in sync across two processes by hand.
+    # SENTINEL_QUEUE_NAME remains available as an explicit override for
+    # anyone who wants this worker on a different queue than the
+    # ingress's default derivation would produce -- it takes precedence
+    # when set.
     parser.add_argument("--queue-name", default=os.getenv(
-        "SENTINEL_QUEUE_NAME", "v12"))
+        "SENTINEL_QUEUE_NAME", os.getenv("SENTINEL_QUEUE_ID", "v12")))
     args = parser.parse_args()
 
     harness = IcebergProductionHarness(_harness_config_from_env())
