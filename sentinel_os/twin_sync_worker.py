@@ -25,6 +25,7 @@ operator requeue_from_dlq path).
 from __future__ import annotations
 
 import argparse
+import base64
 import os
 import time
 import uuid
@@ -57,7 +58,15 @@ class TwinSyncWorker:
         }
         if os.environ.pop("TWIN_SYNC_CORRUPT_ONCE", None):
             env = dict(entry["envelope"])
-            env["ct"] = env["ct"][: max(4, len(env["ct"]) // 3)]  # torn delivery
+            # Truncate hard enough that the raw ciphertext drops below the
+            # receiver's structural minimum (a full AES-GCM tag is 16 bytes,
+            # so anything under 17 raw bytes cannot be a real ciphertext+tag).
+            # A proportional truncation (e.g. len//3) is NOT guaranteed to
+            # cross that floor for small payloads -- it can decode to a
+            # plausible-length-but-wrong-content blob that passes shape
+            # validation and gets silently stored, which is not what "torn
+            # delivery" is meant to simulate.
+            env["ct"] = base64.b64encode(base64.b64decode(env["ct"])[:8]).decode()
             entry["envelope"] = env
         url = f"{p['receiver_url'].rstrip('/')}/replica/{p['replica_id']}/entries"
         return httpx.post(url, json=entry,

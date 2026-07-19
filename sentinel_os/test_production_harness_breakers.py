@@ -145,18 +145,29 @@ LEDGER_WRITE_TEST_PASSWORD = "ledger_write_test"
 
 
 def _revoke_insert():
+    """Revoke real INSERT (and the sequence USAGE INSERT depends on for the
+    SERIAL id column -- GRANT/REVOKE INSERT on the table alone does not cover
+    the backing sequence; a role with table INSERT but no sequence USAGE
+    still gets a real permission-denied error, just on the sequence instead
+    of the table. Revoking both keeps the surgical failure genuinely total.)."""
     conn = psycopg2.connect(**PG_DSN)
     conn.autocommit = True
     cur = conn.cursor()
     cur.execute(f"REVOKE INSERT ON ledger_entries FROM {LEDGER_WRITE_TEST_USER};")
+    cur.execute(
+        f"REVOKE USAGE ON SEQUENCE ledger_entries_id_seq FROM {LEDGER_WRITE_TEST_USER};")
     conn.close()
 
 
 def _grant_insert():
+    """Grant real INSERT plus the sequence USAGE it depends on (see
+    _revoke_insert for why both are required)."""
     conn = psycopg2.connect(**PG_DSN)
     conn.autocommit = True
     cur = conn.cursor()
     cur.execute(f"GRANT INSERT ON ledger_entries TO {LEDGER_WRITE_TEST_USER};")
+    cur.execute(
+        f"GRANT USAGE ON SEQUENCE ledger_entries_id_seq TO {LEDGER_WRITE_TEST_USER};")
     conn.close()
 
 
