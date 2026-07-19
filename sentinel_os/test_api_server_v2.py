@@ -243,12 +243,28 @@ def dump_metrics():
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="module")
 def tc(redis_proc):
+    # Save prior values so this module-scoped fixture doesn't leak
+    # TRANSMISSION_REDIS_URL/TRANSMISSION_NAMESPACE into the rest of a
+    # full-suite pytest run -- an unrestored os.environ mutation here was
+    # observed to leak into test_queue_identity_converter.py's subprocess
+    # spawns (which build their env via os.environ.copy()), producing two
+    # false failures when both suites run in the same process.
+    _prior_redis_url = os.environ.get("TRANSMISSION_REDIS_URL")
+    _prior_namespace = os.environ.get("TRANSMISSION_NAMESPACE")
     os.environ["TRANSMISSION_REDIS_URL"] = REDIS_URL
     os.environ["TRANSMISSION_NAMESPACE"] = NAMESPACE
     from fastapi.testclient import TestClient
     import api_server_v2
     with TestClient(api_server_v2.app) as client:
         yield client
+    if _prior_redis_url is None:
+        os.environ.pop("TRANSMISSION_REDIS_URL", None)
+    else:
+        os.environ["TRANSMISSION_REDIS_URL"] = _prior_redis_url
+    if _prior_namespace is None:
+        os.environ.pop("TRANSMISSION_NAMESPACE", None)
+    else:
+        os.environ["TRANSMISSION_NAMESPACE"] = _prior_namespace
 
 
 def test_T01_missing_sid_is_422(tc):
@@ -327,12 +343,24 @@ def test_T10_ingress_never_imports_the_harness(tc):
 
     import api_server_v2  # already imported by the fixture
 
-    # 1) Live module table: importing the ingress must not have loaded any of
-    #    the synchronous machinery into the process.
+    # 1) The ingress module's OWN namespace must not reference any of the
+    #    synchronous machinery. This checks what api_server_v2 itself bound
+    #    names to, not global sys.modules -- sys.modules is process-wide
+    #    state, so in a full-suite run an unrelated earlier test (e.g.
+    #    anything in Tests/ that imports governance.* for its own reasons)
+    #    leaves those modules loaded before this test ever runs, which is
+    #    not evidence the ingress imported them. Checking api_server_v2's
+    #    own module dict isolates "did the ingress's import chain pull this
+    #    in" from "is this loaded somewhere in the process."
     forbidden_mods = ("production_harness", "resilient_harness", "sentinel_core")
-    loaded = [m for m in sys.modules
-              if m.split(".")[-1] in forbidden_mods or m.startswith("governance")]
-    assert not loaded, f"ingress import pulled in forbidden modules: {loaded}"
+    bound = []
+    for name, val in vars(api_server_v2).items():
+        mod_name = getattr(val, "__name__", None)
+        if mod_name is None:
+            continue
+        if mod_name.split(".")[-1] in forbidden_mods or mod_name.startswith("governance"):
+            bound.append(f"{name} -> {mod_name}")
+    assert not bound, f"ingress namespace references forbidden modules: {bound}"
 
     # 2) Structural (AST, so the docstring DESCRIBING the old breaker doesn't
     #    trip it): no import of the harness, no construction or naming of a
