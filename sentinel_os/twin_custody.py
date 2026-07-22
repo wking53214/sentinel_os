@@ -49,6 +49,11 @@ import json
 import os
 from typing import Any, Dict, Optional, Tuple
 
+# Same contract the primary ledger uses to add optional fields to the hash.
+# Importing it (rather than re-listing the fields here) is what guarantees the
+# witness and the writer can never drift on which keys enter the canonical form.
+from canonical_fields import apply_optional_hashed_fields
+
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -199,6 +204,12 @@ SHIPPED_COLUMNS = [
     "reason", "previous_hash", "current_hash", "data", "record_kind",
     "cassette_version", "input_data", "policy_parameters", "decision_output",
     "cassette_snapshot", "cassette_hash", "call_sid",
+    # Phase-2 forensic columns. Shipped so the witness can (a) recompute the
+    # hash of any new-format row and (b) hold the customer's honest copy of
+    # cassette_code_hash / model_identity / authorizing identity. Legacy rows
+    # carry NULL here and recompute exactly as before.
+    "cassette_code_hash", "model_identity", "authorized_by",
+    "supersedes_id", "supersedes_hash",
 ]
 
 
@@ -230,8 +241,39 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
             "parameter_changed": bool((row.get("data") or {}).get("parameter_changed")),
             "previous_hash": row["previous_hash"],
         }
-        if row.get("cassette_hash"):
-            canonical["cassette_hash"] = row["cassette_hash"]
+        # Optional hashed fields via the SAME contract the writer uses. The
+        # shipped-row column names already match the canonical keys for every
+        # optional field (cassette_hash, cassette_code_hash, model_identity,
+        # authorized_by, supersedes_hash), so the row itself is the source.
+        # Legacy rows have these NULL -> omitted -> byte-identical to Phase-1.
+        apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") == "cassette_binding":
+        # Mirrors ledger_postgres.bind_cassette_version(). Item 2.
+        canonical = {
+            "record_kind": "cassette_binding",
+            "cassette_version": row["cassette_version"],
+            "previous_hash": row["previous_hash"],
+        }
+        # cassette_hash + cassette_code_hash enter via the shared contract; the
+        # shipped column names match the canonical keys.
+        apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") == "decision_supersession":
+        # Mirrors ledger_postgres.supersede_decision(). Item 6. The writer
+        # stored the authorizing identity in the authorized_by column but hashed
+        # it under BOTH "authority" (explicit field) and "authorized_by" (via the
+        # shared contract). corrected_output was stored in the decision_output
+        # column. Reconstruct those mappings exactly.
+        canonical = {
+            "record_kind": "decision_supersession",
+            "supersedes_id": row["supersedes_id"],
+            "cassette_version": row["cassette_version"],
+            "authority": row["authorized_by"],
+            "reason": row["reason"],
+            "corrected_output": row["decision_output"],
+            "previous_hash": row["previous_hash"],
+        }
+        # supersedes_hash + authorized_by enter via the shared contract.
+        apply_optional_hashed_fields(canonical, row)
     else:
         canonical = {
             "action_type": row["action_type"],

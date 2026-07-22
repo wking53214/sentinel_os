@@ -13,3 +13,4 @@ opentelemetry-sdk>=1.20
 opentelemetry-exporter-otlp-proto-grpc>=1.20  # only needed if OTEL_EXPORTER_OTLP_ENDPOINT is set
 redis==8.0.1
 httpx2==2.7.0
+cryptography>=41.0  # twin_custody.py: ECIES envelopes, Ed25519/X25519, AES-GCM, HKDF
