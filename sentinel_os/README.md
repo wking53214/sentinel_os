@@ -32,10 +32,10 @@ Traditional IVR systems are rigid, inflexible, and frustrating:
 | **Real-Time Analytics** | ✅ Ready | Intent detection, quality scoring, diagnostics |
 | **Multi-AI Orchestration** | ✅ Ready | Coordinates Claude + domain models |
 | **Tamper-Evident Ledger** | ✅ Ready | PostgreSQL-backed immutable audit log |
-| **End-to-End Testing** | 🔄 In Progress | 110 tests passing; 7 skipped (needs live Postgres) |
+| **End-to-End Testing** | ✅ Ready | 270 tests passing on real CI (Postgres 16 + Redis) |
 | **Production Deployment** | 🔄 In Progress | Docker & Kubernetes configs ready; live testing ongoing |
 
-**Performance:** 942K calls/second verified ⚡
+**Performance:** Not yet benchmarked end-to-end against the real API/ledger path — see [Load Testing & Performance](#load-testing--performance) below.
 
 ---
 
@@ -157,13 +157,18 @@ python3 sentinel_os/iceberg_complete_simulator.py
 
 ## Known Limitations & What's Not Ready Yet
 
-🔄 **Currently Being Hardened:**
-- **7 skipped tests** require a live PostgreSQL instance (full test suite runs in CI)
-- **4 TLS tests** require locally generated certificates (included in CI)
-- **Live end-to-end verification** with real Postgres ledger and Claude API still being tested
-- **Production deployment** on live call systems not yet verified
+**Currently verified:**
+- 270 tests passing on real CI (Postgres 16 + Redis), 0 failed
+- Docker Compose full-stack deployment verified live (ledger connected, health checks pass)
+- Standalone in-memory simulator verified live
 
-**Status:** Core governance logic and test coverage are solid. Not claiming "production ready" until live end-to-end verification is complete.
+**Still open** (see `governance/README.md` and `docs/CHANGELOG.md` for detail):
+- Cassette-load-time hash enforcement (mechanism exists, not yet wired to cassette load)
+- Cassette-snapshot forgery detection (twin custody doesn't yet cross-check live primary snapshot against replica)
+- Bias testing and adverse-action specificity for governance decisions
+- `test_twin_live.py` requires infrastructure (3 separate OS identities + real TLS PKI between them) not yet reconstructed in CI -- excluded explicitly, not silently skipped
+
+**Status:** Core governance logic, test coverage, and both primary deployment paths (Docker Compose, standalone simulator) are live-verified. Production deployment against real call systems has not been attempted.
 
 **Timeline:** See issues and milestones for progress updates.
 
@@ -181,14 +186,20 @@ python3 sentinel_os/iceberg_complete_simulator.py
 
 ## Load Testing & Performance
 
-Verified performance benchmarks:
 ```bash
 # Run load tests
 python3 sentinel_os/load_test_live.py  # Against live API
-python3 sentinel_os/load_test.py       # Against simulator
-
-# Expected: 942K+ calls/second throughput
+python3 sentinel_os/load_test.py       # Against in-memory drift-detection math
 ```
+
+`load_test.py` exercises the drift-detection/self-heal functions directly
+in memory (no API, ledger, or governance call in the loop), which is where
+past "942K calls/sec" figures came from -- that number reflects raw
+in-memory function throughput, not real governed call processing.
+`load_test_live.py` hits the actual API server and is the more meaningful
+number for real-world capacity, but no committed benchmark report exists
+yet for that path. Treat any throughput figure here as directional until
+a real end-to-end benchmark is run and linked.
 
 ---
 
@@ -208,7 +219,10 @@ See open issues for areas needing help.
 
 ## License
 
-[Add your license here]
+No license has been chosen yet. Until one is added, default copyright
+applies -- all rights reserved, no permission is granted to use, copy,
+modify, or distribute this code. If you intend for others to use this
+project, pick a license (e.g. MIT, Apache-2.0) and add a LICENSE file.
 
 ---
 
