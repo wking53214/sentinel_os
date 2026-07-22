@@ -144,6 +144,31 @@ LEDGER_WRITE_TEST_USER = "ledger_write_test"
 LEDGER_WRITE_TEST_PASSWORD = "ledger_write_test"
 
 
+def _ensure_ledger_write_test_role():
+    """Idempotently provision the `ledger_write_test` role itself.
+
+    Pre-existing gap, unrelated to the ICEBERG_LEDGER_RUNTIME_USER
+    fail-closed fix: this role was documented (see
+    roadster_breakers_verification_report_v1.md) as "a real, restricted
+    Postgres role, SELECT-only on ledger_entries" but nothing in the
+    repo actually created it -- it was assumed pre-provisioned outside
+    the suite. Made idempotent here so the suite is self-contained
+    rather than failing on a fresh database with `role does not exist`.
+    """
+    conn = psycopg2.connect(**PG_DSN)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute(
+        f"DO $$ BEGIN IF NOT EXISTS "
+        f"(SELECT FROM pg_roles WHERE rolname='{LEDGER_WRITE_TEST_USER}') THEN "
+        f"CREATE ROLE {LEDGER_WRITE_TEST_USER} WITH LOGIN "
+        f"PASSWORD '{LEDGER_WRITE_TEST_PASSWORD}'; END IF; END $$;"
+    )
+    cur.execute(f"GRANT USAGE ON SCHEMA public TO {LEDGER_WRITE_TEST_USER};")
+    cur.execute(f"GRANT SELECT ON ledger_entries TO {LEDGER_WRITE_TEST_USER};")
+    conn.close()
+
+
 def _revoke_insert():
     """Revoke real INSERT (and the sequence USAGE INSERT depends on for the
     SERIAL id column -- GRANT/REVOKE INSERT on the table alone does not cover
@@ -180,6 +205,7 @@ def harness_no_claude():
     surgically, realistically failed without breaking sid_exists()."""
     os.environ["ICEBERG_LEDGER_RUNTIME_USER"] = LEDGER_WRITE_TEST_USER
     os.environ["ICEBERG_LEDGER_RUNTIME_PASSWORD"] = LEDGER_WRITE_TEST_PASSWORD
+    _ensure_ledger_write_test_role()
     _grant_insert()
     h = IcebergProductionHarness({
         "postgres_host": PG_DSN["host"], "postgres_port": PG_DSN["port"],
