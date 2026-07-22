@@ -4,3 +4,14 @@ chaos_metrics.json
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# TLS certificates and private keys -- never commit these. A dev
+# self-signed cert (certs/key.pem) was committed once historically
+# (commit 8dfa1c6) and later removed (8ce3e0c), but nothing structurally
+# prevented it from happening again. Certs are meant to be generated
+# locally / by CI (see .github/workflows/tests.yml, docker-compose.yml)
+# or supplied via a secrets manager in production -- never checked in.
+certs/
+*.pem
+*.key
+*.crt
