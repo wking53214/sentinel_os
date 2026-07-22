@@ -59,6 +59,9 @@ jobs:
           # ("unexpected keyword argument 'proxies'"). Pin below that line
           # until the anthropic SDK/httpx incompatibility is resolved upstream.
           pip install "httpx<0.28"
+          # Static analysis -- see the ruff/bandit steps below for why these
+          # currently report-only instead of gating the build.
+          pip install ruff bandit
 
       - name: Install redis-server binary
         run: |
@@ -98,3 +101,27 @@ jobs:
         if: always()
         run: |
           python -m pytest . --ignore=test_twin_live.py -q --tb=no || true
+
+      - name: Lint (ruff, report-only)
+        if: always()
+        run: |
+          # Report-only for now: 71 pre-existing findings as of this commit
+          # (mostly unused imports/variables, a few multi-statement lines),
+          # none security-relevant. Fix those separately, then flip this
+          # step to a real gate (drop '|| true', or add
+          # 'continue-on-error: false') so new lint debt can't land.
+          ruff check . || true
+
+      - name: Security scan (bandit, report-only)
+        if: always()
+        run: |
+          # Report-only for now: current findings include one High-severity
+          # issue (test_queue_identity_converter.py:58, subprocess with
+          # shell=True and an interpolated f-string -- shell-injection-shaped,
+          # test-only code but worth fixing) plus assorted Low/Medium items
+          # (hardcoded test credentials, f-string SQL construction in a
+          # test helper). This is exactly the class of issue that would
+          # have auto-caught the TLS private key committed to git history
+          # earlier -- bandit's B105/B106 hardcoded-secret checks flag that
+          # pattern. Fix the current findings, then make this a real gate.
+          bandit -r . -x ./Tests,./test_twin_live.py || true
