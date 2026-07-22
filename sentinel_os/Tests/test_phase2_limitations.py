@@ -423,7 +423,7 @@ def test_harness_load_time_binding_catches_content_tamper():
     # Same version ("configurable-test", "9.9.9" -- fixed by
     # ConfigurableCassette.get_config), materially different content.
     params_b = _good_params()
-    params_b["long_wait_threshold"]["value"] = 999.0
+    params_b["long_wait_threshold"]["value"] = 500.0
     with pytest.raises(ValueError, match="binding conflict"):
         IcebergProductionHarness(
             _pg_config(), cassette=ConfigurableCassette(params_b),
