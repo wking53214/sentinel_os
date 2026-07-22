@@ -7,6 +7,7 @@ Replaces LocalDiskAdapter with real database: transactions, durability, ACID
 import json
 import hashlib
 import os
+from canonical_fields import apply_optional_hashed_fields
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -55,6 +56,21 @@ class GovernanceDecisionRecord:
     parameter_changed: bool = False
     cassette_snapshot: Optional[Dict[str, Any]] = None
     cassette_hash: Optional[str] = None
+    # --- Phase 2 forensic fields (all optional; all hashed-when-present) ---
+    # Item 3: hash of the cassette's DECISION CODE (not just its parameters).
+    #   Two cassettes with identical params but different score_outcome()
+    #   hash identically under cassette_hash alone; this closes that.
+    cassette_code_hash: Optional[str] = None
+    # Item 5: the model string the governor's API call actually resolved to
+    #   (response.model), so "which model governed decision N" is in the chain.
+    model_identity: Optional[str] = None
+    # Item 7: resolved authorizing identity -- an API-key NAME or service
+    #   identity (e.g. "harness:production"), never a raw key and never PII.
+    authorized_by: Optional[str] = None
+    # Item 6: for a supersession row, the current_hash of the row it
+    #   supersedes -- proving the reviewer saw the actual decision. NULL on
+    #   ordinary governance_decision rows.
+    supersedes_hash: Optional[str] = None
 
 class PostgreSQLLedger:
     """Production ledger backed by PostgreSQL"""
@@ -166,6 +182,28 @@ class PostgreSQLLedger:
                     ADD COLUMN IF NOT EXISTS cassette_hash VARCHAR(64);
                 CREATE INDEX IF NOT EXISTS idx_cassette_hash
                     ON ledger_entries(cassette_hash);
+            """)
+            # Phase 2 forensic columns. Same migration guarantee as above:
+            # all nullable, no data deleted, legacy rows keep NULL and hash
+            # exactly as before (the fields only enter the canonical form
+            # when present). Deployable online against a populated ledger.
+            #   cassette_code_hash -- Item 3 (decision-code integrity)
+            #   model_identity     -- Item 5 (governing model per decision)
+            #   authorized_by      -- Item 7 (authorizing identity)
+            #   supersedes_id/hash -- Item 6 (formal supersession link)
+            cursor.execute("""
+                ALTER TABLE ledger_entries
+                    ADD COLUMN IF NOT EXISTS cassette_code_hash VARCHAR(64),
+                    ADD COLUMN IF NOT EXISTS model_identity VARCHAR(120),
+                    ADD COLUMN IF NOT EXISTS authorized_by VARCHAR(120),
+                    ADD COLUMN IF NOT EXISTS supersedes_id INTEGER,
+                    ADD COLUMN IF NOT EXISTS supersedes_hash VARCHAR(64);
+                CREATE INDEX IF NOT EXISTS idx_model_identity
+                    ON ledger_entries(model_identity);
+                CREATE INDEX IF NOT EXISTS idx_authorized_by
+                    ON ledger_entries(authorized_by);
+                CREATE INDEX IF NOT EXISTS idx_supersedes_id
+                    ON ledger_entries(supersedes_id);
             """)
             # Idempotency: store the raw Twilio sid so duplicate
             # submissions can be rejected before processing. UNIQUE
@@ -376,11 +414,22 @@ class PostgreSQLLedger:
                 "parameter_changed": bool(record.parameter_changed),
                 "previous_hash": previous_hash,
             }
-            
-            # NEW: Include cassette hash in canonical form if present
-            if cassette_hash:
-                canonical_entry["cassette_hash"] = cassette_hash
-            
+
+            # Optional hashed fields (cassette_hash + Phase-2 fields) enter
+            # the canonical form ONLY when present, via the one contract the
+            # twin's recompute_current_hash also uses -- so old rows (all
+            # fields NULL) hash exactly as before and stay verifiable, and
+            # writer/witness cannot drift. cassette_hash is computed above
+            # from governance_params; the rest ride on the record.
+            optional_source = {
+                "cassette_hash": cassette_hash,
+                "cassette_code_hash": record.cassette_code_hash,
+                "model_identity": record.model_identity,
+                "authorized_by": record.authorized_by,
+                "supersedes_hash": record.supersedes_hash,
+            }
+            apply_optional_hashed_fields(canonical_entry, optional_source)
+
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
             ).hexdigest()
@@ -390,8 +439,11 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, input_data, policy_parameters,
-                 decision_output, cassette_snapshot, cassette_hash, call_sid)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 decision_output, cassette_snapshot, cassette_hash, call_sid,
+                 cassette_code_hash, model_identity, authorized_by,
+                 supersedes_id, supersedes_hash)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s)
             """, (record.action_type, record.node, record.previous_value,
                   record.applied_value, record.reasoning,
                   previous_hash, current_hash, json.dumps(data),
@@ -401,9 +453,246 @@ class PostgreSQLLedger:
                   json.dumps(record.output),
                   json.dumps(cassette_snapshot) if cassette_snapshot else None,
                   cassette_hash,
-                  record.input_data.get("call_sid")))
+                  record.input_data.get("call_sid"),
+                  record.cassette_code_hash, record.model_identity,
+                  record.authorized_by,
+                  getattr(record, "supersedes_id", None), record.supersedes_hash))
             conn.commit()
             return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def bind_cassette_version(self, cassette_version: str, cassette_hash: str,
+                              cassette_code_hash: Optional[str] = None,
+                              authorized_by: Optional[str] = None) -> Dict[str, Any]:
+        """Item 2: content-bind a cassette_version to its hashes, in the chain.
+
+        The problem: cassette_version ("domain:name:version") is a self-asserted
+        label. An operator could change the cassette's parameters or code without
+        changing the string, and historical queries by version would silently
+        return rows governed by different content.
+
+        The fix, WITHOUT a second source of truth: the binding lives in the
+        ledger itself as a `cassette_binding` chain row. The FIRST time a version
+        is bound, its (cassette_hash, cassette_code_hash) is committed into the
+        hash chain. Any later bind of the SAME version with DIFFERENT hashes is
+        refused loud -- the version string is now a commitment, not a claim.
+        Because the registry IS the chain, there is no sidecar table or file that
+        could disagree with the ledger (preserves cassette-as-single-source).
+
+        Idempotent: re-binding a version with identical hashes returns the
+        existing binding and appends nothing.
+
+        Returns {"status": "created"|"exists", "cassette_version", "cassette_hash",
+        "cassette_code_hash", "current_hash"|"existing_hash"}.
+
+        Raises ValueError on a content-mismatch (same version, changed hashes) --
+        this is the tripwire the whole item exists to trip. Legitimate content
+        changes require a NEW version string; silent content changes are refused.
+        """
+        if not cassette_version or not isinstance(cassette_version, str):
+            raise ValueError("bind_cassette_version requires a non-empty version string")
+        if not cassette_hash or not isinstance(cassette_hash, str):
+            raise ValueError("bind_cassette_version requires a cassette_hash")
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+
+            # Existing binding for this version?
+            cursor.execute("""
+                SELECT cassette_hash, cassette_code_hash, current_hash
+                FROM ledger_entries
+                WHERE record_kind = 'cassette_binding' AND cassette_version = %s
+                ORDER BY id ASC LIMIT 1
+            """, (cassette_version,))
+            existing = cursor.fetchone()
+            if existing is not None:
+                ex_hash, ex_code_hash, ex_current = existing
+                # Content-mismatch tripwire: same label, different content.
+                if ex_hash != cassette_hash or (
+                    ex_code_hash is not None and cassette_code_hash is not None
+                    and ex_code_hash != cassette_code_hash
+                ):
+                    conn.rollback()
+                    raise ValueError(
+                        f"Cassette version binding conflict for '{cassette_version}': "
+                        f"already bound to cassette_hash={ex_hash} "
+                        f"code_hash={ex_code_hash}, but load presents "
+                        f"cassette_hash={cassette_hash} code_hash={cassette_code_hash}. "
+                        "A version string is a content commitment -- changed content "
+                        "requires a new version, not a silent re-bind."
+                    )
+                conn.commit()
+                return {
+                    "status": "exists",
+                    "cassette_version": cassette_version,
+                    "cassette_hash": ex_hash,
+                    "cassette_code_hash": ex_code_hash,
+                    "existing_hash": ex_current,
+                }
+
+            # New binding -> append a chain row.
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry = {
+                "record_kind": "cassette_binding",
+                "cassette_version": cassette_version,
+                "previous_hash": previous_hash,
+            }
+            # cassette_hash + cassette_code_hash enter the hash via the SAME
+            # shared contract used by decisions -- so a binding row's integrity
+            # recomputes identically on the twin.
+            apply_optional_hashed_fields(canonical_entry, {
+                "cassette_hash": cassette_hash,
+                "cassette_code_hash": cassette_code_hash,
+                "authorized_by": authorized_by,
+            })
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            data = {"record_kind": "cassette_binding", "parameter_changed": False}
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, previous_value, applied_value, reason,
+                 previous_hash, current_hash, data,
+                 record_kind, cassette_version, cassette_hash, cassette_code_hash,
+                 authorized_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, ("cassette_binding", cassette_version, 0.0, 0.0,
+                  "cassette version->content binding",
+                  previous_hash, current_hash, json.dumps(data),
+                  "cassette_binding", cassette_version, cassette_hash,
+                  cassette_code_hash, authorized_by))
+            conn.commit()
+            return {
+                "status": "created",
+                "cassette_version": cassette_version,
+                "cassette_hash": cassette_hash,
+                "cassette_code_hash": cassette_code_hash,
+                "current_hash": current_hash,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def supersede_decision(self, supersedes_id: int, authority: str, reason: str,
+                           corrected_output: Dict[str, Any],
+                           cassette_version: Optional[str] = None) -> Dict[str, Any]:
+        """Item 6: formally supersede a prior decision WITHOUT altering it.
+
+        The original row is immutable and stays exactly as written. A
+        supersession is a NEW `decision_supersession` chain row that references
+        the original by id AND by its current_hash -- proving the reviewer acted
+        on the actual decision, not a tampered copy. The link (supersedes_hash)
+        is inside the canonical form, so the reference itself is tamper-evident.
+
+        This is not deletion, amendment, or a retroactive change. It is a new
+        piece of evidence: "a human with authority X reviewed decision Y (whose
+        hash was Z) and determined the corrected outcome was W."
+
+        `authority` is the authorizing identity (a role/name, never PII) and is
+        recorded in `authorized_by` -- reusing the Item 7 identity column, since
+        a supersession is the human-initiated case of "authorized action on the
+        governance record". It also enters the hash.
+
+        Fail-closed: if the referenced decision does not exist, raises ValueError
+        BEFORE appending -- a supersession that points at nothing is refused, not
+        recorded as if valid.
+        """
+        if not isinstance(supersedes_id, int):
+            raise ValueError("supersede_decision requires an integer supersedes_id")
+        if not authority or not isinstance(authority, str):
+            raise ValueError("supersede_decision requires an authority identity")
+        if not isinstance(corrected_output, dict) or not corrected_output:
+            raise ValueError("supersede_decision requires a non-empty corrected_output")
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+
+            # The original must exist and be a governance decision.
+            cursor.execute("""
+                SELECT current_hash, cassette_version, record_kind
+                FROM ledger_entries WHERE id = %s
+            """, (supersedes_id,))
+            orig = cursor.fetchone()
+            if orig is None:
+                conn.rollback()
+                raise ValueError(
+                    f"Cannot supersede decision id={supersedes_id}: no such row. "
+                    "A supersession must reference an existing decision."
+                )
+            orig_hash, orig_version, orig_kind = orig
+            if orig_kind != "governance_decision":
+                conn.rollback()
+                raise ValueError(
+                    f"Cannot supersede row id={supersedes_id}: it is a "
+                    f"'{orig_kind}', not a governance_decision."
+                )
+            # Inherit the original's cassette_version if none supplied -- the
+            # supersession is about the same governed matter.
+            version = cassette_version or orig_version or "supersession:none:0"
+
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry = {
+                "record_kind": "decision_supersession",
+                "supersedes_id": supersedes_id,
+                "cassette_version": version,
+                "authority": authority,
+                "reason": reason,
+                "corrected_output": corrected_output,
+                "previous_hash": previous_hash,
+            }
+            # supersedes_hash (the original's current_hash) + authorized_by enter
+            # the hash via the shared contract, so the link and the authorizing
+            # identity are both tamper-evident and recompute identically on the twin.
+            apply_optional_hashed_fields(canonical_entry, {
+                "supersedes_hash": orig_hash,
+                "authorized_by": authority,
+            })
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            data = {"record_kind": "decision_supersession", "parameter_changed": False}
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, previous_value, applied_value, reason,
+                 previous_hash, current_hash, data,
+                 record_kind, cassette_version, decision_output,
+                 authorized_by, supersedes_id, supersedes_hash)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, ("decision_supersession", "supersession", 0.0, 0.0, reason,
+                  previous_hash, current_hash, json.dumps(data),
+                  "decision_supersession", version,
+                  json.dumps(corrected_output),
+                  authority, supersedes_id, orig_hash))
+            conn.commit()
+            return {
+                "status": "superseded",
+                "supersedes_id": supersedes_id,
+                "supersedes_hash": orig_hash,
+                "authority": authority,
+                "current_hash": current_hash,
+            }
         except Exception:
             conn.rollback()
             raise
@@ -674,7 +963,9 @@ class PostgreSQLLedger:
                 SELECT id, record_kind, previous_hash, current_hash,
                        action_type, node, previous_value, applied_value, reason,
                        data, cassette_version, input_data, policy_parameters,
-                       decision_output, cassette_hash
+                       decision_output, cassette_hash,
+                       cassette_code_hash, model_identity, authorized_by,
+                       supersedes_id, supersedes_hash
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -691,7 +982,9 @@ class PostgreSQLLedger:
                 (row_id, record_kind, stored_prev, stored_current,
                  action_type, node, previous_value, applied_value, reason,
                  data, cassette_version, input_data, policy_parameters,
-                 decision_output, cassette_hash) = row
+                 decision_output, cassette_hash,
+                 cassette_code_hash, model_identity, authorized_by,
+                 supersedes_id, supersedes_hash) = row
                 
                 # Check chain link integrity
                 if stored_prev != prev_hash:
@@ -715,9 +1008,45 @@ class PostgreSQLLedger:
                             "parameter_changed": self._as_json(data).get("parameter_changed", False),
                             "previous_hash": stored_prev,
                         }
-                        # Include cassette_hash in canonical form if present
-                        if cassette_hash:
-                            canonical_entry["cassette_hash"] = cassette_hash
+                        # Optional hashed fields (cassette_hash + Phase-2) via the
+                        # SAME shared contract the writer and the twin use, so all
+                        # three recompute sites stay in lockstep. Absent fields are
+                        # omitted -> legacy rows recompute exactly as before.
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "cassette_hash": cassette_hash,
+                            "cassette_code_hash": cassette_code_hash,
+                            "model_identity": model_identity,
+                            "authorized_by": authorized_by,
+                            "supersedes_hash": supersedes_hash,
+                        })
+                    elif record_kind == "cassette_binding":
+                        # Item 2 -- mirrors bind_cassette_version()
+                        canonical_entry = {
+                            "record_kind": "cassette_binding",
+                            "cassette_version": cassette_version,
+                            "previous_hash": stored_prev,
+                        }
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "cassette_hash": cassette_hash,
+                            "cassette_code_hash": cassette_code_hash,
+                            "authorized_by": authorized_by,
+                        })
+                    elif record_kind == "decision_supersession":
+                        # Item 6 -- mirrors supersede_decision(). authority was
+                        # stored in authorized_by; corrected_output in decision_output.
+                        canonical_entry = {
+                            "record_kind": "decision_supersession",
+                            "supersedes_id": supersedes_id,
+                            "cassette_version": cassette_version,
+                            "authority": authorized_by,
+                            "reason": reason,
+                            "corrected_output": self._as_json(decision_output),
+                            "previous_hash": stored_prev,
+                        }
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "supersedes_hash": supersedes_hash,
+                            "authorized_by": authorized_by,
+                        })
                     else:
                         # Legacy path (append)
                         canonical_entry = {

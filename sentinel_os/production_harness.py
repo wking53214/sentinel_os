@@ -24,8 +24,27 @@ from queue_staffing_bayes_integration import (
 )
 from operational_resilience import setup_logging
 from circuit_breaker import CircuitBreaker
+from cassette_forensics import compute_cassette_code_hash
 
 logger = setup_logging("IcebergProductionHarness")
+
+
+def _safe_code_hash(cassette_obj):
+    """Compute the cassette CODE hash without ever raising (Item 3).
+
+    A failure to hash the decision code must NOT crash a governance decision or
+    block the ledger write -- so any exception yields None, which omits the
+    field from the canonical form (the row simply carries no code-hash commitment
+    rather than a wrong one). compute_cassette_code_hash is itself fail-closed
+    internally (unreadable source becomes a marker string), so this is a
+    belt-and-suspenders guard for anything unexpected in the object itself.
+    """
+    try:
+        return compute_cassette_code_hash(cassette_obj)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"cassette code hash unavailable, omitting: {exc}")
+        return None
+
 
 class IcebergProductionHarness:
     """Complete production system: all components wired together"""
@@ -328,6 +347,24 @@ class IcebergProductionHarness:
                                 previous_value=journey.total_duration,
                                 applied_value=journey.total_duration,
                                 parameter_changed=False,
+                                # Item 3: hash of the cassette DECISION CODE
+                                # (scoring/intent logic), not just its
+                                # parameters. Computed from the live cassette
+                                # object so it enters the canonical hash. Closes
+                                # F-H: a params-identical cassette with changed
+                                # logic no longer hashes identically.
+                                cassette_code_hash=_safe_code_hash(self.cassette),
+                                # Item 5: the model the governor actually used
+                                # (response.model), passed through from
+                                # safety_check so it enters the canonical hash.
+                                # None on any fail-closed governor path.
+                                model_identity=claude_decision.get("model_identity"),
+                                # Item 7: the authorizing service identity. This
+                                # is a role/key NAME, never a raw key and never
+                                # PII. Defaults to the harness service identity;
+                                # override via config for distinct deployments.
+                                authorized_by=self.config.get(
+                                    "authorized_by", "harness:production"),
                             ),
                             governance_params=params,
                         )

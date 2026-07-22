@@ -19,7 +19,78 @@ it matches the cassette hash stored in the chain.
 
 import json
 import hashlib
+import inspect
 from typing import Any, Dict
+
+
+# Item 3: modules whose source is included in the cassette CODE hash beyond the
+# concrete cassette module itself. These hold the decision logic a cassette
+# inherits or shares (base scoring, intent-label mapping, the parameter schema
+# that constrains behavior). This is a DECLARED allowlist, deliberately NOT the
+# full transitive import closure: hashing every transitive dependency (stdlib,
+# json, typing, ...) would make the hash brittle -- an unrelated edit anywhere
+# in the dependency graph would change every cassette's code hash and force a
+# re-binding for no governance reason. The tradeoff is explicit and documented:
+# the hash covers the cassette's own code and the shared governance code it runs
+# on, not code outside this boundary. COMPLIANCE.md states this scope honestly.
+_GOVERNANCE_CODE_MODULES = (
+    "cassette_interface",  # base Cassette: score_outcome_quality, _infer_intent_to_label
+    "cassette_schema",     # parameter bounds/validation that constrain decisions
+)
+
+
+def _module_source_or_marker(module_name: str) -> str:
+    """Return a module's source, or an explicit unavailable-marker string.
+
+    Never raises: if a module can't be located or read, the marker (which
+    includes the module name) is hashed instead. That makes an unreadable
+    dependency a VISIBLE, deterministic change in the code hash rather than a
+    crash in the decision path -- fail-closed for the hash, since a decision
+    whose code can't be hashed must not silently hash as if the code were fine.
+    """
+    try:
+        import importlib
+        module = importlib.import_module(module_name)
+        return inspect.getsource(module)
+    except Exception as exc:  # noqa: BLE001 -- any failure becomes a marker
+        return f"<<UNAVAILABLE_MODULE:{module_name}:{type(exc).__name__}>>"
+
+
+def compute_cassette_code_hash(cassette_obj: Any) -> str:
+    """Deterministic SHA-256 over the cassette's DECISION CODE.
+
+    cassette_hash covers parameter VALUES; this covers the CODE that runs on
+    them (score_outcome_quality, _infer_intent_to_label, evaluate/validate, and
+    the shared governance modules above). Two cassettes with identical
+    parameters but different scoring logic hash IDENTICALLY under cassette_hash
+    and DIFFERENTLY here -- which is the whole point of Item 3 / hole F-H.
+
+    Runtime-stable: hashes source text, so the same checkout on two machines
+    (and the same object loaded twice in one process) produces the same hash.
+    Order is fixed and the concrete module is labeled, so the digest is
+    reproducible and diff-attributable.
+
+    Fail-closed: unreadable source becomes an explicit marker in the hashed
+    text (see _module_source_or_marker), never an exception in the caller.
+    """
+    parts = []
+
+    # The concrete cassette module (e.g. ivr_cassette). Prefer the module that
+    # actually defines the object's class, so a subclass hashes its own file.
+    try:
+        concrete_module = type(cassette_obj).__module__
+        concrete_src = inspect.getsource(inspect.getmodule(cassette_obj))
+    except Exception as exc:  # noqa: BLE001
+        concrete_module = getattr(type(cassette_obj), "__module__", "<unknown>")
+        concrete_src = f"<<UNAVAILABLE_CASSETTE_SOURCE:{concrete_module}:{type(exc).__name__}>>"
+    parts.append(f"# module: {concrete_module}\n{concrete_src}")
+
+    # The declared shared governance code, in fixed order.
+    for mod in _GOVERNANCE_CODE_MODULES:
+        parts.append(f"# module: {mod}\n{_module_source_or_marker(mod)}")
+
+    combined = "\n\n".join(parts)
+    return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
 
 def serialize_cassette_for_ledger(governance_params: Any) -> Dict[str, Any]:
