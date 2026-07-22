@@ -32,7 +32,8 @@ services:
       - ./logs:/app/logs
     restart: always
     depends_on:
-      - ledger
+      ledger:
+        condition: service_healthy
     healthcheck:
       # Previously "python3 -c 'import sys; sys.exit(0)'" -- always exits
       # 0 regardless of whether the app is actually up, so Docker would
@@ -54,6 +55,18 @@ services:
     volumes:
       - ./ledger_data:/var/lib/postgresql/data
     restart: always
+    healthcheck:
+      # Previously no healthcheck at all: depends_on only waited for this
+      # container to START, not for Postgres inside it to actually be
+      # ready to accept connections -- so iceberg-main routinely started
+      # first and hit "Connection refused" against a ledger that hadn't
+      # finished booting yet. pg_isready gates the iceberg service's
+      # startup on genuine readiness, same check tests.yml's CI uses.
+      test: ["CMD-SHELL", "pg_isready -U iceberg -d iceberg_ledger"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
 volumes:
   ledger_data:
