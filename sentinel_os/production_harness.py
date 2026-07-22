@@ -447,6 +447,16 @@ class IcebergProductionHarness:
             results.append(result)
         
         summary = self.metrics.get_summary()
+        # calls_total from get_summary() is self.metrics.calls_total -- a
+        # cumulative, process-lifetime counter (correct for /metrics, which
+        # reports the harness's running totals). Reusing it here as a
+        # per-batch figure is wrong: it silently includes every call this
+        # harness instance has ever processed, not just this batch, so it
+        # drifts from calls_processed (len(results), correctly batch-scoped)
+        # by however many calls preceded this batch in the harness's
+        # lifetime. Override it to the batch-local count so both fields
+        # describe the same scope.
+        summary["calls_total"] = len(results)
         summary["calls_processed"] = len(results)
         summary["results"] = results
         
