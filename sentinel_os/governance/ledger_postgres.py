@@ -117,21 +117,63 @@ class PostgreSQLLedger:
         runtime_user = runtime_user or os.getenv("ICEBERG_LEDGER_RUNTIME_USER")
         runtime_password = runtime_password or os.getenv("ICEBERG_LEDGER_RUNTIME_PASSWORD")
         if not runtime_user:
-            print(
-                "[WARN] ICEBERG_LEDGER_RUNTIME_USER not set -- ledger is running "
-                "with full schema-init privileges for all operations (no "
-                "connection-level defense-in-depth). Set ICEBERG_LEDGER_RUNTIME_USER "
-                "/ ICEBERG_LEDGER_RUNTIME_PASSWORD (e.g. the ledger_reader role from "
-                "ledger_immutability.sql) in production so the app connection itself "
-                "cannot UPDATE/DELETE/DROP TRIGGER even if compromised."
+            raise RuntimeError(
+                "ICEBERG_LEDGER_RUNTIME_USER is not set. The ledger refuses to "
+                "start without an explicitly declared runtime identity -- there "
+                "is no privileged fallback. Set ICEBERG_LEDGER_RUNTIME_USER / "
+                "ICEBERG_LEDGER_RUNTIME_PASSWORD to a restricted role (e.g. the "
+                "ledger_reader role created by ledger_immutability.sql: SELECT + "
+                "INSERT only, no UPDATE/DELETE/DDL) so the app connection itself "
+                "cannot UPDATE/DELETE/DROP TRIGGER even if compromised or misused."
             )
-            runtime_user, runtime_password = user, password
 
         self.pool = SimpleConnectionPool(
             min_connections, max_connections,
             host=host, port=port, database=dbname,
             user=runtime_user, password=runtime_password
         )
+        self._verify_runtime_user_is_not_privileged(runtime_user, dbname)
+
+    def _verify_runtime_user_is_not_privileged(self, runtime_user: str, dbname: str):
+        """Hard floor: refuse to run if the *resolved* runtime identity turns
+        out to be a superuser or the owner of ledger_entries, even when
+        ICEBERG_LEDGER_RUNTIME_USER was set explicitly. A privileged runtime
+        connection can UPDATE/DELETE ledger rows or DROP the immutability
+        triggers outright, defeating connection-level defense-in-depth no
+        matter how carefully the env var was configured. This check runs on
+        every startup, not just when the var is unset, because a
+        misconfigured-but-present value is exactly the silent-privilege case
+        this fix exists to close.
+        """
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT rolsuper FROM pg_roles WHERE rolname = current_user;")
+            row = cursor.fetchone()
+            is_superuser = bool(row and row[0])
+
+            cursor.execute("""
+                SELECT pg_catalog.pg_get_userbyid(c.relowner)
+                FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relname = 'ledger_entries' AND n.nspname = 'public';
+            """)
+            owner_row = cursor.fetchone()
+            table_owner = owner_row[0] if owner_row else None
+            is_owner = (table_owner is not None and table_owner == runtime_user)
+
+            if is_superuser or is_owner:
+                reason = "a superuser" if is_superuser else f"the table owner ({table_owner})"
+                raise RuntimeError(
+                    f"ICEBERG_LEDGER_RUNTIME_USER='{runtime_user}' resolves to {reason} "
+                    f"on database '{dbname}'. Refusing to start: the runtime ledger "
+                    "connection must be a restricted, non-owner role (e.g. "
+                    "ledger_reader: SELECT + INSERT only) so the app cannot rewrite "
+                    "or wipe the ledger, or drop its immutability triggers, even if "
+                    "the app itself is compromised or misused."
+                )
+        finally:
+            self.pool.putconn(conn)
     
     def _initialize_schema(self):
         """Create ledger table if not exists"""
