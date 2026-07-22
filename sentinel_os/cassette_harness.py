@@ -16,17 +16,22 @@ logger = setup_logging("CassetteHarness")
 class CassetteHarness:
     """Universal harness: same boom box, different cassettes"""
     
-    def __init__(self, cassette_domain: str, config: Dict):
+    def __init__(self, cassette_domain: str, config: Dict,
+                 require_cassette_binding: bool = True):
         """
         Initialize harness with specific cassette
         
         Args:
             cassette_domain: "ivr", "banking", "healthcare", etc.
             config: Standard configuration (postgres, claude, etc.)
+            require_cassette_binding: fail-closed by default -- see
+                IcebergProductionHarness for the rationale. Set False
+                only for dev/offline callers with no ledger configured.
         """
         
         self.cassette_domain = cassette_domain
         self.config = config
+        self.require_cassette_binding = require_cassette_binding
         
         # Load cassettes (with auto-discovery)
         loader = CassetteLoader()
@@ -41,7 +46,9 @@ class CassetteHarness:
             raise
         
         # Initialize resilient harness (boom box)
-        self.harness = ResilientHarness(config)
+        self.harness = ResilientHarness(
+            config, require_cassette_binding=self.require_cassette_binding,
+        )
         
         # Store cassette metadata
         self.cassette_config = self.cassette.get_config()

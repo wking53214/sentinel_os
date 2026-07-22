@@ -316,3 +316,130 @@ def test_mixed_chain_fully_verifies():
     for row in _rows(conn):
         assert recompute_current_hash(row) == row["current_hash"], row["record_kind"]
     assert L.verify_chain().get("ok") is True
+
+
+# --------------------------------------------------------------------------
+# Item 2 (load-time enforcement) -- cassette-load-time binding.
+#
+# bind_cassette_version() itself (above) was built and tested first, but
+# nothing called it at cassette LOAD time -- a cassette could load and
+# govern real decisions with zero ledger commitment of what content it
+# actually was. These tests prove the harness-level enforcement closing
+# that gap: binding is now mandatory by default (fail-closed, no ledger
+# means refuse to start), explicitly optional for dev/offline callers,
+# and a version string reused with different content is caught at load,
+# not just detectable later on demand.
+# --------------------------------------------------------------------------
+
+def _pg_config():
+    return {
+        "postgres_host": DSN["host"], "postgres_port": DSN["port"],
+        "postgres_db": DSN["dbname"], "postgres_user": DSN["user"],
+        "postgres_password": DSN["password"],
+        "claude_api_key": None, "twilio_account_sid": None,
+    }
+
+
+def test_harness_binds_cassette_on_load_by_default():
+    """Default construction (no explicit require_cassette_binding) binds
+    the loaded cassette into the ledger before the harness is usable."""
+    from production_harness import IcebergProductionHarness
+    from cassettes.ivr_cassette import IvrCassette
+
+    conn = psycopg2.connect(**DSN)
+    harness = IcebergProductionHarness(_pg_config(), cassette=IvrCassette())
+    assert harness.require_cassette_binding is True
+    assert harness.ledger is not None
+
+    L = _ledger()
+    row = [r for r in _rows(conn) if r["record_kind"] == "cassette_binding"
+           and r["cassette_version"] == "ivr:standard-ivr:1.1.0"]
+    assert row, "expected a cassette_binding row for the loaded cassette's version"
+    assert recompute_current_hash(row[-1]) == row[-1]["current_hash"]
+
+
+def test_harness_refuses_to_start_without_ledger_when_binding_required():
+    """No postgres_host configured, binding required (the default) ->
+    the harness refuses to start at all. This is the actual fail-closed
+    property: an operator who forgets to configure the ledger does not
+    get a harness that quietly runs unbound."""
+    from production_harness import IcebergProductionHarness
+
+    with pytest.raises(RuntimeError, match="require_cassette_binding"):
+        IcebergProductionHarness(
+            {"postgres_host": None, "claude_api_key": None,
+             "twilio_account_sid": None},
+        )
+
+
+def test_harness_refuses_to_start_on_ledger_connection_failure_when_binding_required():
+    """postgres_host IS configured but the connection itself fails ->
+    still refuses to start, not a silent '⚠ PostgreSQL not available'
+    degrade. A reachable-but-wrong DB must fail exactly like an absent
+    one when binding is mandatory."""
+    from production_harness import IcebergProductionHarness
+
+    bad_config = {
+        "postgres_host": "127.0.0.1", "postgres_port": 5432,
+        "postgres_db": "iceberg", "postgres_user": "iceberg",
+        "postgres_password": "definitely-the-wrong-password",
+        "claude_api_key": None, "twilio_account_sid": None,
+    }
+    with pytest.raises(RuntimeError, match="require_cassette_binding"):
+        IcebergProductionHarness(bad_config)
+
+
+def test_harness_opt_out_still_starts_unbound_without_ledger():
+    """require_cassette_binding=False (the explicit dev/offline escape
+    hatch) still starts cleanly with no ledger -- opting out must not
+    also break the ordinary offline path."""
+    from production_harness import IcebergProductionHarness
+
+    harness = IcebergProductionHarness(
+        {"postgres_host": None, "claude_api_key": None,
+         "twilio_account_sid": None},
+        require_cassette_binding=False,
+    )
+    assert harness.ledger is None
+    assert harness.require_cassette_binding is False
+
+
+def test_harness_load_time_binding_catches_content_tamper():
+    """The scenario the whole item exists for: an operator loads a
+    cassette under a version string that's already bound to DIFFERENT
+    content (parameters changed, label didn't). The second harness
+    construction must refuse to start -- not load successfully and
+    leave the mismatch only detectable later on demand."""
+    from production_harness import IcebergProductionHarness
+    from test_cassette_source_of_truth import ConfigurableCassette, _good_params
+
+    params_a = _good_params()
+    params_a["long_wait_threshold"]["value"] = 30.0
+    harness_a = IcebergProductionHarness(
+        _pg_config(), cassette=ConfigurableCassette(params_a),
+    )
+    assert harness_a.ledger is not None  # first bind succeeded
+
+    # Same version ("configurable-test", "9.9.9" -- fixed by
+    # ConfigurableCassette.get_config), materially different content.
+    params_b = _good_params()
+    params_b["long_wait_threshold"]["value"] = 999.0
+    with pytest.raises(ValueError, match="binding conflict"):
+        IcebergProductionHarness(
+            _pg_config(), cassette=ConfigurableCassette(params_b),
+        )
+
+
+def test_harness_load_time_binding_idempotent_on_identical_reload():
+    """Restarting the harness with the exact same cassette content is
+    NOT treated as tampering -- re-binding an identical (version, hash)
+    pair is a normal restart, not an incident."""
+    from production_harness import IcebergProductionHarness
+    from cassettes.ivr_cassette import IvrCassette
+
+    harness_1 = IcebergProductionHarness(_pg_config(), cassette=IvrCassette())
+    assert harness_1.ledger is not None
+    # A second, independent construction with the identical cassette
+    # class must also succeed -- this is the "exists" path, not "created".
+    harness_2 = IcebergProductionHarness(_pg_config(), cassette=IvrCassette())
+    assert harness_2.ledger is not None

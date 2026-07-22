@@ -274,7 +274,13 @@ def main() -> None:
         "SENTINEL_QUEUE_NAME", os.getenv("SENTINEL_QUEUE_ID", "v12")))
     args = parser.parse_args()
 
-    harness = IcebergProductionHarness(_harness_config_from_env())
+    # require_cassette_binding is hardcoded True, not read from env --
+    # same posture as ICEBERG_LEDGER_RUNTIME_USER: this is the real
+    # production entrypoint, and there is no fallback that lets it start
+    # ungoverned by an operator forgetting to set a flag.
+    harness = IcebergProductionHarness(
+        _harness_config_from_env(), require_cassette_binding=True,
+    )
     queue = TransmissionQueue(name=args.queue_name, redis_url=args.redis_url)
     worker = SentinelWorker(harness, queue, worker_id=args.worker_id)
 
