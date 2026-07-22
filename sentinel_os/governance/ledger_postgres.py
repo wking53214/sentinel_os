@@ -98,22 +98,11 @@ class PostgreSQLLedger:
         after startup actually connects as. This should be a restricted role
         (see ledger_immutability.sql's `ledger_reader`: SELECT + INSERT only,
         no UPDATE/DELETE/DDL) so the app itself cannot tamper with or drop the
-        immutability triggers even if compromised or misused. If unset, falls
-        back to the schema-init credentials with a warning -- immutability is
-        then enforced by triggers alone, not by connection privilege.
+        immutability triggers even if compromised or misused. Required: there
+        is no privileged fallback if unset (see the RuntimeError below), and
+        a resolved identity that turns out to be the table owner or a
+        superuser is rejected too (see _verify_runtime_user_is_not_privileged).
         """
-
-        # One-off privileged connection: create/migrate schema, then discard.
-        # Never reused for ongoing reads/writes.
-        self.pool = SimpleConnectionPool(
-            1, 1,
-            host=host, port=port, database=dbname,
-            user=user, password=password
-        )
-        self._initialize_schema()
-        self._apply_immutability_and_verify()
-        self.pool.closeall()
-
         runtime_user = runtime_user or os.getenv("ICEBERG_LEDGER_RUNTIME_USER")
         runtime_password = runtime_password or os.getenv("ICEBERG_LEDGER_RUNTIME_PASSWORD")
         if not runtime_user:
@@ -127,12 +116,64 @@ class PostgreSQLLedger:
                 "cannot UPDATE/DELETE/DROP TRIGGER even if compromised or misused."
             )
 
+        # One-off privileged connection: create/migrate schema, then discard.
+        # Never reused for ongoing reads/writes.
+        self.pool = SimpleConnectionPool(
+            1, 1,
+            host=host, port=port, database=dbname,
+            user=user, password=password
+        )
+        self._initialize_schema()
+        self._apply_immutability_and_verify()
+        if runtime_password:
+            self._provision_runtime_password(runtime_user, runtime_password)
+        self.pool.closeall()
+
         self.pool = SimpleConnectionPool(
             min_connections, max_connections,
             host=host, port=port, database=dbname,
             user=runtime_user, password=runtime_password
         )
         self._verify_runtime_user_is_not_privileged(runtime_user, dbname)
+
+    def _provision_runtime_password(self, runtime_user: str, runtime_password: str):
+        """Set the runtime role's password using the still-open owner
+        connection, so a fresh deployment works the moment
+        ICEBERG_LEDGER_RUNTIME_USER/PASSWORD are set -- no separate manual
+        set_ledger_reader_password.py step required (that script still
+        exists for rotating the password on an already-running system
+        without a restart). Idempotent: safe to run every startup, just
+        resets the role's password to the same value each time.
+
+        Only ever touches the resolved runtime_user's own password --
+        never any other role. Uses sql.Identifier for the role name (it
+        can't be parameterized as a literal in DDL) and a parameterized
+        literal for the password itself, mirroring set_ledger_reader_password.py.
+        """
+        from psycopg2 import sql
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    sql.SQL("ALTER ROLE {} WITH PASSWORD %s;").format(
+                        sql.Identifier(runtime_user)
+                    ),
+                    (runtime_password,)
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise RuntimeError(
+                    f"Could not set the password for runtime role "
+                    f"'{runtime_user}': {e}. If this role doesn't exist yet, "
+                    f"it should have been created by ledger_immutability.sql "
+                    f"(only true for the default 'ledger_reader' role -- a "
+                    f"custom ICEBERG_LEDGER_RUNTIME_USER value must be "
+                    f"created manually first)."
+                ) from e
+        finally:
+            self.pool.putconn(conn)
 
     def _verify_runtime_user_is_not_privileged(self, runtime_user: str, dbname: str):
         """Hard floor: refuse to run if the *resolved* runtime identity turns
