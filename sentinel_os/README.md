@@ -32,7 +32,7 @@ Traditional IVR systems are rigid, inflexible, and frustrating:
 | **Real-Time Analytics** | ✅ Ready | Intent detection, quality scoring, diagnostics |
 | **Multi-AI Orchestration** | ✅ Ready | Coordinates Claude + domain models |
 | **Tamper-Evident Ledger** | ✅ Ready | PostgreSQL-backed immutable audit log |
-| **End-to-End Testing** | ✅ Ready | 270 tests passing on real CI (Postgres 16 + Redis) |
+| **End-to-End Testing** | ✅ Ready | Full suite passing on real CI (Postgres 16 + Redis) |
 | **Production Deployment** | 🔄 In Progress | Docker & Kubernetes configs ready; live testing ongoing |
 
 **Performance:** Not yet benchmarked end-to-end against the real API/ledger path — see [Load Testing & Performance](#load-testing--performance) below.
@@ -158,13 +158,11 @@ python3 sentinel_os/iceberg_complete_simulator.py
 ## Known Limitations & What's Not Ready Yet
 
 **Currently verified:**
-- 270 tests passing on real CI (Postgres 16 + Redis), 0 failed
+- Full suite passing on real CI (Postgres 16 + Redis), 0 failed
 - Docker Compose full-stack deployment verified live (ledger connected, health checks pass)
 - Standalone in-memory simulator verified live
 
 **Still open** (see `governance/README.md` and `docs/CHANGELOG.md` for detail):
-- Cassette-load-time hash enforcement (mechanism exists, not yet wired to cassette load)
-- Cassette-snapshot forgery detection (twin custody doesn't yet cross-check live primary snapshot against replica)
 - Bias testing and adverse-action specificity for governance decisions
 - `test_twin_live.py` requires infrastructure (3 separate OS identities + real TLS PKI between them) not yet reconstructed in CI -- excluded explicitly, not silently skipped
 
@@ -208,7 +206,7 @@ a real end-to-end benchmark is run and linked.
 We're actively developing this. Here's how you can help:
 
 1. **Test the simulator** and report issues
-2. **Run the test suite** and help close the 7 skipped tests
+2. **Run the test suite** and help close any remaining skipped or excluded tests
 3. **Test live deployment** with PostgreSQL
 4. **Improve documentation** with examples and troubleshooting
 5. **File issues** for bugs or features you'd like to see
