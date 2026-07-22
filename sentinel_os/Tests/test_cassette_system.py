@@ -81,14 +81,14 @@ def test_cassette_swapping():
     }
     
     # Load IVR harness
-    ivr_harness = CassetteHarness("ivr", config)
+    ivr_harness = CassetteHarness("ivr", config, require_cassette_binding=False)
     ivr_info = ivr_harness.get_cassette_info()
     
     assert ivr_info["domain"] == "ivr"
     assert "billing_queue" in ivr_info["queues"]
     
     # Load Banking harness (SAME CODE, DIFFERENT CASSETTE)
-    banking_harness = CassetteHarness("banking", config)
+    banking_harness = CassetteHarness("banking", config, require_cassette_binding=False)
     banking_info = banking_harness.get_cassette_info()
     
     assert banking_info["domain"] == "banking"
@@ -121,7 +121,7 @@ def test_call_processing_different_cassettes():
     }
     
     # Process with IVR
-    ivr_harness = CassetteHarness("ivr", config)
+    ivr_harness = CassetteHarness("ivr", config, require_cassette_binding=False)
     ivr_result = ivr_harness.process_call(call)
     
     assert ivr_result["domain"] == "ivr"
@@ -129,7 +129,7 @@ def test_call_processing_different_cassettes():
     assert "quality_tier" in ivr_result
     
     # Process same call with banking
-    banking_harness = CassetteHarness("banking", config)
+    banking_harness = CassetteHarness("banking", config, require_cassette_binding=False)
     banking_result = banking_harness.process_call(call)
     
     assert banking_result["domain"] == "banking"

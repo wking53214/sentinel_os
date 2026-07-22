@@ -41,7 +41,11 @@ async def startup():
         "twilio_api_secret": os.getenv("TWILIO_API_SECRET"),
     }
     
-    harness = ResilientHarness(config)
+    # require_cassette_binding is hardcoded True, not read from env --
+    # same posture as sentinel_worker.py and ICEBERG_LEDGER_RUNTIME_USER:
+    # this is a real production entrypoint, no fallback that lets it
+    # start ungoverned by an operator forgetting to set a flag.
+    harness = ResilientHarness(config, require_cassette_binding=True)
     logger.info("Resilient harness initialized (TLS + API key auth enabled)")
 
 @app.on_event("shutdown")

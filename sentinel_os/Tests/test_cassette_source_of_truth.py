@@ -176,7 +176,8 @@ def test_harness_friction_threshold_from_cassette():
     from production_harness import IcebergProductionHarness
 
     harness = IcebergProductionHarness(
-        {"postgres_host": None, "claude_api_key": None, "twilio_account_sid": None}
+        {"postgres_host": None, "claude_api_key": None, "twilio_account_sid": None},
+        require_cassette_binding=False,
     )
     call = {"sid": "CAX", "status": "completed", "duration": 400,
             "from": "+16125551111", "to": "+billing"}
@@ -210,7 +211,8 @@ def test_governance_trigger_inclusive_semantics():
                     "recommendations": [], "confidence": 0.99}
 
     harness = IcebergProductionHarness(
-        {"postgres_host": None, "claude_api_key": None, "twilio_account_sid": None}
+        {"postgres_host": None, "claude_api_key": None, "twilio_account_sid": None},
+        require_cassette_binding=False,
     )
     stub = StubDecider()
     harness.claude_decider = stub
