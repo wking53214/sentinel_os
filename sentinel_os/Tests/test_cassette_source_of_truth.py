@@ -264,7 +264,6 @@ _GOVERNANCE_PATH_FILES = {
     "sentinel_core.py",
     "iceberg_complete_simulator.py",
     "load_test.py",
-    "run_adaptive.py",
     "claude_governance_api.py",
     os.path.join("governance", "self_heal_v1.py"),
     os.path.join("governance", "recommend_v1.py"),
