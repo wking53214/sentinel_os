@@ -19,8 +19,12 @@ Per-entry verdicts (DAP-6.2):
               (when enabled) opens the envelope and recomputes current_hash
               from the decrypted payload successfully.
   DIVERGE  -- present on both sides but different: clear-hash mismatch,
-              unopenable/tampered envelope, or decrypted payload that does not
-              recompute to the stored hash. Sub-cause recorded.
+              unopenable/tampered envelope, decrypted payload that does not
+              recompute to the stored hash, or (deep verification only) a live
+              primary cassette_snapshot that differs from the replica's
+              witnessed copy despite an intact hash chain -- the H4 forgery
+              class, since the raw snapshot body is not itself hashed into
+              current_hash. Sub-cause recorded.
   MISSING  -- expected but absent from the replica after the SLA window:
               expected via the primary feed, via the ICC record, or both.
               Sub-cause records whether the entry exists on the primary
@@ -52,6 +56,17 @@ import psycopg2
 from twin_custody import CustodyError, canonical_json, deep_verify_row, open_envelope, sign
 
 
+def _canon(obj: Any) -> str:
+    """Order-stable serialization for comparing two snapshot bodies for equality.
+
+    Both sides are plain dicts (JSONB decoded from the primary; the decrypted
+    replica payload); key order and NULL/absent must not create a false
+    divergence. default=str mirrors the ledger's own dump so datetimes etc.
+    compare the same way on both sides.
+    """
+    return json.dumps(obj, sort_keys=True, default=str)
+
+
 # ---------------------------------------------------------------- inputs --
 
 def load_submission_record(path: Optional[str]) -> List[Dict[str, Any]]:
@@ -71,10 +86,11 @@ def fetch_primary_feed(feed_dsn: str) -> List[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute("""SELECT id, call_sid, previous_hash, current_hash,
-                                  EXTRACT(EPOCH FROM timestamp)
+                                  EXTRACT(EPOCH FROM timestamp), cassette_snapshot
                            FROM ledger_entries ORDER BY id ASC""")
             return [{"id": int(r[0]), "call_sid": r[1], "previous_hash": r[2],
-                     "current_hash": r[3], "t": float(r[4]) if r[4] is not None else None}
+                     "current_hash": r[3], "t": float(r[4]) if r[4] is not None else None,
+                     "cassette_snapshot": r[5]}
                     for r in cur.fetchall()]
     finally:
         conn.close()
@@ -210,6 +226,20 @@ def run_detection(replica_entries: List[Dict[str, Any]],
             if not ok:
                 diverge.append({"primary_id": p["id"], "sub": "payload_hash_mismatch",
                                 "detail": detail})
+                continue
+            # H4 -- cassette-snapshot forgery. The raw snapshot body is NOT part
+            # of current_hash (only its cassette_hash digest is), so a snapshot
+            # edited on the primary while cassette_hash/current_hash are left
+            # intact passes every hash check above and would otherwise score
+            # MATCH. The replica holds the customer's witnessed honest copy;
+            # cross-check the live primary snapshot against it. Requires deep
+            # verification (a decryptor) -- without decryption authority the
+            # honest body is unreadable and this class is structurally
+            # invisible, same boundary as every other deep-verify check.
+            if _canon(row.get("cassette_snapshot")) != _canon(p.get("cassette_snapshot")):
+                diverge.append({"primary_id": p["id"], "sub": "cassette_snapshot_forgery",
+                                "detail": "primary cassette_snapshot differs from the "
+                                          "replica's witnessed copy (hash chain intact)"})
                 continue
             deep_verified += 1
         match.append(p["id"])
