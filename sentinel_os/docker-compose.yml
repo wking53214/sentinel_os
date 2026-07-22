@@ -18,6 +18,14 @@ services:
       POSTGRES_DB: iceberg_ledger
       POSTGRES_USER: iceberg
       POSTGRES_PASSWORD: change_me_in_prod
+      # Required as of the ICEBERG_LEDGER_RUNTIME_USER fail-closed fix -- the
+      # app refuses to boot without a declared non-owner runtime identity.
+      # ledger_reader is created automatically by ledger_immutability.sql;
+      # its password is self-provisioned from RUNTIME_PASSWORD below on every
+      # startup (see PostgreSQLLedger._provision_runtime_password), so this
+      # is the only place the value needs to be set.
+      ICEBERG_LEDGER_RUNTIME_USER: ledger_reader
+      ICEBERG_LEDGER_RUNTIME_PASSWORD: change_me_in_prod_too
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
     volumes:
       - ./data:/data
