@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# ARCHIVED (moved from sentinel_os/run_adaptive.py).
+#
+# This was a one-shot demo/batch script (prints a report and exits) --
+# it never binds to a port or serves /health. It was previously the
+# Dockerfile's CMD, but was swapped for api_server_resilient.py (the
+# actual long-running service) because the container healthcheck had
+# to be a no-op stub with this as CMD. See the Dockerfile's CMD
+# comment for the full history. Confirmed zero imports of this module
+# anywhere else in the repo before archiving.
+#
+# Not deleted outright in case anyone wants the reference for a
+# future one-shot batch/report tool. If you do run it, note its
+# imports below are relative to the old top-level location --
+# it now needs `sentinel_os/` (not this archive/ dir) on sys.path.
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
