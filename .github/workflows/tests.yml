@@ -27,6 +27,21 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # test_queue_identity_converter.py's ingress/worker pair expects an
+      # already-running Redis on the default port (REDIS_URL =
+      # "redis://localhost:6379/0"), unlike test_sentinel_worker.py /
+      # test_rate_limiter_v2.py, which spawn their own redis-server
+      # subprocess on custom ports and only need the binary (installed
+      # below), not this service.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +60,15 @@ jobs:
           # until the anthropic SDK/httpx incompatibility is resolved upstream.
           pip install "httpx<0.28"
 
+      - name: Install redis-server binary
+        run: |
+          # Several test files (test_sentinel_worker.py, test_rate_limiter_v2.py)
+          # spawn their own redis-server subprocess on custom ports rather than
+          # using the service above -- they need the binary on PATH, not a
+          # separately-networked container.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq redis-server
+
       - name: Generate ephemeral TLS cert for tests
         run: |
           mkdir -p certs
@@ -54,9 +78,23 @@ jobs:
 
       - name: Run test suite
         run: |
-          python -m pytest Tests/ -v --tb=short
+          # Full repo, not just Tests/ -- 9 of 10 root-level test_*.py files
+          # (twin_custody, sentinel_worker, production_harness_breakers,
+          # rate_limiter_v2, queue_identity_converter, circuit_breaker,
+          # queue_schema, api_server_v2, grafts) were previously never
+          # collected or run by CI at all; now they are.
+          #
+          # test_twin_live.py is explicitly excluded, not silently skipped:
+          # it requires 3 separately-provisioned OS identities
+          # (sentinelsvc/twincustomer/twincustodian), real TLS PKI between
+          # them, and /usr/local/bin/twin_ensure_services -- a self-heal
+          # script that exists in whatever environment originally built the
+          # twin but was never committed to this repo. That's real
+          # infrastructure to reconstruct, not a CI config fix -- tracked
+          # separately, not blocking this merge.
+          python -m pytest . --ignore=test_twin_live.py -v --tb=short
 
       - name: Summarize results
         if: always()
         run: |
-          python -m pytest Tests/ -q --tb=no || true
+          python -m pytest . --ignore=test_twin_live.py -q --tb=no || true
