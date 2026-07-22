@@ -107,7 +107,7 @@ def test_resilient_harness_initialization():
         "twilio_account_sid": None,
     }
     
-    resilient = ResilientHarness(config)
+    resilient = ResilientHarness(config, require_cassette_binding=False)
     
     assert resilient is not None
     assert resilient.harness is not None
@@ -129,7 +129,7 @@ def test_resilient_process_call():
         "twilio_account_sid": None,
     }
     
-    resilient = ResilientHarness(config)
+    resilient = ResilientHarness(config, require_cassette_binding=False)
     
     call = {
         "sid": "CATEST001",
@@ -157,7 +157,7 @@ def test_metrics_export_with_fallback():
         "twilio_account_sid": None,
     }
     
-    resilient = ResilientHarness(config)
+    resilient = ResilientHarness(config, require_cassette_binding=False)
     
     metrics = resilient.export_metrics()
     

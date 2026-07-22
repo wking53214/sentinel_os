@@ -16,8 +16,9 @@ logger = setup_logging("ResilientHarness")
 class ResilientHarness:
     """Production harness with operational resilience"""
     
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, require_cassette_binding: bool = True):
         self.config = config
+        self.require_cassette_binding = require_cassette_binding
         self.harness = None
         self.circuit_breaker = CircuitBreaker(failure_threshold=5, timeout=60)
         self.health_checker = HealthChecker()
@@ -32,7 +33,10 @@ class ResilientHarness:
     def _initialize_harness(self):
         """Initialize harness with error handling"""
         try:
-            self.harness = IcebergProductionHarness(self.config)
+            self.harness = IcebergProductionHarness(
+                self.config,
+                require_cassette_binding=self.require_cassette_binding,
+            )
             logger.info("Harness initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize harness: {e}")

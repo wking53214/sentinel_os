@@ -24,7 +24,10 @@ from queue_staffing_bayes_integration import (
 )
 from operational_resilience import setup_logging
 from circuit_breaker import CircuitBreaker
-from cassette_forensics import compute_cassette_code_hash
+from cassette_forensics import (
+    compute_cassette_code_hash, compute_cassette_hash,
+    serialize_cassette_for_ledger,
+)
 
 logger = setup_logging("IcebergProductionHarness")
 
@@ -49,16 +52,31 @@ def _safe_code_hash(cassette_obj):
 class IcebergProductionHarness:
     """Complete production system: all components wired together"""
     
-    def __init__(self, config: Dict, cassette=None):
+    def __init__(self, config: Dict, cassette=None,
+                 require_cassette_binding: bool = True):
         """Initialize production system.
 
         The cassette is THE governing policy for this harness. It is
         loaded (or injected), schema-validated fail-loud, and every
         governance number read later in process_call comes from it --
         never from a literal in this file.
+
+        require_cassette_binding (default True, fail-closed): a loaded
+        cassette must be content-bound into the ledger (Item 2 /
+        bind_cassette_version) before this harness will start. Without
+        this, a cassette can govern real decisions with no ledger
+        commitment of what content it actually is -- an operator could
+        change parameters or code without changing the version string,
+        and historical queries by version would silently return rows
+        governed by different content. There is no env-var override for
+        this in the real production entrypoint (sentinel_worker.py) --
+        same posture as ICEBERG_LEDGER_RUNTIME_USER: no fallback ever.
+        Set False only for local/dev/simulator callers that construct
+        this harness directly and explicitly accept an unbound cassette.
         """
 
         self.config = config
+        self.require_cassette_binding = require_cassette_binding
 
         # Governing cassette: injected, or loaded for the configured
         # domain. Validated here so an invalid policy halts construction.
@@ -115,8 +133,45 @@ class IcebergProductionHarness:
                 )
                 print("✓ PostgreSQL ledger connected")
             except Exception as e:
+                if self.require_cassette_binding:
+                    # Fail-closed: binding is mandatory and needs a live
+                    # ledger. A soft "not available" here would let the
+                    # harness continue and govern real decisions with an
+                    # unbound cassette -- exactly the gap this item closes.
+                    raise RuntimeError(
+                        f"PostgreSQL ledger unavailable and "
+                        f"require_cassette_binding=True: cannot bind "
+                        f"cassette without a ledger. Original error: {e}"
+                    ) from e
                 print(f"⚠ PostgreSQL not available: {e}")
                 self.ledger = None
+        elif self.require_cassette_binding:
+            raise RuntimeError(
+                "require_cassette_binding=True but no postgres_host "
+                "configured: cannot bind cassette without a ledger. "
+                "Set postgres_host, or pass require_cassette_binding=False "
+                "for a dev/simulator harness that accepts an unbound "
+                "cassette."
+            )
+
+        # Item 2: content-bind the loaded cassette into the ledger chain,
+        # fail-closed, before any decision can be governed by it. Only
+        # reachable here if either binding was required (ledger is
+        # guaranteed present by the checks above) or binding was not
+        # required but a ledger happens to be configured anyway -- in
+        # both cases, binding an available ledger is strictly better
+        # than not.
+        if self.ledger is not None:
+            cassette_snapshot = serialize_cassette_for_ledger(self._params())
+            cassette_hash = compute_cassette_hash(cassette_snapshot)
+            cassette_code_hash = _safe_code_hash(self.cassette)
+            self.ledger.bind_cassette_version(
+                cassette_snapshot.get("cassette_version"),
+                cassette_hash,
+                cassette_code_hash=cassette_code_hash,
+                authorized_by=self.config.get("authorized_by"),
+            )
+            print(f"✓ Cassette bound: {cassette_snapshot.get('cassette_version')}")
         
         # Claude API
         if self.config.get("claude_api_key"):

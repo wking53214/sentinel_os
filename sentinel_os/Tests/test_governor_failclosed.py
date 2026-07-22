@@ -99,7 +99,8 @@ def _low_friction_journey():
 
 def _harness():
     return IcebergProductionHarness(
-        {"postgres_host": None, "claude_api_key": None, "twilio_account_sid": None}
+        {"postgres_host": None, "claude_api_key": None, "twilio_account_sid": None},
+        require_cassette_binding=False,
     )
 
 

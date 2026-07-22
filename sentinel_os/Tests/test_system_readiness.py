@@ -54,7 +54,7 @@ def test_harness_initialization():
             "twilio_account_sid": None,
         }
         
-        harness = IcebergProductionHarness(config)
+        harness = IcebergProductionHarness(config, require_cassette_binding=False)
         
         assert harness.metrics is not None
         assert harness.observer is not None
@@ -78,7 +78,7 @@ def test_e2e_call_processing():
             "twilio_account_sid": None,
         }
         
-        harness = IcebergProductionHarness(config)
+        harness = IcebergProductionHarness(config, require_cassette_binding=False)
         
         # Process test call
         call = {
@@ -115,7 +115,7 @@ def test_batch_processing():
             "twilio_account_sid": None,
         }
         
-        harness = IcebergProductionHarness(config)
+        harness = IcebergProductionHarness(config, require_cassette_binding=False)
         
         calls = [
             {"sid": "CAB001", "status": "completed", "duration": 120, "from": "+1111", "to": "+billing"},
@@ -149,7 +149,7 @@ def test_prometheus_export():
             "twilio_account_sid": None,
         }
         
-        harness = IcebergProductionHarness(config)
+        harness = IcebergProductionHarness(config, require_cassette_binding=False)
         
         # Process some calls
         harness.process_call({"sid": "CAP001", "status": "completed", "duration": 120, "from": "+1111", "to": "+test"})

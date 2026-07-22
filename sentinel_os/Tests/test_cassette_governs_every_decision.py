@@ -163,7 +163,7 @@ def test_compute_friction_boundary():
 def test_swap_cassette_changes_next_decision():
     """Decision-time read, not cached: swap the governing cassette and
     the VERY NEXT call is judged under the new trigger."""
-    harness = IcebergProductionHarness(OFFLINE_CONFIG, cassette=TunedCassette(trigger=2))
+    harness = IcebergProductionHarness(OFFLINE_CONFIG, cassette=TunedCassette(trigger=2), require_cassette_binding=False)
     stub = StubDecider()
     harness.claude_decider = stub
 
@@ -182,7 +182,7 @@ def test_swap_cassette_changes_next_decision():
 def test_friction_from_cassette_threshold():
     """The measured friction count follows the cassette's threshold:
     same call, swapped threshold, different count."""
-    harness = IcebergProductionHarness(OFFLINE_CONFIG, cassette=TunedCassette(long_wait=30))
+    harness = IcebergProductionHarness(OFFLINE_CONFIG, cassette=TunedCassette(long_wait=30), require_cassette_binding=False)
     r30 = harness.process_call(_call(250))    # waits 25/125/100 vs 30 -> 2
     assert r30["friction_count"] == 2
 
@@ -202,7 +202,7 @@ def test_bad_cassette_halts_harness():
     params = _good_params()
     del params["governance_trigger"]
     with pytest.raises(CassetteValidationError) as exc:
-        IcebergProductionHarness(OFFLINE_CONFIG, cassette=ConfigurableCassette(params))
+        IcebergProductionHarness(OFFLINE_CONFIG, cassette=ConfigurableCassette(params), require_cassette_binding=False)
     assert "governance_trigger" in str(exc.value)
 
 
@@ -217,7 +217,7 @@ def test_friction_unified_across_paths():
 
     # Production harness: measured count equals the rule applied to the
     # parsed per-node waits.
-    harness = IcebergProductionHarness(OFFLINE_CONFIG, cassette=IvrCassette())
+    harness = IcebergProductionHarness(OFFLINE_CONFIG, cassette=IvrCassette(), require_cassette_binding=False)
     duration = 250
     result = harness.process_call(_call(duration))
     expected = sum(
@@ -228,7 +228,7 @@ def test_friction_unified_across_paths():
 
     # Cassette harness: same rule, cassette threshold, no fallback.
     from cassette_harness import CassetteHarness
-    boombox = CassetteHarness("ivr", OFFLINE_CONFIG)
+    boombox = CassetteHarness("ivr", OFFLINE_CONFIG, require_cassette_binding=False)
     assert boombox._count_friction({"duration": 150}, []) == 1
     assert boombox._count_friction({"duration": 25}, []) == 0
 
