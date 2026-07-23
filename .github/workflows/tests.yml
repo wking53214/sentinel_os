@@ -87,14 +87,24 @@ jobs:
           # queue_schema, api_server_v2, grafts) were previously never
           # collected or run by CI at all; now they are.
           #
-          # test_twin_live.py is explicitly excluded, not silently skipped:
-          # it requires 3 separately-provisioned OS identities
-          # (sentinelsvc/twincustomer/twincustodian), real TLS PKI between
-          # them, and /usr/local/bin/twin_ensure_services -- a self-heal
-          # script that exists in whatever environment originally built the
-          # twin but was never committed to this repo. That's real
-          # infrastructure to reconstruct, not a CI config fix -- tracked
-          # separately, not blocking this merge.
+          # test_twin_live.py is still explicitly excluded here, but for a
+          # different and narrower reason than before: its OS-identity
+          # (sentinelsvc/twincustomer/twincustodian), peer-auth Postgres
+          # setup is now real, committed, reproducible code --
+          # scripts/twin_ensure_services.sh -- and running it locally (or
+          # in any environment with a NATIVE Postgres install sharing a
+          # Unix socket with the test process) makes this suite pass
+          # 383/383 alongside everything else, verified twice back-to-back
+          # from a clean state. What it can't do is run against THIS
+          # workflow's Postgres specifically: the `services: postgres:`
+          # block above is a separate Docker container reached over TCP,
+          # and peer auth requires the client and server to share the same
+          # Unix domain socket -- there is no socket to share with a
+          # containerized service. Closing this in CI would mean replacing
+          # the services: postgres block with a natively apt-installed
+          # Postgres on the runner for this job, which is a real (and
+          # separable) infra change, not a one-line fix -- flagged as
+          # follow-up, not attempted here.
           python -m pytest . --ignore=test_twin_live.py -v --tb=short
 
       - name: Summarize results
@@ -124,4 +134,8 @@ jobs:
           # have auto-caught the TLS private key committed to git history
           # earlier -- bandit's B105/B106 hardcoded-secret checks flag that
           # pattern. Fix the current findings, then make this a real gate.
+          # test_twin_live.py is still excluded here too (kept consistent
+          # with the pytest exclusion above -- it's not run in this
+          # workflow at all, so scanning it here would report on dead code
+          # from this job's point of view).
           bandit -r . -x ./Tests,./test_twin_live.py || true

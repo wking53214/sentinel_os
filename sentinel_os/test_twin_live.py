@@ -37,10 +37,21 @@ import psycopg2.extras
 import pytest
 import redis
 
-REPO = "/home/claude/sentinel_os/sentinel_os"
+REPO = os.path.dirname(os.path.abspath(__file__))
 PY = "python3"
 ICEBERG_DSN = dict(host="localhost", dbname="iceberg", user="iceberg", password="iceberg")
-FEED_DSN = "host=localhost port=5432 dbname=iceberg user=ledger_reader password=reader_hashfeed"
+def _feed_dsn() -> str:
+    """ledger_reader's password is set once per pytest session by the root
+    conftest.py fixture (_ensure_default_ledger_runtime_role), which every
+    test in the repo shares -- reading it here at call time (not as a
+    module-level constant, which would freeze it at import time before that
+    fixture has run) keeps this suite and the rest of the repo agreeing on
+    ledger_reader's actual current password instead of each hardcoding its
+    own and silently drifting apart when both run in one pytest session.
+    The literal fallback only matters for a standalone run of this file
+    where conftest.py's fixture didn't get a chance to run first."""
+    password = os.environ.get("ICEBERG_LEDGER_RUNTIME_PASSWORD", "reader_hashfeed")
+    return f"host=localhost port=5432 dbname=iceberg user=ledger_reader password={password}"
 REDIS_URL = "redis://localhost:6379/0"
 
 import twin_custody as tc
@@ -931,7 +942,7 @@ def test_probe_clean_and_seeded_findings(customer_keys, tmp_path):
 
         # run the probe AS THE CUSTOMER
         pr = run_as("twincustomer", [PY, "twin_probe.py", "--receiver-url", url,
-                    "--replica-id", r, "--feed-dsn", FEED_DSN,
+                    "--replica-id", r, "--feed-dsn", _feed_dsn(),
                     "--submission-record", f"{kd}/subrec.jsonl", "--sla-seconds", "5",
                     "--key-file", f"{kd}/probe.priv"], timeout=90)
         assert pr.returncode == 2, pr.stdout[-1500:] + pr.stderr[-500:]
@@ -957,7 +968,7 @@ def test_probe_clean_and_seeded_findings(customer_keys, tmp_path):
         subrec2 = "\n".join(json.dumps({"sid": x["call_sid"], "t": time.time() - 100}) for x in seed2)
         run_as("twincustomer", ["bash", "-lc", f"cat > {kd}/subrec2.jsonl <<'EOF'\n{subrec2}\nEOF"])
         pr2 = run_as("twincustomer", [PY, "twin_probe.py", "--receiver-url", url,
-                     "--replica-id", r2, "--feed-dsn", FEED_DSN,
+                     "--replica-id", r2, "--feed-dsn", _feed_dsn(),
                      "--submission-record", f"{kd}/subrec2.jsonl", "--sla-seconds", "5",
                      "--key-file", f"{kd}/probe.priv"], timeout=90)
         assert pr2.returncode == 0, pr2.stdout[-1500:] + pr2.stderr[-500:]
