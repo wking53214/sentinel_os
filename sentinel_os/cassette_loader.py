@@ -5,6 +5,7 @@ Enables boom box to work with any cassette without code changes
 """
 
 import importlib.util
+import sys
 from pathlib import Path
 from typing import Dict
 from cassette_interface import Cassette, CassetteRegistry
@@ -33,13 +34,7 @@ class CassetteLoader:
         class_name = "".join(word.capitalize() for word in cassette_name.split("_")) + "Cassette"
         
         try:
-            # Dynamic import
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                self.cassette_dir / f"{module_name}.py"
-            )
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            module = self._load_module(module_name)
             
             # Get class and instantiate
             class_obj = getattr(module, class_name)
@@ -53,6 +48,56 @@ class CassetteLoader:
         validate_cassette(cassette)
 
         return cassette
+
+    def _load_module(self, module_name: str):
+        """Load `module_name` from self.cassette_dir.
+
+        When self.cassette_dir IS the real `cassettes` package shipped with
+        this repo, use a normal `importlib.import_module("cassettes.X")` --
+        the identical import every other caller in the codebase uses (e.g.
+        `from cassettes.banking_cassette import BankingCassette`). This
+        matters beyond style: it's what makes the resulting class's
+        __module__ read "cassettes.X" instead of a bare "X", which is what
+        cassette_forensics.compute_cassette_code_hash labels its hash with.
+        A cassette loaded through THIS loader must hash identically to the
+        same class loaded through a plain import, or the two code paths
+        silently disagree about what the "same" cassette's code hash is --
+        which is exactly what used to happen here (see the fix note below).
+
+        Falls back to the low-level spec_from_file_location + exec_module
+        recipe only for a genuinely custom/external cassette_dir that isn't
+        an importable package member -- the loader's whole point is to also
+        support loading from outside the repo. That fallback still
+        registers the module in sys.modules (set BEFORE exec_module, same
+        as CPython's own import machinery, and needed for inspect.getmodule
+        to resolve it at all -- without this, compute_cassette_code_hash
+        silently fell back to an "UNAVAILABLE_CASSETTE_SOURCE" marker
+        instead of the cassette's real source for every cassette loaded
+        this way, and two different code hashes for the identical class --
+        the real one from a direct import, the marker from here -- would
+        collide the first time both got bound to the same cassette_version
+        in the ledger, tripping bind_cassette_version's content-mismatch
+        tripwire on a false positive).
+        """
+        real_package_dir = Path(__file__).parent / "cassettes"
+        if self.cassette_dir.resolve() == real_package_dir.resolve():
+            return importlib.import_module(f"cassettes.{module_name}")
+
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            self.cassette_dir / f"{module_name}.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            # Don't leave a half-executed module registered under this
+            # name -- a failed load should look like no load, not a
+            # module future code could accidentally import.
+            sys.modules.pop(module_name, None)
+            raise
+        return module
     
     def load_all_cassettes(self, fail_on_invalid: bool = True) -> CassetteRegistry:
         """Auto-discover and load all cassettes.

@@ -164,7 +164,7 @@ python3 sentinel_os/iceberg_complete_simulator.py
 
 **Still open** (see `governance/README.md` and `docs/CHANGELOG.md` for detail):
 - Bias testing and adverse-action specificity for governance decisions
-- `test_twin_live.py` requires infrastructure (3 separate OS identities + real TLS PKI between them) not yet reconstructed in CI -- excluded explicitly, not silently skipped
+- `test_twin_live.py` needs a native (non-Docker) Postgres install sharing a Unix socket with the test process, for real OS-identity peer-auth boundaries (`sentinelsvc`/`twincustomer`/`twincustodian` -- provisioned by `scripts/twin_ensure_services.sh`, now committed). Passes 383/383 alongside the rest of the suite locally or in any environment with a native Postgres, verified twice back-to-back from a clean state. Still excluded from the GitHub Actions workflow specifically, because its `services: postgres:` block is a separate Docker container reachable only over TCP -- there's no Unix socket to share, so peer auth structurally can't work there. Closing that gap means giving this CI job a natively-installed Postgres instead of the services: container, a separable follow-up.
 
 **Status:** Core governance logic, test coverage, and both primary deployment paths (Docker Compose, standalone simulator) are live-verified. Production deployment against real call systems has not been attempted.
 
