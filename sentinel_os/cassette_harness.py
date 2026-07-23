@@ -44,6 +44,27 @@ class CassetteHarness:
         except Exception as e:
             logger.error(f"Failed to load cassette: {e}")
             raise
+
+        # This harness IS the full telephony boom box: it counts call
+        # friction (telephony), infers intent from queues (routing),
+        # computes rewards (rl), and reports healing bounds
+        # (self_healing). A cassette that doesn't enable all four is
+        # refused here with a legible error rather than failing
+        # mid-call. Kernel-only or partial-manifest domains are judged
+        # through episode.judge_episode, not this pipeline.
+        from cassette_capabilities import (
+            CAPABILITY_RL,
+            CAPABILITY_ROUTING_TOPOLOGY,
+            CAPABILITY_SELF_HEALING,
+            CAPABILITY_TELEPHONY_INGEST,
+            require_capabilities,
+        )
+        require_capabilities(
+            self.cassette,
+            (CAPABILITY_TELEPHONY_INGEST, CAPABILITY_ROUTING_TOPOLOGY,
+             CAPABILITY_RL, CAPABILITY_SELF_HEALING),
+            consumer="CassetteHarness",
+        )
         
         # Initialize resilient harness (boom box)
         self.harness = ResilientHarness(

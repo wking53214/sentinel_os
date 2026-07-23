@@ -69,8 +69,12 @@ class TestCassetteSnapshot:
         snapshot = decision_row["cassette_snapshot"]
 
         # Verify snapshot structure
-        assert snapshot["schema_version"] == "1.0.0"
+        assert snapshot["schema_version"] == "2.0.0"
         assert snapshot["cassette_version"] == cassette_version_of(test_cassette)
+        # 2.0.0: the snapshot also records WHICH capability surfaces
+        # existed at decision time, not just the parameter values.
+        assert sorted(snapshot["capabilities"]) == [
+            "rl", "routing_topology", "self_healing", "telephony_ingest"]
         assert "parameters" in snapshot
         assert isinstance(snapshot["parameters"], dict)
 

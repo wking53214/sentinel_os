@@ -34,8 +34,10 @@ from typing import Any, Dict
 # the hash covers the cassette's own code and the shared governance code it runs
 # on, not code outside this boundary. COMPLIANCE.md states this scope honestly.
 _GOVERNANCE_CODE_MODULES = (
-    "cassette_interface",  # base Cassette: score_outcome_quality, _infer_intent_to_label
-    "cassette_schema",     # parameter bounds/validation that constrain decisions
+    "cassette_interface",      # kernel Cassette ABC: judge/explain, identity, manifest
+    "cassette_schema",         # parameter bounds/validation that constrain decisions
+    "cassette_capabilities",   # capability contracts: which surfaces exist and what they require
+    "episode",                 # the ground-truth record + its integrity invariants
 )
 
 
@@ -107,17 +109,14 @@ def serialize_cassette_for_ledger(governance_params: Any) -> Dict[str, Any]:
     cryptographically linked via the hash chain. It answers:
     "What policy governed this decision?"
     """
-    # governance_params is a GovernanceParameters from cassette_schema.py
-    # It has cassette_version and _parameters attributes
-    snapshot = {
-        "schema_version": governance_params.snapshot()["schema_version"],
-        "cassette_version": governance_params.cassette_version,
-        "parameters": {
-            name: spec.as_snapshot()
-            for name, spec in sorted(governance_params._parameters.items())
-        },
-    }
-    return snapshot
+    # One source of truth: GovernanceParameters.snapshot() IS the
+    # policy snapshot shape. This function used to hand-build the same
+    # dict field-by-field -- a second serializer that silently drifted
+    # the moment snapshot() gained a field (the 2.0.0 capability
+    # manifest), which is exactly the two-places-that-can-quietly-
+    # disagree pattern the cassette system exists to end. Pre-existing
+    # duplication, fixed here rather than patched around.
+    return governance_params.snapshot()
 
 
 def compute_cassette_hash(cassette_snapshot: Dict[str, Any]) -> str:

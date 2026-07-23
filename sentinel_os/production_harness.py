@@ -84,6 +84,23 @@ class IcebergProductionHarness:
             config.get("cassette_domain", "ivr")
         )
         validate_cassette(self.cassette)
+        # This pipeline reads long_wait_threshold + Twilio ingest
+        # (telephony), routes intent through SentinelCore (routing),
+        # and clamps healing inside expected_wait_bounds
+        # (self_healing). Refuse a cassette missing any of those at
+        # construction -- and again at swap -- rather than mid-call.
+        from cassette_capabilities import (
+            CAPABILITY_ROUTING_TOPOLOGY,
+            CAPABILITY_SELF_HEALING,
+            CAPABILITY_TELEPHONY_INGEST,
+            require_capabilities,
+        )
+        require_capabilities(
+            self.cassette,
+            (CAPABILITY_TELEPHONY_INGEST, CAPABILITY_ROUTING_TOPOLOGY,
+             CAPABILITY_SELF_HEALING),
+            consumer="IcebergProductionHarness",
+        )
 
         # Data sources
         self.twilio_parser = TwilioLogParser(cassette=self.cassette)
@@ -209,6 +226,18 @@ class IcebergProductionHarness:
         next process_call reads the new policy; nothing is cached across
         the swap."""
         validate_cassette(cassette)
+        from cassette_capabilities import (
+            CAPABILITY_ROUTING_TOPOLOGY,
+            CAPABILITY_SELF_HEALING,
+            CAPABILITY_TELEPHONY_INGEST,
+            require_capabilities,
+        )
+        require_capabilities(
+            cassette,
+            (CAPABILITY_TELEPHONY_INGEST, CAPABILITY_ROUTING_TOPOLOGY,
+             CAPABILITY_SELF_HEALING),
+            consumer="IcebergProductionHarness.swap_cassette",
+        )
         self.cassette = cassette
         self.sentinel = SentinelCore(cassette)
         self.twilio_parser.cassette = cassette

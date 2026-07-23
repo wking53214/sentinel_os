@@ -87,6 +87,23 @@ class SentinelCore:
         # module importable in isolation.)
         from cassette_schema import validate_cassette
         validate_cassette(cassette)
+        # This engine is a call-analytics pipeline: it reads the
+        # routing surface (_infer_intent_to_label) and the telephony
+        # judgment surface (score_outcome_quality, diagnose_abandonment).
+        # A cassette without those capabilities is refused HERE, with a
+        # legible error, instead of failing mid-call -- fail-closed at
+        # the door. Kernel-only domains are judged through
+        # episode.judge_episode / explain_episode, not this class.
+        from cassette_capabilities import (
+            CAPABILITY_ROUTING_TOPOLOGY,
+            CAPABILITY_TELEPHONY_INGEST,
+            require_capabilities,
+        )
+        require_capabilities(
+            cassette,
+            (CAPABILITY_TELEPHONY_INGEST, CAPABILITY_ROUTING_TOPOLOGY),
+            consumer="SentinelCore",
+        )
         self.cassette = cassette
 
     def infer_intent(self, journey: List[str], first_queue_chosen: str) -> IntentSignal:

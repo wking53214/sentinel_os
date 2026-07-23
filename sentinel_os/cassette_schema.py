@@ -25,7 +25,14 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple
 
-SCHEMA_VERSION = "1.0.0"
+# 1.0.0 -> 2.0.0: the required-parameter set is no longer one universal
+# list. It is the KERNEL set below plus the union of the parameter
+# contracts of the capabilities the cassette's manifest enables
+# (cassette_capabilities). Snapshots now also record the manifest, so a
+# ledger row states not just which values governed but which capability
+# surfaces existed at decision time. Rows written under 1.0.0 remain
+# interpretable: their stored snapshots carry their own schema_version.
+SCHEMA_VERSION = "2.0.0"
 
 # Forensic metadata slots. Item #3 scope: the slots must EXIST on every
 # parameter (keys present); enforcement of their contents (approval
@@ -34,32 +41,38 @@ METADATA_SLOTS = ("approval_date", "justification", "last_reviewed")
 
 ALLOWED_TYPES = ("float", "int", "range")
 
-# Parameters the governance path cannot run without. A cassette may
-# declare more; it may not declare fewer.
-#
-# The twilio_* thresholds were added after finding a cassette (banking)
-# that passed this contract and validate_cassette(), loaded, and swapped
-# in cleanly -- then raised ValueError on every single process_call,
-# because twilio_log_ingestion._count_friction reads these three
-# fail-loud and they were never part of the declared contract. A
-# cassette that satisfies REQUIRED_GOVERNANCE_PARAMETERS must now be
-# able to actually run a call, not just pass schema validation.
-REQUIRED_GOVERNANCE_PARAMETERS: Dict[str, str] = {
-    # A wait longer than this, at any node, is one friction event.
-    "long_wait_threshold": "float",
-    # friction_count >= this value routes the call to the governor
-    # (inclusive semantics -- the cassette declares the line, the
-    # engine stands on it).
+# Parameters NO cassette can run without, in any industry. Everything
+# domain-shaped -- long_wait_threshold, the twilio_* ingest thresholds,
+# expected_wait_bounds -- moved to the capability that owns it
+# (cassette_capabilities.*.REQUIRED_PARAMETERS). History that forced
+# this split: the twilio_* thresholds were once universally required
+# here after the banking cassette validated cleanly but raised
+# ValueError on every call at Twilio ingest; making them universal
+# fixed banking's crash by forcing banking to declare three PLACEHOLDER
+# values it never had real data for. Capability-scoped requirements
+# keep the original lesson (a cassette that validates must actually be
+# able to run its enabled surfaces) without forcing fake declarations
+# on domains that don't have the surface at all.
+KERNEL_REQUIRED_PARAMETERS: Dict[str, str] = {
+    # Accumulated adverse events >= this value route the episode to the
+    # governor (inclusive semantics -- the cassette declares the line,
+    # the engine stands on it). Domain-blind: every domain has SOME
+    # notion of "enough went wrong that governance must look".
     "governance_trigger": "int",
-    # Self-healing clamp band for the expected_wait parameter.
-    "expected_wait_bounds": "range",
-    # Twilio ingest: calls longer than this contribute 2 friction points.
-    "twilio_long_duration_threshold": "int",
-    # Twilio ingest: calls longer than this contribute 1 friction point.
-    "twilio_medium_duration_threshold": "int",
-    # Twilio ingest: non-completed calls shorter than this are dropped-call friction.
-    "twilio_short_duration_threshold": "int",
 }
+
+
+def required_parameters_for(capabilities) -> Dict[str, str]:
+    """The full required set for a given manifest: kernel plus the
+    union of each enabled capability's own parameter contract."""
+    from cassette_capabilities import CAPABILITIES
+
+    required = dict(KERNEL_REQUIRED_PARAMETERS)
+    for name in capabilities:
+        cap = CAPABILITIES.get(name)
+        if cap is not None:
+            required.update(cap.REQUIRED_PARAMETERS)
+    return required
 
 
 class CassetteValidationError(Exception):
@@ -111,9 +124,11 @@ class GovernanceParameters:
     second place the value's meaning could live.
     """
 
-    def __init__(self, cassette_version: str, parameters: Dict[str, ParameterSpec]):
+    def __init__(self, cassette_version: str, parameters: Dict[str, ParameterSpec],
+                 capabilities=()):
         self.cassette_version = cassette_version
         self._parameters = dict(parameters)
+        self.capabilities = tuple(capabilities)
 
     def names(self) -> List[str]:
         return sorted(self._parameters)
@@ -149,6 +164,7 @@ class GovernanceParameters:
         return {
             "schema_version": SCHEMA_VERSION,
             "cassette_version": self.cassette_version,
+            "capabilities": sorted(self.capabilities),
             "parameters": {
                 name: spec.as_snapshot()
                 for name, spec in sorted(self._parameters.items())
@@ -255,24 +271,83 @@ def validate_governance_parameters(cassette) -> GovernanceParameters:
     nothing is repaired: the cassette is either the source of truth or
     it does not load.
     """
+    from cassette_capabilities import CAPABILITIES, PARAMETER_OWNERS
+
     label = cassette_version_of(cassette)
     violations: List[str] = []
 
+    # --- Manifest first: without it the required set cannot even be
+    # computed. Missing, malformed, or unknown-name manifests are
+    # violations in their own right (fail-closed: a cassette that
+    # cannot state what it is does not load).
+    declared_caps = getattr(cassette, "CAPABILITIES", None)
+    if declared_caps is None:
+        raise CassetteValidationError(
+            label,
+            ["cassette declares no CAPABILITIES manifest; every cassette must "
+             "declare one (an empty tuple means kernel-only, said explicitly)"],
+        )
+    if isinstance(declared_caps, str) or not isinstance(declared_caps, (tuple, list)):
+        raise CassetteValidationError(
+            label,
+            [f"CAPABILITIES must be a tuple/list of capability names, got "
+             f"{type(declared_caps).__name__}"],
+        )
+    manifest = tuple(str(name) for name in declared_caps)
+    unknown = [name for name in manifest if name not in CAPABILITIES]
+    if unknown:
+        raise CassetteValidationError(
+            label,
+            [f"unknown capability '{name}' in manifest; known: "
+             f"{sorted(CAPABILITIES)}" for name in unknown],
+        )
+    enabled = set(manifest)
+
+    # --- Each enabled capability's METHOD contract must be met: a
+    # manifest that promises a surface the class doesn't implement is
+    # a violation, not a runtime surprise.
+    for cap_name in sorted(enabled):
+        for method in CAPABILITIES[cap_name].REQUIRED_METHODS:
+            if not callable(getattr(cassette, method, None)):
+                violations.append(
+                    f"capability '{cap_name}' is enabled but required method "
+                    f"'{method}()' is missing or not callable"
+                )
+
     getter = getattr(cassette, "get_governance_parameters", None)
     if not callable(getter):
-        raise CassetteValidationError(
-            label, ["cassette does not implement get_governance_parameters()"]
-        )
+        violations.append("cassette does not implement get_governance_parameters()")
+        raise CassetteValidationError(label, violations)
 
     raw_params = getter()
     if not isinstance(raw_params, dict):
-        raise CassetteValidationError(
-            label, [f"get_governance_parameters() must return a dict, got {type(raw_params).__name__}"]
+        violations.append(
+            f"get_governance_parameters() must return a dict, got {type(raw_params).__name__}"
         )
+        raise CassetteValidationError(label, violations)
 
     specs: Dict[str, ParameterSpec] = {}
 
-    for name, expected_type in REQUIRED_GOVERNANCE_PARAMETERS.items():
+    # --- The anti-placeholder rule, in both directions: the manifest
+    # decides the parameter contract. Required = kernel + union of
+    # enabled capabilities; a parameter OWNED by a capability that is
+    # NOT enabled is rejected outright, because a declared-but-unowned
+    # value is exactly how the banking cassette's flagged placeholder
+    # Twilio thresholds happened.
+    required = required_parameters_for(manifest)
+
+    for name in sorted(raw_params):
+        owner = PARAMETER_OWNERS.get(name)
+        if owner is not None and owner not in enabled:
+            violations.append(
+                f"parameter '{name}' is owned by capability '{owner}', which "
+                f"this cassette does not enable -- enable the capability or "
+                f"remove the parameter (declaring placeholder values to "
+                f"satisfy a surface the domain doesn't have is the failure "
+                f"this rule exists to prevent)"
+            )
+
+    for name, expected_type in required.items():
         if name not in raw_params:
             violations.append(f"missing required governance parameter '{name}' ({expected_type})")
             continue
@@ -299,7 +374,7 @@ def validate_governance_parameters(cassette) -> GovernanceParameters:
     if violations:
         raise CassetteValidationError(label, violations)
 
-    return GovernanceParameters(label, specs)
+    return GovernanceParameters(label, specs, capabilities=manifest)
 
 
 def validate_cassette(cassette) -> GovernanceParameters:
@@ -314,12 +389,25 @@ def validate_cassette(cassette) -> GovernanceParameters:
     label = cassette_version_of(cassette)
     violations: List[str] = []
 
+    from cassette_capabilities import CAPABILITY_ROUTING_TOPOLOGY
+
     config = cassette.get_config()
     if config is None:
         violations.append("get_config() returned None")
-    queues = cassette.get_queue_definitions()
-    if not queues:
-        violations.append("get_queue_definitions() returned no queues")
+    # Kernel judgment surface: every cassette, in every industry.
+    for kernel_method in ("judge", "explain"):
+        if not callable(getattr(cassette, kernel_method, None)):
+            violations.append(
+                f"kernel method '{kernel_method}(episode)' is missing or not callable"
+            )
+    # Queue structure is a routing_topology obligation, not a kernel
+    # one: only a cassette that enables routing must define queues.
+    declared_caps = getattr(cassette, "CAPABILITIES", ()) or ()
+    if (not isinstance(declared_caps, str)
+            and CAPABILITY_ROUTING_TOPOLOGY in tuple(declared_caps)):
+        queues = cassette.get_queue_definitions()
+        if not queues:
+            violations.append("get_queue_definitions() returned no queues")
     try:
         if cassette.validate() is not True:
             violations.append("cassette.validate() self-check did not return True")
