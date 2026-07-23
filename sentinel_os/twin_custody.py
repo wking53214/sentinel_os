@@ -257,6 +257,39 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
         # cassette_hash + cassette_code_hash enter via the shared contract; the
         # shipped column names match the canonical keys.
         apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") in ("regulatory_cassette_inserted",
+                                    "regulatory_cassette_removed"):
+        # Mirrors ledger_postgres.record_regulatory_cassette_event().
+        # mode + regulation ride in the data JSONB (shipped).
+        d = row.get("data") or {}
+        canonical = {
+            "record_kind": row["record_kind"],
+            "cassette_version": row["cassette_version"],
+            "mode": d.get("mode"),
+            "regulation": d.get("regulation"),
+            "previous_hash": row["previous_hash"],
+        }
+        # cassette_hash + cassette_code_hash + authorized_by enter via the
+        # shared contract; the shipped column names match the canonical keys.
+        apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") == "regulatory_disclosure":
+        # Mirrors ledger_postgres.record_regulatory_disclosure(). The finding
+        # body was stored in decision_output; regulation/check/action/subject
+        # in data. NOTE: cassette_code_hash is never set on disclosure rows,
+        # so applying the full shared contract stays byte-identical to the
+        # writer (absent -> omitted).
+        d = row.get("data") or {}
+        canonical = {
+            "record_kind": "regulatory_disclosure",
+            "cassette_version": row["cassette_version"],
+            "regulation": d.get("regulation"),
+            "check": d.get("check"),
+            "action": d.get("action"),
+            "subject": d.get("subject"),
+            "finding": row["decision_output"],
+            "previous_hash": row["previous_hash"],
+        }
+        apply_optional_hashed_fields(canonical, row)
     elif row.get("record_kind") == "decision_supersession":
         # Mirrors ledger_postgres.supersede_decision(). Item 6. The writer
         # stored the authorizing identity in the authorized_by column but hashed

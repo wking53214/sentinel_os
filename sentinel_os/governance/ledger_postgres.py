@@ -670,6 +670,280 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
 
+    # ------------------------------------------------------------------
+    # Regulatory-cassette events (lens insertion / removal / disclosure)
+    # ------------------------------------------------------------------
+
+    _REGULATORY_CASSETTE_EVENTS = (
+        "regulatory_cassette_inserted",
+        "regulatory_cassette_removed",
+    )
+
+    def record_regulatory_cassette_event(self, event: str, cassette_version: str,
+                                         cassette_hash: str,
+                                         cassette_code_hash: Optional[str],
+                                         mode: str, regulation: str,
+                                         authorized_by: str) -> Dict[str, Any]:
+        """Record a regulatory lens's insertion or removal as a
+        FIRST-CLASS hash-chained event.
+
+        A regulatory cassette is an auditor-inserted lens (see
+        regulatory_cassette_interface); "when was the CFPB lens
+        active, in which mode, inserted by whom, with what content
+        hash" must be a direct ledger query -- not an inference from
+        the generic authorized_by field on some other row. So
+        insertion/removal get their own record_kind on the SAME chain
+        as every other event (no parallel logging path), hashed
+        through the same shared optional-field contract
+        (canonical_fields) the writer, verify_chain, and the twin all
+        use. The authorized_by COLUMN still stores who acted -- that
+        is what the column is for -- but the event stands as its own
+        queryable row, which is what "first-class" means here.
+
+        mode and regulation live inside the canonical form (and the
+        data JSONB, from which verification reconstructs them):
+        whether a lens sat read-only or live in the decision path is
+        exactly the kind of fact tampering would want to change.
+        """
+        if event not in self._REGULATORY_CASSETTE_EVENTS:
+            raise ValueError(
+                f"Unknown regulatory cassette event '{event}'; known: "
+                f"{list(self._REGULATORY_CASSETTE_EVENTS)}"
+            )
+        if not cassette_version or not isinstance(cassette_version, str):
+            raise ValueError("record_regulatory_cassette_event requires a "
+                             "non-empty cassette_version")
+        if not cassette_hash or not isinstance(cassette_hash, str):
+            raise ValueError("record_regulatory_cassette_event requires a "
+                             "cassette_hash (lens insertion without a content "
+                             "hash is an unevidenced insertion)")
+        if mode not in ("observer", "live"):
+            raise ValueError(f"mode must be 'observer' or 'live', got {mode!r}")
+        if not regulation or not str(regulation).strip():
+            raise ValueError("record_regulatory_cassette_event requires the "
+                             "regulation the lens claims to check")
+        if not authorized_by or not str(authorized_by).strip():
+            raise ValueError("record_regulatory_cassette_event requires "
+                             "authorized_by: an anonymous lens insertion is "
+                             "exactly the record an examiner cannot accept")
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry = {
+                "record_kind": event,
+                "cassette_version": cassette_version,
+                "mode": mode,
+                "regulation": str(regulation),
+                "previous_hash": previous_hash,
+            }
+            apply_optional_hashed_fields(canonical_entry, {
+                "cassette_hash": cassette_hash,
+                "cassette_code_hash": cassette_code_hash,
+                "authorized_by": authorized_by,
+            })
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            # mode + regulation are stored in data so verify_chain and
+            # the twin can rebuild the exact canonical form from the row.
+            data = {"record_kind": event, "mode": mode,
+                    "regulation": str(regulation), "parameter_changed": False}
+            verb = "inserted" if event.endswith("inserted") else "removed"
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, previous_value, applied_value, reason,
+                 previous_hash, current_hash, data,
+                 record_kind, cassette_version, cassette_hash, cassette_code_hash,
+                 authorized_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (event, str(regulation)[:100], 0.0, 0.0,
+                  f"regulatory lens {verb} ({mode} mode)",
+                  previous_hash, current_hash, json.dumps(data),
+                  event, cassette_version, cassette_hash,
+                  cassette_code_hash, authorized_by))
+            conn.commit()
+            return {
+                "status": "created",
+                "event": event,
+                "cassette_version": cassette_version,
+                "mode": mode,
+                "regulation": str(regulation),
+                "cassette_hash": cassette_hash,
+                "current_hash": current_hash,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def record_regulatory_disclosure(self, cassette_version: str, regulation: str,
+                                     check: str, action: str, subject_id: str,
+                                     finding: Dict[str, Any],
+                                     cassette_hash: Optional[str] = None,
+                                     authorized_by: Optional[str] = None
+                                     ) -> Dict[str, Any]:
+        """Record that a LIVE regulatory lens flagged/blocked a decision
+        -- the disclosure event itself.
+
+        THE safeguard of the regulatory framework: any time a live lens
+        causes a flag, block, or (if ever built) adjustment, THAT
+        ACTION is written to the chain naming which regulation and
+        which specific check triggered it, before the action takes
+        effect (regulatory_deck calls this first and does not catch
+        failures). Undisclosed compliance-driven steering of outputs
+        is the failure mode this event type exists to make structurally
+        impossible -- the same conduct the FTC's July 2026 Section 5
+        proposal treats as potentially deceptive. There is no silent
+        path and no parallel log: this is a chain row like every other.
+
+        The full finding body (JSON-safe, from RegulatoryFinding.as_dict)
+        is stored in decision_output and included in the canonical hash
+        -- the evidence an examiner reads is the evidence the chain
+        protects. It is normalized through a JSON round-trip before
+        hashing so the bytes hashed at write time are exactly the bytes
+        recomputed from the JSONB column at verify time.
+        """
+        if not cassette_version or not isinstance(cassette_version, str):
+            raise ValueError("record_regulatory_disclosure requires cassette_version")
+        if not regulation or not str(regulation).strip():
+            raise ValueError("record_regulatory_disclosure requires the regulation")
+        if not check or not str(check).strip():
+            raise ValueError("record_regulatory_disclosure requires the specific "
+                             "check that triggered -- 'something fired' is not a "
+                             "disclosure")
+        if action not in ("flag", "block", "adjust"):
+            raise ValueError(f"action must be 'flag', 'block', or 'adjust', "
+                             f"got {action!r}")
+        if not subject_id or not str(subject_id).strip():
+            raise ValueError("record_regulatory_disclosure requires the subject "
+                             "(episode/decision id) the action applies to")
+        if not isinstance(finding, dict):
+            raise ValueError("record_regulatory_disclosure requires the finding "
+                             "body as a dict")
+        # Normalize NOW so write-time hash bytes == verify-time hash
+        # bytes after the JSONB round-trip (tuples->lists, etc).
+        finding = json.loads(json.dumps(finding, sort_keys=True, default=str))
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry = {
+                "record_kind": "regulatory_disclosure",
+                "cassette_version": cassette_version,
+                "regulation": str(regulation),
+                "check": str(check),
+                "action": action,
+                "subject": str(subject_id),
+                "finding": finding,
+                "previous_hash": previous_hash,
+            }
+            apply_optional_hashed_fields(canonical_entry, {
+                "cassette_hash": cassette_hash,
+                "authorized_by": authorized_by,
+            })
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            data = {"record_kind": "regulatory_disclosure",
+                    "regulation": str(regulation), "check": str(check),
+                    "action": action, "subject": str(subject_id),
+                    "parameter_changed": False}
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, previous_value, applied_value, reason,
+                 previous_hash, current_hash, data,
+                 record_kind, cassette_version, decision_output, cassette_hash,
+                 authorized_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, ("regulatory_disclosure", str(check)[:100], 0.0, 0.0,
+                  f"regulatory lens {action}: {check} ({str(regulation)[:120]})",
+                  previous_hash, current_hash, json.dumps(data),
+                  "regulatory_disclosure", cassette_version,
+                  json.dumps(finding), cassette_hash, authorized_by))
+            conn.commit()
+            return {
+                "status": "created",
+                "cassette_version": cassette_version,
+                "regulation": str(regulation),
+                "check": str(check),
+                "action": action,
+                "subject": str(subject_id),
+                "current_hash": current_hash,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def get_regulatory_cassette_history(self,
+                                        cassette_version: Optional[str] = None,
+                                        limit: int = 200) -> List[Dict[str, Any]]:
+        """The examiner query: every lens insertion/removal event, in
+        chain order -- 'when was the CFPB lens active' read straight
+        off record_kind, no inference required."""
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            if cassette_version:
+                cursor.execute("""
+                    SELECT id, timestamp, record_kind, cassette_version, data,
+                           cassette_hash, cassette_code_hash, authorized_by,
+                           current_hash
+                    FROM ledger_entries
+                    WHERE record_kind IN ('regulatory_cassette_inserted',
+                                          'regulatory_cassette_removed')
+                      AND cassette_version = %s
+                    ORDER BY id ASC LIMIT %s
+                """, (cassette_version, limit))
+            else:
+                cursor.execute("""
+                    SELECT id, timestamp, record_kind, cassette_version, data,
+                           cassette_hash, cassette_code_hash, authorized_by,
+                           current_hash
+                    FROM ledger_entries
+                    WHERE record_kind IN ('regulatory_cassette_inserted',
+                                          'regulatory_cassette_removed')
+                    ORDER BY id ASC LIMIT %s
+                """, (limit,))
+            events = []
+            for (row_id, ts, kind, version, data, chash, code_hash,
+                 who, cur_hash) in cursor.fetchall():
+                d = self._as_json(data)
+                events.append({
+                    "id": row_id,
+                    "timestamp": ts.isoformat() if ts else None,
+                    "event": kind,
+                    "cassette_version": version,
+                    "mode": d.get("mode"),
+                    "regulation": d.get("regulation"),
+                    "cassette_hash": chash,
+                    "cassette_code_hash": code_hash,
+                    "authorized_by": who,
+                    "current_hash": cur_hash,
+                })
+            return events
+        finally:
+            self.pool.putconn(conn)
+
     def supersede_decision(self, supersedes_id: int, authority: str, reason: str,
                            corrected_output: Dict[str, Any],
                            cassette_version: Optional[str] = None) -> Dict[str, Any]:
@@ -1112,6 +1386,42 @@ class PostgreSQLLedger:
                         apply_optional_hashed_fields(canonical_entry, {
                             "cassette_hash": cassette_hash,
                             "cassette_code_hash": cassette_code_hash,
+                            "authorized_by": authorized_by,
+                        })
+                    elif record_kind in ("regulatory_cassette_inserted",
+                                         "regulatory_cassette_removed"):
+                        # Mirrors record_regulatory_cassette_event().
+                        # mode + regulation were stored in data.
+                        d = self._as_json(data)
+                        canonical_entry = {
+                            "record_kind": record_kind,
+                            "cassette_version": cassette_version,
+                            "mode": d.get("mode"),
+                            "regulation": d.get("regulation"),
+                            "previous_hash": stored_prev,
+                        }
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "cassette_hash": cassette_hash,
+                            "cassette_code_hash": cassette_code_hash,
+                            "authorized_by": authorized_by,
+                        })
+                    elif record_kind == "regulatory_disclosure":
+                        # Mirrors record_regulatory_disclosure(). The
+                        # finding body was stored in decision_output;
+                        # regulation/check/action/subject in data.
+                        d = self._as_json(data)
+                        canonical_entry = {
+                            "record_kind": "regulatory_disclosure",
+                            "cassette_version": cassette_version,
+                            "regulation": d.get("regulation"),
+                            "check": d.get("check"),
+                            "action": d.get("action"),
+                            "subject": d.get("subject"),
+                            "finding": self._as_json(decision_output),
+                            "previous_hash": stored_prev,
+                        }
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "cassette_hash": cassette_hash,
                             "authorized_by": authorized_by,
                         })
                     elif record_kind == "decision_supersession":
