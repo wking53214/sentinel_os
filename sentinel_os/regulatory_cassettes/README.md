@@ -90,7 +90,7 @@ cassettes are authored. A higher-level authoring interface for
 non-engineer auditors is a real, acknowledged future need — deferred
 deliberately, not forgotten.
 
-## What the checks do this session
+## What the checks do
 
 - **Reason specificity** — the kernel already guarantees a reason
   *exists* on any outcome mismatch (`episode.validate_episode`; any
@@ -107,11 +107,62 @@ deliberately, not forgotten.
   disparate-impact statistical testing is deliberately out of scope: it
   waits on an open product decision about whether Sentinel ever
   captures real protected-characteristic data or works proxy-only.
+- **Input-authorization tier screen** — is each input variable on
+  record as authorized to be used at all? A 7-tier ladder (T0
+  prohibited .. T6 vendor-opaque) that works whether an industry has a
+  real filed-variable list (NAIC, FDA PCCP, DO-178C, NERC), only a
+  blacklist (ECOA, NYC LL144), or nothing at all — a profile just
+  declares its own `tier_floor` and `prohibited_inputs` (both may be
+  empty), and the checker never branches on industry. Every tier claim
+  also carries a CONFIDENCE label — `undeclared` → `attested-
+  unsupported` → `attested-accountable-unsupported` → `attested-
+  accountable-evidenced` → `verified` — so a bare self-declared tier
+  can never read the same as an independently verified one. The
+  `verified` layer is opt-in per claim, set by whoever authored the
+  profile after doing that registry integration; the checker itself
+  never calls an external registry. Two live lenses in different
+  jurisdictions disagreeing on the same variable's tier resolve by the
+  stricter tier winning (`resolve_tier_conflict`).
+- **Narrative-legitimacy screen** — when a regulation expects a
+  free-text narrative on a decision (`narrative_field` declared on the
+  profile), screens it for protected-characteristic-adjacent language
+  and cross-references that against whether the outcome deviated from
+  what was requested and whether the stated reason(s) actually mention
+  the flagged content. A deviation + flagged language + a reason that
+  never mentions it is a possible "laundered" reason — a real
+  motivation dressed up as a policy-sounding one. A regulation that
+  expects a narrative but whose decision doesn't carry one reports
+  `not_screened` rather than silently never firing.
+- **C2 rollup** (`rollup_c2_bias_identification`) — combines findings
+  across whichever of the (up to four) C2 bias-identification
+  dimensions actually ran into one PASS / FLAG / INDETERMINATE status:
+  PASS only if every applicable dimension passes; FLAG if any
+  applicable dimension flags; INDETERMINATE if any applicable
+  dimension hasn't been evaluated — and INDETERMINATE takes precedence
+  over FLAG when both occur. The fourth dimension (statistical
+  outcome-equity) is not built — blocked on an open product decision —
+  so a lending-shaped rollup that includes it stays honestly
+  INDETERMINATE regardless of how clean the other three come back.
+  Checks 1-3 can only ever prove the *negative* (nothing bad found);
+  only dimension 4 could prove the *affirmative* (outcomes were
+  actually fair) — never describe 1-3 passing as though it were that.
 
-## Explicitly out of scope (this session)
+**Disclosed, unsolved, not attempted:** renaming a bad, proxy, or
+undeclared-tier variable to an innocuous name defeats both the proxy
+screen and the tier screen alike — same class of gap for both, and not
+fixed this session (a model can encode bias through jointly-boring
+declared variables with no single suspicious name). The
+narrative-legitimacy screen cannot catch a sufficiently disconnected
+fabricated reason, and its phrase matching is English-only to start.
+
+## Explicitly out of scope
 
 CPPA ADMT consumer-facing notice/opt-out/appeal rights (new capability
 class); HMDA-style aggregate geographic reporting (new rollup
 capability); actual hiring/insurance domain cassettes; Illinois
 applicant-facing AI-use notices; the banking fraud-escalation scoring
-decision (still deliberately open).
+decision (still deliberately open); C2's fourth dimension — statistical
+outcome-equity — blocked on Wm's decision about whether Sentinel ever
+ingests real protected-characteristic data; unicode/encoding
+normalization, non-English phrase lists, and empty-vs-absent-field
+handling for the narrative screen (cheap fixes, not prioritized).
