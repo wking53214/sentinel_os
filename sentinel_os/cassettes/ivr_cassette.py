@@ -136,7 +136,15 @@ class IvrCassette(Cassette, TelephonyIngest, RoutingTopology,
             # governance modules), and load-time binding enforcement
             # correctly treats a changed hash under an old version
             # string as a conflict. New code hash => new version.
-            version="2.0.0",
+            # 2.0.0 -> 2.0.1: regulatory-cassette framework modules
+            # (regulatory_cassette_interface, regulatory_checks,
+            # regulatory_deck) joined the shared governance code-hash
+            # surface (cassette_forensics._GOVERNANCE_CODE_MODULES).
+            # This cassette's own behavior is UNCHANGED; the code hash
+            # moved, and under binding enforcement a moved hash
+            # requires a new version string rather than a silent
+            # re-bind.
+            version="2.0.1",
             description="Traditional call center IVR",
             domain="ivr"
         )

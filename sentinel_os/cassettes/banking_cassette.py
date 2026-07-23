@@ -95,7 +95,11 @@ class BankingCassette(Cassette, RoutingTopology, ReinforcementLearning,
             # episodes) with the SAME scoring arithmetic and tier
             # cutoffs the old score_outcome_quality used. New code
             # hash => new version (binding enforcement).
-            version="2.0.0",
+            # 2.0.0 -> 2.0.1: regulatory-cassette framework modules
+            # joined the shared governance code-hash surface (see
+            # ivr_cassette for the identical note). Behavior unchanged;
+            # moved code hash => new version under binding enforcement.
+            version="2.0.1",
             description="Financial services & banking",
             domain="banking"
         )
