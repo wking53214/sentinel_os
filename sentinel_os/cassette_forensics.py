@@ -38,6 +38,16 @@ _GOVERNANCE_CODE_MODULES = (
     "cassette_schema",         # parameter bounds/validation that constrain decisions
     "cassette_capabilities",   # capability contracts: which surfaces exist and what they require
     "episode",                 # the ground-truth record + its integrity invariants
+    # Regulatory-cassette framework: the lens contract, the shared
+    # regulation-parameterized checkers, and the deck that enforces
+    # insertion binding + disclosure-first live action. Governance code
+    # by any definition -- an edit to the specificity checker or the
+    # disclosure path MUST move every cassette's code hash, exactly
+    # like an edit to episode.py does. (This boundary was missed once
+    # before; declared here the same session the modules were born.)
+    "regulatory_cassette_interface",
+    "regulatory_checks",
+    "regulatory_deck",
 )
 
 
