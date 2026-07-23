@@ -87,20 +87,31 @@ def test_cassette_swapping():
     assert ivr_info["domain"] == "ivr"
     assert "billing_queue" in ivr_info["queues"]
     
-    # Load Banking harness (SAME CODE, DIFFERENT CASSETTE)
-    banking_harness = CassetteHarness("banking", config, require_cassette_binding=False)
-    banking_info = banking_harness.get_cassette_info()
-    
-    assert banking_info["domain"] == "banking"
-    assert "fraud_detection_queue" in banking_info["queues"]
-    
-    # Verify they're different
-    assert ivr_info["queues"] != banking_info["queues"], "Different cassettes should have different queues"
-    assert ivr_info["domain"] != banking_info["domain"], "Different domains"
+    # Banking no longer enables telephony_ingest, so the TELEPHONY
+    # boom box refuses it AT THE DOOR -- fail-closed with a legible
+    # capability error, not a KeyError mid-call. (Under the old
+    # universal contract this "worked" only because banking declared
+    # flagged placeholder Twilio thresholds to satisfy validation.)
+    from cassette_capabilities import CapabilityError
+    try:
+        CassetteHarness("banking", config, require_cassette_binding=False)
+        assert False, "telephony harness must refuse a non-telephony cassette"
+    except CapabilityError as e:
+        assert "telephony_ingest" in str(e)
+        assert "banking" in str(e)
+
+    # Banking's routing surface is still real and still different from
+    # IVR's -- swappability now shows up at the KERNEL surface (see
+    # test_call_processing_different_cassettes), not by forcing every
+    # domain through the telephony pipeline.
+    from cassette_loader import CassetteLoader
+    banking = CassetteLoader().load_cassette("banking")
+    assert "fraud_detection_queue" in banking.get_queue_definitions()
+    assert ivr_info["queues"] != list(banking.get_queue_definitions().keys())
     
     print("  ✓ PASSED - Boom box works with multiple cassettes")
     print(f"             IVR domain: {ivr_info['domain']}, queues: {len(ivr_info['queues'])}")
-    print(f"             Banking domain: {banking_info['domain']}, queues: {len(banking_info['queues'])}")
+    print(f"             Banking (kernel-judged domain): correctly refused by telephony harness")
     return True
 
 def test_call_processing_different_cassettes():
@@ -120,7 +131,7 @@ def test_call_processing_different_cassettes():
         "to": "+billing"
     }
     
-    # Process with IVR
+    # Process with IVR through the telephony boom box -- unchanged.
     ivr_harness = CassetteHarness("ivr", config, require_cassette_binding=False)
     ivr_result = ivr_harness.process_call(call)
     
@@ -128,15 +139,34 @@ def test_call_processing_different_cassettes():
     assert "intent" in ivr_result
     assert "quality_tier" in ivr_result
     
-    # Process same call with banking
-    banking_harness = CassetteHarness("banking", config, require_cassette_binding=False)
-    banking_result = banking_harness.process_call(call)
+    # The SAME facts judged by banking now flow through the kernel
+    # surface: one Episode, two domains, two verdicts by design.
+    from cassette_loader import CassetteLoader
+    from cassettes.ivr_cassette import IvrCassette
+    from episode import make_episode, judge_episode
+
+    banking = CassetteLoader().load_cassette("banking")
+    episode = make_episode(
+        episode_id=call["sid"], domain="any",
+        requested={"resolved": True},
+        actual={"resolved": call["status"] == "completed"},
+        attributes={"duration": float(call["duration"]), "friction_count": 0,
+                    "emotion": {"frustration": 0.3}},
+    )
+    banking_verdict = judge_episode(banking, episode)
+    ivr_verdict = judge_episode(IvrCassette(), episode)
+
+    assert banking_verdict.tier in ["excellent", "good", "poor", "failed"]
+    # Same episode, different cutoffs and weights: the domains are
+    # allowed -- expected -- to disagree. (150s is "fast enough" for
+    # banking's 180s band but not IVR's 120s band.)
+    assert banking_verdict.score != ivr_verdict.score, \
+        "two domains judging identically would mean the cassette layer does nothing"
     
-    assert banking_result["domain"] == "banking"
-    
-    print("  ✓ PASSED - Same call, different cassettes")
-    print(f"             IVR: intent={ivr_result.get('intent')}, quality={ivr_result.get('quality_tier')}")
-    print(f"             Banking: intent={banking_result.get('intent')}, quality={banking_result.get('quality_tier')}")
+    print("  ✓ PASSED - Same facts, different domain judgments")
+    print(f"             IVR (harness): intent={ivr_result.get('intent')}, quality={ivr_result.get('quality_tier')}")
+    print(f"             IVR (kernel): {ivr_verdict.tier} {ivr_verdict.score:.2f}")
+    print(f"             Banking (kernel): {banking_verdict.tier} {banking_verdict.score:.2f}")
     return True
 
 def test_cassette_validates():

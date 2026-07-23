@@ -7,10 +7,35 @@ Domain-specific rules for traditional voice IVR
 import copy
 
 from cassette_interface import Cassette, CassetteConfig, QualityResult
-from typing import Dict, List
+from cassette_capabilities import (
+    CAPABILITY_RL,
+    CAPABILITY_ROUTING_TOPOLOGY,
+    CAPABILITY_SELF_HEALING,
+    CAPABILITY_TELEPHONY_INGEST,
+    ReinforcementLearning,
+    RoutingTopology,
+    SelfHealing,
+    TelephonyIngest,
+)
+from episode import Episode
+from typing import Any, Dict, List
 
-class IvrCassette(Cassette):
-    """Call center IVR cassette - what we've been building"""
+class IvrCassette(Cassette, TelephonyIngest, RoutingTopology,
+                  ReinforcementLearning, SelfHealing):
+    """Call center IVR cassette -- the REFERENCE IMPLEMENTATION of
+    kernel + capabilities, not the template other domains contort into.
+    IVR is simply the domain that happens to enable everything:
+    telephony ingest, queue routing, RL, and self-healing."""
+
+    # The manifest: which opt-in capability contracts this domain
+    # enables. Load-time validation checks the kernel contract plus the
+    # union of these capabilities' contracts (cassette_schema).
+    CAPABILITIES = (
+        CAPABILITY_TELEPHONY_INGEST,
+        CAPABILITY_ROUTING_TOPOLOGY,
+        CAPABILITY_RL,
+        CAPABILITY_SELF_HEALING,
+    )
     
     # THE declaration site. Every governance number the engine reads
     # about this domain lives in this one dict -- typed, bounded,
@@ -104,7 +129,14 @@ class IvrCassette(Cassette):
             # 1.0.0 -> 1.1.0: governance parameters became typed schema
             # declarations (Item #3); governance_trigger declared at 2
             # with inclusive (>=) semantics.
-            version="1.1.0",
+            # 1.1.0 -> 2.0.0: kernel/capability split. Parameter VALUES,
+            # queues, intents, scoring arithmetic, and tier cutoffs are
+            # all UNCHANGED -- but the cassette code hash changes (new
+            # judge/explain surface, capability manifest, shared
+            # governance modules), and load-time binding enforcement
+            # correctly treats a changed hash under an old version
+            # string as a conflict. New code hash => new version.
+            version="2.0.0",
             description="Traditional call center IVR",
             domain="ivr"
         )
@@ -138,16 +170,19 @@ class IvrCassette(Cassette):
         }
         return mapping.get(queue_name, "UNKNOWN")
     
-    def score_outcome_quality(self, resolved: bool, duration: float,
-                             friction_count: int, emotion_data: Dict) -> QualityResult:
-        """Score call quality for IVR.
+    def _score_call(self, resolved: bool, duration: float,
+                    friction_count: int, emotion_data: Dict):
+        """THE scoring arithmetic for this domain, in one place.
 
-        Returns QualityResult: this cassette owns both the score
-        arithmetic and the tier cutoffs below.
+        Returns (QualityResult, factors). score_outcome_quality (the
+        telephony capability surface) and judge/explain (the kernel
+        surface) both run THIS code -- one judgment, two entrances --
+        so the two surfaces cannot quietly disagree.
         """
-        
+
         score = 0.0
-        
+        factors: List[Dict[str, Any]] = []
+
         if resolved:
             # 0.7, not 0.6: with the old baseline a flawless call
             # (resolved, fast, zero friction, calm caller) maxed out at
@@ -156,19 +191,42 @@ class IvrCassette(Cassette):
             # At 0.7 a flawless call scores 0.9 and can actually reach
             # the top tier.
             score += 0.7
+            factors.append({"factor": "resolved", "value": True,
+                            "contribution": +0.7,
+                            "detail": "call resolved in the IVR"})
         else:
             score += 0.1
+            factors.append({"factor": "resolved", "value": False,
+                            "contribution": +0.1,
+                            "detail": "call not resolved"})
         
         if duration < 120:
             score += 0.2
+            factors.append({"factor": "duration", "value": duration,
+                            "contribution": +0.2,
+                            "detail": "fast call (< 120s)"})
         elif duration < 300:
             score += 0.1
+            factors.append({"factor": "duration", "value": duration,
+                            "contribution": +0.1,
+                            "detail": "acceptable call length (< 300s)"})
+        else:
+            factors.append({"factor": "duration", "value": duration,
+                            "contribution": 0.0,
+                            "detail": "long call (>= 300s)"})
         
         friction_penalty = min(friction_count * 0.15, 0.3)
         score -= friction_penalty
+        factors.append({"factor": "friction", "value": friction_count,
+                        "contribution": -friction_penalty,
+                        "detail": "0.15 per friction event, capped at 0.3"})
         
         frustration_penalty = emotion_data.get("frustration", 0) * 0.2
         score -= frustration_penalty
+        factors.append({"factor": "frustration",
+                        "value": emotion_data.get("frustration", 0),
+                        "contribution": -frustration_penalty,
+                        "detail": "0.2 x measured frustration"})
         
         score = max(0.0, min(1.0, score))
         
@@ -181,7 +239,71 @@ class IvrCassette(Cassette):
         else:
             tier = "failed"
         
-        return QualityResult(score=score, tier=tier)
+        return QualityResult(score=score, tier=tier), factors
+
+    def score_outcome_quality(self, resolved: bool, duration: float,
+                             friction_count: int, emotion_data: Dict) -> QualityResult:
+        """Score call quality for IVR (telephony_ingest surface).
+
+        Returns QualityResult: this cassette owns both the score
+        arithmetic and the tier cutoffs (see _score_call).
+        """
+        result, _ = self._score_call(resolved, duration, friction_count, emotion_data)
+        return result
+
+    # ---- Kernel judgment surface (judge/explain over episodes) ----
+    #
+    # Field convention this cassette reads (fail-loud on absence --
+    # a value the episode never carried is a value no judgment may
+    # invent): episode.actual["resolved"] (an OUTCOME, so it lives in
+    # actual, never taken from actor_report); episode.attributes
+    # "duration", "friction_count", and optionally "emotion" (dict)
+    # and "journey"/"friction_events" for explanation.
+
+    def _episode_call_facts(self, episode: Episode):
+        try:
+            resolved = bool(episode.actual["resolved"])
+        except KeyError:
+            raise KeyError(
+                "IVR judgment requires episode.actual['resolved'] -- the "
+                "OBSERVED resolution outcome (actor_report is never read)"
+            )
+        try:
+            duration = float(episode.attributes["duration"])
+            friction_count = int(episode.attributes["friction_count"])
+        except KeyError as missing:
+            raise KeyError(
+                f"IVR judgment requires episode.attributes[{missing.args[0]!r}]; "
+                f"declared attributes: {sorted(episode.attributes)}"
+            )
+        emotion_data = dict(episode.attributes.get("emotion", {}))
+        return resolved, duration, friction_count, emotion_data
+
+    def judge(self, episode: Episode) -> QualityResult:
+        """Judge one validated episode -- same arithmetic, same
+        cutoffs as score_outcome_quality, via _score_call."""
+        resolved, duration, friction_count, emotion_data = \
+            self._episode_call_facts(episode)
+        result, _ = self._score_call(resolved, duration, friction_count, emotion_data)
+        return result
+
+    def explain(self, episode: Episode) -> List[Dict[str, Any]]:
+        """Factor-level reasons behind judge()'s verdict, in IVR
+        vocabulary. For unresolved episodes that carry a journey, the
+        abandonment diagnosis rides along as a factor. Kernel-level
+        verification findings (actor divergence, outcome mismatch) are
+        prepended by episode.explain_episode, not restated here."""
+        resolved, duration, friction_count, emotion_data = \
+            self._episode_call_facts(episode)
+        _, factors = self._score_call(resolved, duration, friction_count, emotion_data)
+        if not resolved:
+            journey = list(episode.attributes.get("journey", []))
+            friction_events = list(episode.attributes.get("friction_events", []))
+            diagnosis = self.diagnose_abandonment(
+                journey, friction_events, emotion_data, resolved
+            )
+            factors.append({"factor": "abandonment_diagnosis", **diagnosis})
+        return factors
     
     def diagnose_abandonment(self, journey: List[str], friction: List,
                             emotion: Dict, resolved: bool) -> Dict:

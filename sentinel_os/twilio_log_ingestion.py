@@ -170,6 +170,24 @@ class TwilioLogParser:
             params = validate_cassette(cassette)
         except Exception as e:
             raise ValueError(f"Cassette validation failed: {e}")
+
+        # Twilio ingest is the telephony_ingest capability's surface:
+        # a cassette that doesn't enable it has no twilio_* thresholds
+        # BY DESIGN (they'd be rejected as unowned declarations), so
+        # refuse here with the capability error, not a KeyError deep
+        # in parameter access.
+        from cassette_capabilities import (
+            CAPABILITY_TELEPHONY_INGEST,
+            CapabilityError,
+            require_capabilities,
+        )
+        try:
+            require_capabilities(
+                cassette, (CAPABILITY_TELEPHONY_INGEST,),
+                consumer="TwilioLogParser._count_friction",
+            )
+        except CapabilityError as e:
+            raise ValueError(str(e))
         
         # Read Twilio thresholds with NO fallback (type-strict, fail-loud)
         try:

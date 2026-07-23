@@ -71,7 +71,7 @@ def test_ivr_cassette_passes_validation():
     """The reference IVR cassette validates and reads back its declared
     values (30.0 / 2 / (4, 120))."""
     params = validate_cassette(IvrCassette())
-    assert params.cassette_version == "ivr:standard-ivr:1.1.0"
+    assert params.cassette_version == "ivr:standard-ivr:2.0.0"
     assert params.float_value("long_wait_threshold") == 30.0
     assert params.int_value("governance_trigger") == 2
     assert params.range_value("expected_wait_bounds") == (4.0, 120.0)
@@ -79,11 +79,23 @@ def test_ivr_cassette_passes_validation():
 
 def test_banking_cassette_passes_validation():
     """Banking validates with its OWN different values -- two domains,
-    two policies, one schema."""
+    two policies, one schema. Its parameter contract is now exactly
+    what its manifest obligates: kernel + self_healing. The three
+    flagged placeholder twilio_* thresholds (and long_wait_threshold)
+    are GONE, because telephony_ingest is no longer enabled -- the
+    whole point of capability-scoped requirements."""
     params = validate_cassette(BankingCassette())
-    assert params.cassette_version == "banking:banking-v1:1.1.0"
-    assert params.float_value("long_wait_threshold") == 45.0
+    assert params.cassette_version == "banking:banking-v1:2.0.0"
     assert params.range_value("expected_wait_bounds") == (15.0, 300.0)
+    assert params.int_value("governance_trigger") == 2
+    assert sorted(params.capabilities) == [
+        "rl", "routing_topology", "self_healing"]
+    for placeholder in ("twilio_long_duration_threshold",
+                        "twilio_medium_duration_threshold",
+                        "twilio_short_duration_threshold",
+                        "long_wait_threshold"):
+        assert placeholder not in params.names(), \
+            f"banking must no longer declare '{placeholder}'"
 
 
 def test_missing_required_parameter_is_named():
