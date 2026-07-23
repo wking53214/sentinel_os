@@ -14,25 +14,14 @@ jobs:
         working-directory: sentinel_os
 
     services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: iceberg
-          POSTGRES_PASSWORD: iceberg
-          POSTGRES_DB: iceberg
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
       # test_queue_identity_converter.py's ingress/worker pair expects an
       # already-running Redis on the default port (REDIS_URL =
       # "redis://localhost:6379/0"), unlike test_sentinel_worker.py /
       # test_rate_limiter_v2.py, which spawn their own redis-server
       # subprocess on custom ports and only need the binary (installed
-      # below), not this service.
+      # below), not this service. Redis has no peer-auth-style identity
+      # boundary to preserve, so a Docker service container (TCP) is fine
+      # for it -- unlike Postgres, see below.
       redis:
         image: redis:7
         ports:
@@ -72,6 +61,49 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq redis-server
 
+      - name: "Install native Postgres (replaces the old services/postgres container)"
+        run: |
+          # test_twin_live.py's whole design depends on real peer auth: an
+          # OS user (sentinelsvc/twincustomer/twincustodian) connecting to
+          # Postgres over a Unix domain socket, with Postgres mapping that
+          # OS identity directly to a same-named role -- no password, no
+          # network hop. A `services: postgres: image: postgres:16`
+          # Docker container is reachable only over TCP from this runner;
+          # there is no Unix socket to share with it, so peer auth cannot
+          # work against it no matter how the rest of this job is
+          # configured. Installing Postgres natively on the runner itself
+          # (same package, same default pg_hba.conf `local all all peer`
+          # rule) gives the real shared socket instead -- the same setup
+          # this repo's own dev containers use, verified locally to pass
+          # the full suite (383/383) twice back-to-back from a clean state.
+          sudo apt-get install -y -qq postgresql
+          sudo service postgresql start
+          # Match the iceberg/iceberg superuser + iceberg database every
+          # DSN in this repo already assumes (same identity the old
+          # Docker-container POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB
+          # env vars provided).
+          sudo -u postgres psql -c "CREATE ROLE iceberg WITH LOGIN SUPERUSER PASSWORD 'iceberg';"
+          sudo -u postgres psql -c "CREATE DATABASE iceberg OWNER iceberg;"
+          # Readiness check equivalent to the old service's --health-cmd
+          # pg_isready, since there's no Docker healthcheck for a native
+          # install to wait on.
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 && break
+            sleep 1
+          done
+
+      - name: Provision the twin live-suite's OS identities
+        run: |
+          # scripts/twin_ensure_services.sh is the same idempotent setup
+          # this repo now documents for local/dev-container use -- three
+          # OS identities (sentinelsvc, twincustomer, twincustodian), a
+          # matching peer-auth Postgres role per identity, and sentinelsvc
+          # granted into ledger_reader. Running it here means CI provisions
+          # test_twin_live.py's infrastructure the identical way a human
+          # would, rather than a CI-only special case.
+          sudo install -m 0755 scripts/twin_ensure_services.sh /usr/local/bin/twin_ensure_services
+          sudo /usr/local/bin/twin_ensure_services
+
       - name: Generate ephemeral TLS cert for tests
         run: |
           mkdir -p certs
@@ -81,36 +113,22 @@ jobs:
 
       - name: Run test suite
         run: |
-          # Full repo, not just Tests/ -- 9 of 10 root-level test_*.py files
-          # (twin_custody, sentinel_worker, production_harness_breakers,
-          # rate_limiter_v2, queue_identity_converter, circuit_breaker,
-          # queue_schema, api_server_v2, grafts) were previously never
-          # collected or run by CI at all; now they are.
-          #
-          # test_twin_live.py is still explicitly excluded here, but for a
-          # different and narrower reason than before: its OS-identity
-          # (sentinelsvc/twincustomer/twincustodian), peer-auth Postgres
-          # setup is now real, committed, reproducible code --
-          # scripts/twin_ensure_services.sh -- and running it locally (or
-          # in any environment with a NATIVE Postgres install sharing a
-          # Unix socket with the test process) makes this suite pass
-          # 383/383 alongside everything else, verified twice back-to-back
-          # from a clean state. What it can't do is run against THIS
-          # workflow's Postgres specifically: the `services: postgres:`
-          # block above is a separate Docker container reached over TCP,
-          # and peer auth requires the client and server to share the same
-          # Unix domain socket -- there is no socket to share with a
-          # containerized service. Closing this in CI would mean replacing
-          # the services: postgres block with a natively apt-installed
-          # Postgres on the runner for this job, which is a real (and
-          # separable) infra change, not a one-line fix -- flagged as
-          # follow-up, not attempted here.
-          python -m pytest . --ignore=test_twin_live.py -v --tb=short
+          # Full repo, NO exclusions -- test_twin_live.py's infrastructure
+          # is now real, committed code (scripts/twin_ensure_services.sh,
+          # provisioned above) and this job now has a native Postgres to
+          # peer-auth against, so there is no remaining reason to exclude
+          # it here. Runs as root (test_twin_live.py's own documented
+          # assumption -- it uses `runuser` internally to drop into
+          # sentinelsvc/twincustomer/twincustodian for the OS-identity
+          # boundary tests; the pytest process itself needs root to do
+          # that) with PATH preserved so it finds the packages installed
+          # above.
+          sudo -E env "PATH=$PATH" python -m pytest . -v --tb=short
 
       - name: Summarize results
         if: always()
         run: |
-          python -m pytest . --ignore=test_twin_live.py -q --tb=no || true
+          sudo -E env "PATH=$PATH" python -m pytest . -q --tb=no || true
 
       - name: Lint (ruff, report-only)
         if: always()
@@ -125,17 +143,22 @@ jobs:
       - name: Security scan (bandit, report-only)
         if: always()
         run: |
-          # Report-only for now: current findings include one High-severity
-          # issue (test_queue_identity_converter.py:58, subprocess with
+          # Report-only for now. Two High-severity findings as of this
+          # commit: test_queue_identity_converter.py:58 (subprocess with
           # shell=True and an interpolated f-string -- shell-injection-shaped,
-          # test-only code but worth fixing) plus assorted Low/Medium items
-          # (hardcoded test credentials, f-string SQL construction in a
-          # test helper). This is exactly the class of issue that would
-          # have auto-caught the TLS private key committed to git history
-          # earlier -- bandit's B105/B106 hardcoded-secret checks flag that
-          # pattern. Fix the current findings, then make this a real gate.
-          # test_twin_live.py is still excluded here too (kept consistent
-          # with the pytest exclusion above -- it's not run in this
-          # workflow at all, so scanning it here would report on dead code
-          # from this job's point of view).
-          bandit -r . -x ./Tests,./test_twin_live.py || true
+          # test-only code but worth fixing), plus one new finding now that
+          # test_twin_live.py is scanned for the first time (it's no longer
+          # excluded, now that it actually runs in this job): a 0o777 chmod
+          # on a /tmp scratch directory (test_twin_live.py:308) -- deliberate
+          # and documented in the code (cross-user file exchange between the
+          # sentinelsvc/twincustomer/twincustodian identity-boundary tests
+          # needs a world-traversable dir, since pytest's default tmp_path
+          # lives under a 700-mode directory those other OS users can't
+          # enter), not a real vulnerability, but flagged here rather than
+          # silently narrowed around. Assorted Low/Medium items elsewhere
+          # (hardcoded test credentials, f-string SQL construction in a test
+          # helper) are the same class of issue that would have auto-caught
+          # the TLS private key committed to git history earlier -- bandit's
+          # B105/B106 hardcoded-secret checks flag that pattern. Fix the
+          # current findings, then make this a real gate.
+          bandit -r . -x ./Tests || true
