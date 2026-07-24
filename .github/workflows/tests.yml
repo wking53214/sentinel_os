@@ -48,9 +48,21 @@ jobs:
           # ("unexpected keyword argument 'proxies'"). Pin below that line
           # until the anthropic SDK/httpx incompatibility is resolved upstream.
           pip install "httpx<0.28"
-          # Static analysis -- see the ruff/bandit steps below for why these
-          # currently report-only instead of gating the build.
-          pip install ruff bandit
+          # Static analysis -- both steps below are real gates (see their
+          # own comments). ruff is pinned, not left to float on `pip
+          # install ruff`: ruff 0.16.0 broadened its own default rule
+          # selection relative to 0.15.x (more categories fire with zero
+          # local config, same as this repo has always run with -- no
+          # ruff.toml/pyproject.toml ever existed here), which turned this
+          # gate red on the very next commit after it was made a real gate,
+          # with no code change of its own to blame. Verified directly:
+          # `ruff==0.15.22 check .` is clean on this tree; `ruff==0.16.0
+          # check .` reports 1000+ findings, entirely from newly-enabled
+          # rule categories, not new lint debt. Pinning stops that from
+          # recurring silently on some future ruff release; bump this pin
+          # deliberately (and clean up whatever the new default set flags)
+          # rather than letting `pip install ruff` drift again.
+          pip install ruff==0.15.22 bandit
 
       - name: Install redis-server binary
         run: |

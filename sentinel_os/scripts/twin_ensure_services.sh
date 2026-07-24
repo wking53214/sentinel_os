@@ -75,14 +75,50 @@ _service_start() {
   fi
 }
 
-for svc in postgresql redis-server; do
-  if _service_running "$svc"; then
-    echo "twin_ensure_services: $svc already running"
-  else
-    echo "twin_ensure_services: starting $svc"
-    _service_start "$svc"
+_redis_reachable() {
+  # True if something is already answering PING on 6379 -- whether that's
+  # an OS-managed redis-server unit or (CI's actual topology) a separate
+  # Docker `services: redis:` container already bound to the same host
+  # port. What this script and test_twin_live.py need is a REACHABLE
+  # Redis, not specifically an OS-managed one. Checking only the
+  # redis-server unit's own active state (as _service_running does) misses
+  # this case entirely: in CI the unit is genuinely inactive while the
+  # Docker container already holds port 6379, so _service_start would try
+  # to start a second redis-server on top of it. That second process fails
+  # to bind ("Address already in use"), systemd reports "Main process
+  # exited, code=exited, status=1/FAILURE" / "Start request repeated too
+  # quickly", and -- because this script runs under `set -euo pipefail` --
+  # the whole provisioning step aborts before ever reaching the OS
+  # identities it exists to create. Reproduced locally byte-for-byte
+  # against CI's own log by stopping the redis-server unit and manually
+  # binding 6379 with a separate process first.
+  #
+  # redis-cli is preferred (a real PING/PONG, not just "something is
+  # listening"); falls back to a raw TCP connect via bash's /dev/tcp for
+  # boxes where only the server binary got installed, not the CLI.
+  if command -v redis-cli >/dev/null 2>&1; then
+    redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q PONG
+    return $?
   fi
-done
+  timeout 2 bash -c 'exec 3<>/dev/tcp/127.0.0.1/6379' 2>/dev/null
+}
+
+if _service_running postgresql; then
+  echo "twin_ensure_services: postgresql already running"
+else
+  echo "twin_ensure_services: starting postgresql"
+  _service_start postgresql
+fi
+
+if _redis_reachable; then
+  echo "twin_ensure_services: redis already reachable on 6379 (OS service or" \
+       "external container) -- not starting redis-server"
+elif _service_running redis-server; then
+  echo "twin_ensure_services: redis-server already running"
+else
+  echo "twin_ensure_services: starting redis-server"
+  _service_start redis-server
+fi
 
 # Wait for Postgres to actually accept connections (service start returning
 # doesn't guarantee the socket is up yet).
