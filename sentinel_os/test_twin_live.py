@@ -26,6 +26,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import time
 import uuid
 from contextlib import closing, contextmanager
@@ -68,35 +69,38 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _grant_traversal_to_repo_ancestors():
+def _grant_traversal(path: str) -> None:
     """Idempotent, root-only self-heal: grant 'other' EXECUTE (traverse,
-    not read/list) permission on every ancestor directory from REPO up
+    not read/list) permission on every ancestor directory from `path` up
     to the filesystem root.
 
     sentinelsvc/twincustomer/twincustodian are freshly created, unrelated
-    OS users. If REPO sits under another user's home directory -- as it
-    does on GitHub's hosted runner, where the checkout lives under
-    /home/runner, whose default permissions block all other users --
-    NO file under REPO is reachable by those identities no matter what
-    PYTHONPATH, cwd, or sys.path say: directory traversal is denied by
-    the kernel before Python's import machinery ever gets a chance.
-    Confirmed directly: sys.path.insert(0, REPO) followed by an import
-    still raises ModuleNotFoundError against a real, correctly-pathed
-    module file when an ancestor directory lacks the traverse bit for
-    'other' -- and adding only +x (not +r) on that ancestor is both
-    necessary and sufficient to fix it (a directory LISTING still
-    correctly reports Permission denied; reaching a KNOWN path inside
-    it, which is exactly what an import does, does not need +r).
+    OS users. If a path this suite needs (REPO, or the running
+    interpreter under sys.executable) sits under another user's home
+    directory or a tool-cache directory with restrictive ancestors --
+    as REPO does on GitHub's hosted runner, where the checkout lives
+    under /home/runner, whose default permissions block all other
+    users -- NO file under that path is reachable by those identities
+    no matter what PYTHONPATH, cwd, or sys.path say: directory
+    traversal is denied by the kernel before Python's import machinery
+    ever gets a chance. Confirmed directly: sys.path.insert(0, REPO)
+    followed by an import still raises ModuleNotFoundError against a
+    real, correctly-pathed module file when an ancestor directory lacks
+    the traverse bit for 'other' -- and adding only +x (not +r) on that
+    ancestor is both necessary and sufficient to fix it (a directory
+    LISTING still correctly reports Permission denied; reaching a KNOWN
+    path inside it, which is exactly what an import -- or exec -- does,
+    does not need +r).
 
     Only the execute bit is added, only for 'other', only on
     directories, and only additively (bitwise OR -- never removes an
     existing permission) -- this repo's own dev-container apparently
     already has permissive-enough ancestor directories (this doesn't
     reproduce there), so this is a no-op most places it runs and only
-    does real work on runners where the checkout lives somewhere
+    does real work on runners where the relevant path lives somewhere
     normally private.
     """
-    path = os.path.abspath(REPO)
+    path = os.path.abspath(path)
     while True:
         try:
             mode = os.stat(path).st_mode
@@ -112,7 +116,17 @@ def _grant_traversal_to_repo_ancestors():
 
 def _ensure_services():
     subprocess.run(["/usr/local/bin/twin_ensure_services"], capture_output=True)
-    _grant_traversal_to_repo_ancestors()
+    _grant_traversal(REPO)
+    # sys.executable (see _resolve_python_invocation) lives under a
+    # tool-cache directory on GitHub's hosted runner
+    # (/opt/hostedtoolcache/...), a path this suite's freshly-created OS
+    # identities have no more of an inherent path into than they do
+    # REPO -- same self-heal, same reason. Passing the interpreter
+    # FILE itself (not just its directory) also covers the -- unlikely,
+    # but cheap to rule out -- case where the binary's own 'other'
+    # execute bit is missing, not just an ancestor directory's: the
+    # loop chmods whatever path it's given first, then walks up.
+    _grant_traversal(sys.executable)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -122,33 +136,55 @@ def services():
 
 
 def _resolve_python_invocation(argv: List[str]) -> List[str]:
-    """Make a python3 invocation immune to PYTHONPATH/cwd not reliably
-    reaching the exec'd process through `runuser` + `env -i`.
+    """Make a python3 invocation immune to (1) PYTHONPATH/cwd not
+    reliably reaching the exec'd process through `runuser` + `env -i`,
+    and (2) the ambient `python3` on run_as/spawn_as's hardcoded PATH
+    not being the SAME interpreter this pytest process itself is
+    running under, and therefore missing every package
+    `pip install -r requirements.txt` put somewhere else.
 
-    Both run_as and spawn_as already pass PYTHONPATH=REPO and cwd=REPO,
-    which is sufficient in most environments -- but not, observed
-    directly in CI, on every runuser/PAM configuration: a switched-user
-    `import twin_custody` (or any repo-sibling module) can fail with
-    ModuleNotFoundError even with both set correctly on the parent
-    subprocess.run/Popen call, because PAM session setup for the target
-    user can rewrite or ignore env vars and/or cwd before the final
-    exec, in ways that differ by runuser/PAM version and are not
-    reproducible on every box (this repo's own dev-container runuser
-    does not exhibit it; GitHub's hosted ubuntu-latest runner does).
+    (1): Both run_as and spawn_as already pass PYTHONPATH=REPO and
+    cwd=REPO, which is sufficient in most environments -- but not,
+    observed directly in CI, on every runuser/PAM configuration: a
+    switched-user `import twin_custody` (or any repo-sibling module)
+    can fail with ModuleNotFoundError even with both set correctly on
+    the parent subprocess.run/Popen call, because PAM session setup for
+    the target user can rewrite or ignore env vars and/or cwd before
+    the final exec, in ways that differ by runuser/PAM version and are
+    not reproducible on every box (this repo's own dev-container
+    runuser does not exhibit it; GitHub's hosted ubuntu-latest runner
+    does). Fixed by never depending on an inherited env var or cwd for
+    MODULE resolution: for `-c` code, REPO is injected as a
+    sys.path.insert() prefix baked into the code argument itself; for a
+    script-file invocation, the script's filename is resolved to an
+    absolute path under REPO.
 
-    This sidesteps the question entirely by never depending on an
-    inherited env var or cwd for module resolution: for `-c` code, REPO
-    is injected as a sys.path.insert() prefix baked into the code
-    argument itself; for a script-file invocation, the script's
-    filename is resolved to an absolute path under REPO. Command-line
-    ARGUMENTS are never subject to PAM/env stripping the way
-    environment variables are, so this is robust regardless of the
-    underlying cause. PYTHONPATH/cwd are kept as-is alongside this --
-    belt and suspenders, not a replacement.
+    (2): run_as/spawn_as's PATH is deliberately narrow
+    ("/usr/local/bin:/usr/bin:/bin" -- exercising a clean, minimal
+    environment is the point). On GitHub's hosted runner, that PATH
+    resolves `python3` to the OS's own system interpreter, NOT the one
+    actions/setup-python installed and `pip install -r requirements.txt`
+    targeted (which lives under /opt/hostedtoolcache/... and is only on
+    PATH because the workflow put it there for THIS job's main process)
+    -- so a switched-user subprocess importing psycopg2, cryptography,
+    etc. hits ModuleNotFoundError for a real third-party package, not a
+    repo-local one. Fixed the same way as (1): stop depending on PATH
+    resolution and bake the INTERPRETER itself in as a literal argument
+    -- sys.executable, the absolute path of the interpreter this very
+    pytest process is running under, which is guaranteed to be the one
+    with every installed package (it's the same interpreter `pip
+    install` targeted).
+
+    Command-line ARGUMENTS are never subject to PAM/env/PATH resolution
+    differences the way environment variables and bare command names
+    are, so both fixes are robust regardless of the underlying runner
+    quirk. PYTHONPATH/cwd/PATH are kept as-is alongside this -- belt and
+    suspenders, not a replacement.
     """
     if not argv or argv[0] != PY:
         return list(argv)
     argv = list(argv)
+    argv[0] = sys.executable
     if len(argv) >= 3 and argv[1] == "-c":
         argv[2] = f"import sys; sys.path.insert(0, {REPO!r})\n" + argv[2]
     elif len(argv) >= 2 and argv[1].endswith(".py") and not os.path.isabs(argv[1]):
