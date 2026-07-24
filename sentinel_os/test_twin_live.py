@@ -68,8 +68,51 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _grant_traversal_to_repo_ancestors():
+    """Idempotent, root-only self-heal: grant 'other' EXECUTE (traverse,
+    not read/list) permission on every ancestor directory from REPO up
+    to the filesystem root.
+
+    sentinelsvc/twincustomer/twincustodian are freshly created, unrelated
+    OS users. If REPO sits under another user's home directory -- as it
+    does on GitHub's hosted runner, where the checkout lives under
+    /home/runner, whose default permissions block all other users --
+    NO file under REPO is reachable by those identities no matter what
+    PYTHONPATH, cwd, or sys.path say: directory traversal is denied by
+    the kernel before Python's import machinery ever gets a chance.
+    Confirmed directly: sys.path.insert(0, REPO) followed by an import
+    still raises ModuleNotFoundError against a real, correctly-pathed
+    module file when an ancestor directory lacks the traverse bit for
+    'other' -- and adding only +x (not +r) on that ancestor is both
+    necessary and sufficient to fix it (a directory LISTING still
+    correctly reports Permission denied; reaching a KNOWN path inside
+    it, which is exactly what an import does, does not need +r).
+
+    Only the execute bit is added, only for 'other', only on
+    directories, and only additively (bitwise OR -- never removes an
+    existing permission) -- this repo's own dev-container apparently
+    already has permissive-enough ancestor directories (this doesn't
+    reproduce there), so this is a no-op most places it runs and only
+    does real work on runners where the checkout lives somewhere
+    normally private.
+    """
+    path = os.path.abspath(REPO)
+    while True:
+        try:
+            mode = os.stat(path).st_mode
+            if not mode & 0o001:
+                os.chmod(path, mode | 0o001)
+        except (PermissionError, FileNotFoundError):
+            pass
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
+
+
 def _ensure_services():
     subprocess.run(["/usr/local/bin/twin_ensure_services"], capture_output=True)
+    _grant_traversal_to_repo_ancestors()
 
 
 @pytest.fixture(autouse=True, scope="session")
