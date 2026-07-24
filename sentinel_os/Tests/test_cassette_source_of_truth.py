@@ -85,7 +85,7 @@ def test_banking_cassette_passes_validation():
     are GONE, because telephony_ingest is no longer enabled -- the
     whole point of capability-scoped requirements."""
     params = validate_cassette(BankingCassette())
-    assert params.cassette_version == "banking:banking-v1:2.0.1"
+    assert params.cassette_version == "banking:banking-v1:2.0.2"
     assert params.range_value("expected_wait_bounds") == (15.0, 300.0)
     assert params.int_value("governance_trigger") == 2
     assert sorted(params.capabilities) == [
