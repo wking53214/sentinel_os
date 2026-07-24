@@ -96,12 +96,41 @@ Checks in this module, all deterministic and fully explainable:
    it was built. Never describe checks 1-4 passing as though they were
    that affirmative proof.
 
-DISCLOSED, UNSOLVED, NOT ATTEMPTED THIS SESSION: renaming a bad or
-proxy or undeclared-tier variable to an innocuous name defeats checks
-2 and 3 alike (same class of gap for both -- a model can encode bias
-through jointly-boring declared variables with no single suspicious
-name). Documented here, not silently shipped as solved, same posture
-as every other disclosed limitation in this module.
+7. check_correlation_based_proxy_detection -- a MITIGATION for the
+   renamed-variable gap disclosed below, not a full close. Screens
+   input variable VALUES (not names) for statistical correlation with
+   estimated group membership, so renaming a proxy variable to an
+   innocuous name no longer defeats detection on its own. COHORT-level
+   like check 5, for the same reason: correlation is a property of a
+   variable across many decisions, not of one decision in isolation.
+   Reads protected-characteristic data ONLY from the sealed channel,
+   via the same already-assembled-by-the-caller posture as check 5 --
+   never a live episode or the ledger directly. Scope, deliberately
+   narrow: NUMERIC and BOOLEAN input variables only (a bare Pearson
+   correlation between the variable's value and each group's estimated
+   membership probability across the cohort); string/categorical
+   variable values are NOT screened this session (a renamed categorical
+   proxy, e.g. a recoded neighborhood-cluster label, still defeats both
+   the name screen and this mitigation -- a real, disclosed gap, not a
+   silent one). NOT wired into rollup_c2_bias_identification or
+   CFPBRegBLens.c2_rollup() this session -- its findings are a caller's
+   to fold into their own known_bad_variable_names bucket alongside
+   check_proxy_variables' results if and when they choose to; the
+   wiring decision itself is deliberately left open, same posture as
+   dimensions 2/3 were left unwired into the shipped lens before a
+   later session wired them in.
+
+DISCLOSED, UNSOLVED, PARTIALLY MITIGATED FOR NUMERIC/BOOLEAN INPUTS:
+renaming a bad or proxy or undeclared-tier variable to an innocuous
+name defeats checks 2 and 3 (the NAME-based screens) alike -- same
+class of gap for both. check_correlation_based_proxy_detection (7,
+above) mitigates this for numeric and boolean variables by screening
+VALUES instead of names, but does not close it: string/categorical
+proxy values, a cohort too small to correlate against, or a jurisdiction
+with no sealed-channel data at all (consent withheld, dimension 4 never
+run) all still leave a renamed proxy undetected. Documented here, not
+silently shipped as solved, same posture as every other disclosed
+limitation in this module.
 
 JURISDICTION CONFLICT RULE for check 3: when two live regulatory
 lenses in different jurisdictions disagree on the same variable's
@@ -117,6 +146,7 @@ doing so (see regulatory_cassette_interface.SCREENING_DISCLAIMER).
 from __future__ import annotations
 
 import re
+import statistics
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Tuple
 
@@ -1065,6 +1095,191 @@ def check_statistical_outcome_equity(
                                         "threshold this group's rate falls "
                                         "(1.0 - ratio); never a compliance "
                                         "probability",
+                    },
+                ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Check 7: correlation-based proxy detection (C2 finding #2 mitigation)
+#
+# Mitigates, does not close, the disclosed gap that checks 2 and 3
+# (declared-NAME screens) share: renaming a proxy or undeclared-tier
+# variable to an innocuous name defeats both. This check screens
+# VALUES instead, so a rename alone no longer helps -- but see the
+# module docstring (item 7) for what remains genuinely open
+# (string/categorical variables, cohorts too small to correlate,
+# jurisdictions with no sealed-channel data at all).
+#
+# COHORT-level, same reason as check 5: correlation is a property of a
+# variable across many decisions, not of one decision alone. Reads
+# protected-characteristic data ONLY from already-assembled
+# CohortInputDecision records -- never a live episode or the ledger
+# directly, same posture as check_statistical_outcome_equity.
+# ---------------------------------------------------------------------------
+
+# Moderate-to-strong Pearson |r| (common statistical rule-of-thumb
+# starting point for "worth a human's attention", same "a proposed
+# floor, not a certainty" posture as MIN_COHORT_SIZE_FOR_STATISTICAL_TEST
+# and FOUR_FIFTHS_THRESHOLD above). A lower threshold catches weaker
+# signals at the cost of more false positives a human has to triage;
+# raise or lower per regulation if a specific one's own practice
+# expects something different -- not made profile-configurable this
+# session, to keep this mitigation's surface small.
+CORRELATION_FLAG_THRESHOLD = 0.5
+
+
+@dataclass(frozen=True)
+class CohortInputDecision:
+    """One decision's full input-variable snapshot plus its protected-
+    characteristic estimate, already assembled by the caller from the
+    sealed channel (SealedDemographicChannel.get_estimates_for_cohort)
+    -- the unit check_correlation_based_proxy_detection operates on.
+    Same assembly posture as CohortDecision (check 5): this module
+    never reads the sealed channel, a live episode, or the ledger
+    itself.
+
+    input_fields        -- name -> value, the SAME shape
+                           DecisionMaterial.input_fields already uses
+                           (see material_from_episode /
+                           material_from_ledger_row) -- a caller
+                           assembling a cohort typically pulls this
+                           straight from each decision's own
+                           DecisionMaterial.
+    group_distribution   -- race/ethnicity -> probability, identical
+                           shape and meaning to CohortDecision's field
+                           of the same name; a self-report is a
+                           single-category distribution, a BISG
+                           estimate a real posterior.
+    """
+
+    subject_id: str
+    input_fields: Mapping[str, Any]
+    group_distribution: Mapping[str, float]
+
+
+def _numeric_value(value: Any) -> float | None:
+    """True numeric or boolean values only -- bool is deliberately
+    INCLUDED (a binary flag is a very plausible shape for a renamed
+    proxy, e.g. a recoded "in_target_neighborhood" indicator), coerced
+    to 1.0/0.0. Strings, None, lists, and dicts are not numeric and
+    return None -- see the module docstring for why categorical/string
+    values are out of scope this session."""
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def check_correlation_based_proxy_detection(
+        cohort: "List[CohortInputDecision]", profile: RegulationCheckProfile,
+        check_name: str = "correlation_based_proxy_detection",
+        ) -> List[RegulatoryFinding]:
+    """Screen numeric/boolean input variable VALUES for correlation
+    with estimated group membership across a cohort -- the mitigation
+    for finding #2 (see module docstring, item 7). Returns [] when
+    clean, one FLAG finding per (variable, group) pair whose Pearson
+    |r| meets or exceeds CORRELATION_FLAG_THRESHOLD, or one
+    INDETERMINATE finding when the cohort as a whole is too small (see
+    MIN_COHORT_SIZE_FOR_STATISTICAL_TEST) -- never a spurious PASS or
+    FLAG from too few observations, same posture as check 5.
+
+    For each numeric/boolean variable name that appears in at least
+    MIN_COHORT_SIZE_FOR_STATISTICAL_TEST decisions in the cohort, and
+    for each group present in any decision's group_distribution,
+    computes the Pearson correlation coefficient between the
+    variable's value and that group's estimated membership probability
+    across the decisions where the variable is present. A variable
+    present in fewer than that many decisions is skipped without a
+    dedicated finding of its own -- the overall cohort-size gate above
+    already reports INDETERMINATE when there isn't enough data to say
+    anything at all; a per-variable skip for an otherwise-healthy
+    cohort is sparse-data noise, not a signal, same posture as check 5
+    silently excluding negligible-weight groups. A constant-valued
+    variable (no variance to correlate) is likewise skipped, not
+    flagged or reported indeterminate.
+
+    Correlation, not causation, and NOT a name match: a legitimate
+    business variable can correlate with an estimated group-membership
+    probability without being a deliberate proxy (e.g. many financially
+    relevant variables correlate with age or geography for reasons
+    having nothing to do with the protected characteristic itself).
+    Every finding says this explicitly and is scored as a signal for
+    human review, never a determination -- same SCREENING_DISCLAIMER
+    posture as every other check in this module.
+    """
+    if len(cohort) < MIN_COHORT_SIZE_FOR_STATISTICAL_TEST:
+        return [RegulatoryFinding(
+            check=check_name,
+            subject_id=f"cohort:{len(cohort)}",
+            regulation=profile.regulation,
+            action=ACTION_FLAG,
+            classification="indeterminate_insufficient_cohort",
+            score=0.0,
+            evidence={
+                "cohort_size": len(cohort),
+                "minimum_required": MIN_COHORT_SIZE_FOR_STATISTICAL_TEST,
+                "detail": "cohort is too small for a correlation-based proxy "
+                          "screen to mean anything -- reporting indeterminate "
+                          "rather than a spurious pass or flag",
+            },
+        )]
+
+    variable_names = sorted({
+        name for decision in cohort for name, value in decision.input_fields.items()
+        if _numeric_value(value) is not None
+    })
+    all_groups = sorted({
+        race for decision in cohort for race in decision.group_distribution
+    })
+
+    findings: List[RegulatoryFinding] = []
+    for name in variable_names:
+        pairs = [
+            (_numeric_value(decision.input_fields[name]), decision.group_distribution)
+            for decision in cohort
+            if name in decision.input_fields
+            and _numeric_value(decision.input_fields[name]) is not None
+        ]
+        if len(pairs) < MIN_COHORT_SIZE_FOR_STATISTICAL_TEST:
+            continue
+        xs = [p[0] for p in pairs]
+        for race in all_groups:
+            ys = [p[1].get(race, 0.0) for p in pairs]
+            try:
+                r = statistics.correlation(xs, ys)
+            except statistics.StatisticsError:
+                continue  # constant xs or ys -- nothing to correlate
+            if abs(r) >= CORRELATION_FLAG_THRESHOLD:
+                findings.append(RegulatoryFinding(
+                    check=check_name,
+                    subject_id=f"cohort:{len(cohort)}",
+                    regulation=profile.regulation,
+                    action=ACTION_FLAG,
+                    classification="correlation_based_proxy_signal",
+                    score=round(abs(r), 4),
+                    evidence={
+                        "variable": name,
+                        "group": race,
+                        "correlation": round(r, 4),
+                        "threshold": CORRELATION_FLAG_THRESHOLD,
+                        "sample_size": len(pairs),
+                        "detail": f"input variable '{name}' correlates with "
+                                  f"estimated '{race}' group membership at "
+                                  f"r={r:.2f} across {len(pairs)} decisions -- "
+                                  "screened by VALUE, not by declared name, so "
+                                  "this fires regardless of what the variable "
+                                  "is called; flagged for human review, not a "
+                                  "finding that the variable is in fact a "
+                                  "deliberate proxy",
+                        "score_meaning": "0.0-1.0 = |Pearson r| between this "
+                                        "variable's value and estimated group-"
+                                        "membership probability across the "
+                                        "cohort; not a measure of the "
+                                        "variable's influence on the decision "
+                                        "outcome, and not itself evidence of "
+                                        "intent",
                     },
                 ))
     return findings
