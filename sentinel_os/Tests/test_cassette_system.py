@@ -111,7 +111,7 @@ def test_cassette_swapping():
     
     print("  ✓ PASSED - Boom box works with multiple cassettes")
     print(f"             IVR domain: {ivr_info['domain']}, queues: {len(ivr_info['queues'])}")
-    print(f"             Banking (kernel-judged domain): correctly refused by telephony harness")
+    print("             Banking (kernel-judged domain): correctly refused by telephony harness")
     return True
 
 def test_call_processing_different_cassettes():
@@ -176,8 +176,8 @@ def test_cassette_validates():
     ivr = loader.get_cassette_for_domain("ivr")
     banking = loader.get_cassette_for_domain("banking")
     
-    assert ivr.validate() == True, "IVR should validate"
-    assert banking.validate() == True, "Banking should validate"
+    assert ivr.validate(), "IVR should validate"
+    assert banking.validate(), "Banking should validate"
     
     print("  ✓ PASSED - All cassettes valid")
     return True

@@ -22,7 +22,7 @@ def test_circuit_breaker():
     for i in range(3):
         try:
             breaker.call(failing_func)
-        except:
+        except Exception:
             failures += 1
     
     assert failures == 3

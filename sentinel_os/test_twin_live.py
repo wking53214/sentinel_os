@@ -37,6 +37,11 @@ import psycopg2.extras
 import pytest
 import redis
 
+import twin_custody as tc
+from twin_detector import OptionADecryptor, OptionDDecryptor, run_detection
+from twin_sync_worker import SYNC_QUEUE_NAME
+from queue_schema import TransmissionQueue
+
 REPO = os.path.dirname(os.path.abspath(__file__))
 PY = "python3"
 ICEBERG_DSN = dict(host="localhost", dbname="iceberg", user="iceberg", password="iceberg")
@@ -53,11 +58,6 @@ def _feed_dsn() -> str:
     password = os.environ.get("ICEBERG_LEDGER_RUNTIME_PASSWORD", "reader_hashfeed")
     return f"host=localhost port=5432 dbname=iceberg user=ledger_reader password={password}"
 REDIS_URL = "redis://localhost:6379/0"
-
-import twin_custody as tc
-from twin_detector import OptionADecryptor, OptionDDecryptor, run_detection
-from twin_sync_worker import SYNC_QUEUE_NAME
-from queue_schema import TransmissionQueue
 
 
 # ------------------------------------------------------------ infrastructure --
@@ -170,7 +170,7 @@ def _row_sid(row: Dict[str, Any]) -> Optional[str]:
 @pytest.fixture(scope="module")
 def customer_keys(tmp_path_factory):
     """Generate customer custody + signing keys under twincustomer's home."""
-    kd = f"/home/twincustomer/keys_live"
+    kd = "/home/twincustomer/keys_live"
     run_as("twincustomer", ["bash", "-lc", f"mkdir -p {kd}"])
     res = run_as("twincustomer", [PY, "-c", (
         "import twin_custody as tc, json, sys;"
@@ -206,7 +206,7 @@ def _new_replica_db(dbname: str):
 # The test runner is root; connect to the postgres maintenance DB via the
 # peer-auth 'postgres' account by using runuser for DDL instead.
 def new_replica_db(dbname: str):
-    sql = (f"SELECT 1 FROM pg_database WHERE datname='{dbname}'")
+    sql = (f"SELECT 1 FROM pg_database WHERE datname='{dbname}'")  # nosec B608 -- test-internal dbname only, never external input
     check = run_as("postgres", ["psql", "-tAc", sql], timeout=30)
     if check.stdout.strip() != "1":
         run_as("postgres", ["psql", "-c", f'CREATE DATABASE "{dbname}" OWNER twincustomer'], timeout=30)
@@ -303,9 +303,12 @@ def rid() -> str:
 # pytest's tmp_path lives under /tmp/pytest-of-root (mode 700); other OS users
 # can't traverse into it. Cross-user artifacts (targets files, submission
 # records, DB dumps) go through this world-traversable scratch dir instead.
-_SCRATCH = "/tmp/twin_live_scratch"
+_SCRATCH = "/tmp/twin_live_scratch"  # nosec B108 -- fixed path is deliberate: all three OS identities (sentinelsvc/twincustomer/twincustodian) need to agree on the same location without coordinating an env var; see comment above and the B103 note below
 os.makedirs(_SCRATCH, exist_ok=True)
-os.chmod(_SCRATCH, 0o777)
+os.chmod(_SCRATCH, 0o777)  # nosec B103 -- deliberate, see comment above: all
+# three OS identities need to read/write here for the cross-identity test
+# scenarios; ephemeral /tmp scratch holding test coordination files only,
+# never credentials or secrets.
 
 
 def scratch(name: str) -> str:
@@ -328,14 +331,15 @@ def test_end_to_end_encrypted_sync_and_customer_open(customer_keys, tmp_path):
     """Full path: seed -> ship as Sentinel -> sync -> customer opens & deep-verifies.
     The stored envelope is AES-256-GCM; only the customer key opens it."""
     flush_sync_queue()
-    with receiver(f"twin_live_a") as (url, db, port):
+    with receiver("twin_live_a") as (url, db, port):
         r = rid()
         register_replica(url, r, customer_keys, ship_token="tok-e2e")
         seed = seed_ledger_rows(3, f"E2E{uuid.uuid4().hex[:4]}")
         tp = write_targets(scratch("t.json"), r, url, "tok-e2e", customer_keys["pub"])
         set_cursor(r, seed[0]["id"] - 1)
         # only our rows: cursor just below first seeded id, ship one batch
-        s = ship(tp); assert "enqueued" in s.stdout or s.returncode == 0, s.stderr
+        s = ship(tp)
+        assert "enqueued" in s.stdout or s.returncode == 0, s.stderr
         sync()
         ents = [e for e in get_entries(url, r) if e["primary_id"] in {x["id"] for x in seed}]
         assert len(ents) == 3, f"expected 3 synced, got {len(ents)}"
@@ -358,7 +362,8 @@ def test_sentinel_cannot_decrypt_anywhere(customer_keys, tmp_path):
         seed = seed_ledger_rows(1, f"NC{uuid.uuid4().hex[:4]}")
         tp = write_targets(scratch("t.json"), r, url, "tok-nc", customer_keys["pub"])
         set_cursor(r, seed[0]["id"] - 1)
-        ship(tp); sync()
+        ship(tp)
+        sync()
         e = [e for e in get_entries(url, r) if e["primary_id"] == seed[0]["id"]][0]
         aad = {"replica_id": r, "primary_id": e["primary_id"], "current_hash": e["current_hash"]}
 
@@ -383,7 +388,8 @@ def test_clean_match_verdict(customer_keys, tmp_path):
         seed = seed_ledger_rows(4, f"CL{uuid.uuid4().hex[:4]}")
         tp = write_targets(scratch("t.json"), r, url, "tok-cl", customer_keys["pub"])
         set_cursor(r, seed[0]["id"] - 1)
-        ship(tp); sync()
+        ship(tp)
+        sync()
         # detector restricted to our seeded ids by filtering the feed
         entries = get_entries(url, r)
         feed = [{"id": x["id"], "call_sid": x["call_sid"], "previous_hash": None,
@@ -418,7 +424,8 @@ def test_forced_omission_caught_by_icc(customer_keys, tmp_path):
         dropped = seed[1]
         tp = write_targets(scratch("t.json"), r, url, "tok-om", customer_keys["pub"])
         set_cursor(r, seed[0]["id"] - 1)
-        ship(tp, extra_env={"TWIN_SHIPPER_SKIP_SIDS": dropped["call_sid"]}); sync()
+        ship(tp, extra_env={"TWIN_SHIPPER_SKIP_SIDS": dropped["call_sid"]})
+        sync()
 
         entries = get_entries(url, r)
         ours = [e for e in entries if e["primary_id"] in {x["id"] for x in seed}]
@@ -463,7 +470,8 @@ def test_tamper_distinct_from_omission(customer_keys, tmp_path):
         seed = seed_ledger_rows(3, f"TM{uuid.uuid4().hex[:4]}")
         tp = write_targets(scratch("t.json"), r, url, "tok-tm", customer_keys["pub"])
         set_cursor(r, seed[0]["id"] - 1)
-        ship(tp); sync()
+        ship(tp)
+        sync()
 
         # Corrupt directly in the customer DB (simulating at-rest tamper on the
         # replica store), as the customer identity.
@@ -481,15 +489,16 @@ def test_tamper_distinct_from_omission(customer_keys, tmp_path):
         tamper_ct_id = seed[1]["id"]
         pre = [e for e in get_entries(url, r) if e["primary_id"] == tamper_ct_id][0]
         env = pre["envelope"]
-        ct = bytearray(base64.b64decode(env["ct"])); ct[3] ^= 0x02
+        ct = bytearray(base64.b64decode(env["ct"]))
+        ct[3] ^= 0x02
         env2 = dict(env, ct=base64.b64encode(bytes(ct)).decode())
         env2_json = json.dumps(env2).replace("'", "''")
         # tamper #2: clear current_hash edit on the last row
         tamper_hash_id = seed[2]["id"]
         customer_sql(db,
-            f"UPDATE replica_entries SET envelope='{env2_json}'::jsonb "
+            f"UPDATE replica_entries SET envelope='{env2_json}'::jsonb "  # nosec B608 -- deliberate tamper-simulation write in a test, values built earlier in this same test, never external input
             f"WHERE replica_id='{r}' AND primary_id={tamper_ct_id}",
-            f"UPDATE replica_entries SET current_hash='{'deadbeef' * 8}' "
+            f"UPDATE replica_entries SET current_hash='{'deadbeef' * 8}' "  # nosec B608 -- same as above: deliberate test tamper-simulation, hardcoded hex
             f"WHERE replica_id='{r}' AND primary_id={tamper_hash_id}")
 
         ours = get_entries(url, r)
@@ -521,7 +530,7 @@ def test_offline_replica_backs_up_then_recovers(customer_keys, tmp_path):
                   f"http://127.0.0.1:{port}/health"):
         register_replica(f"http://127.0.0.1:{port}", r, customer_keys, ship_token="tok-off")
     ship(tp)  # enqueues 2 while receiver is DOWN
-    first = sync()  # jobs fail (connect refused), get rescheduled
+    sync()  # jobs fail (connect refused), get rescheduled
     q = TransmissionQueue(name=SYNC_QUEUE_NAME, redis_url=REDIS_URL)
     st = q.stats()
     # nothing dead-lettered: connect-refused is retryable
@@ -545,7 +554,8 @@ def test_partition_midflight_maps_to_network_latency(customer_keys, tmp_path):
     import threading
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("127.0.0.1", 0)); srv.listen(8)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
     stall_port = srv.getsockname()[1]
     stop = threading.Event()
     held = []
@@ -554,10 +564,12 @@ def test_partition_midflight_maps_to_network_latency(customer_keys, tmp_path):
         srv.settimeout(0.5)
         while not stop.is_set():
             try:
-                c, _ = srv.accept(); held.append(c)  # accept, never reply
+                c, _ = srv.accept()
+                held.append(c)  # accept, never reply
             except socket.timeout:
                 continue
-    t = threading.Thread(target=_accept, daemon=True); t.start()
+    t = threading.Thread(target=_accept, daemon=True)
+    t.start()
     try:
         r = rid()
         seed = seed_ledger_rows(1, f"PT{uuid.uuid4().hex[:4]}")
@@ -572,10 +584,13 @@ def test_partition_midflight_maps_to_network_latency(customer_keys, tmp_path):
         reasons = {t_.get("reason") for t_ in trail}
         assert "network_latency" in reasons, trail
     finally:
-        stop.set(); t.join(timeout=2)
+        stop.set()
+        t.join(timeout=2)
         for c in held:
-            try: c.close()
-            except Exception: pass
+            try:
+                c.close()
+            except Exception:
+                pass
         srv.close()
 
 
@@ -589,7 +604,8 @@ def test_duplicate_delivery_is_idempotent(customer_keys, tmp_path):
         seed = seed_ledger_rows(1, f"DUP{uuid.uuid4().hex[:4]}")
         tp = write_targets(scratch("t.json"), r, url, "tok-dup", customer_keys["pub"])
         set_cursor(r, seed[0]["id"] - 1)
-        ship(tp); sync()
+        ship(tp)
+        sync()
         e = [e for e in get_entries(url, r) if e["primary_id"] == seed[0]["id"]][0]
         hdrs = {"Authorization": "Bearer tok-dup"}
         body = {"primary_id": e["primary_id"], "call_sid": e["call_sid"],
@@ -664,7 +680,8 @@ def test_torn_delivery_dead_letters_then_requeues(customer_keys, tmp_path):
         # operator requeues; a fresh ship re-enqueues clean; deliver
         q.requeue_from_dlq(job_id)
         set_cursor(r, seed[0]["id"] - 1)
-        ship(tp); sync()
+        ship(tp)
+        sync()
         assert [e for e in get_entries(url, r) if e["primary_id"] == seed[0]["id"]]
 
 
@@ -692,7 +709,8 @@ def test_custody_migration_A_to_D(customer_keys, tmp_path):
             seed = seed_ledger_rows(2, f"MIG{uuid.uuid4().hex[:4]}")
             tp = write_targets(scratch("t.json"), r, url, "tok-mig", customer_keys["pub"])
             set_cursor(r, seed[0]["id"] - 1)
-            ship(tp); sync()
+            ship(tp)
+            sync()
 
             # write customer key files the migrate CLI reads
             kd = customer_keys["dir"]
@@ -721,7 +739,8 @@ def test_custody_migration_A_to_D(customer_keys, tmp_path):
             for e in ents:
                 aad = {"replica_id": r, "primary_id": e["primary_id"], "current_hash": e["current_hash"]}
                 row = json.loads(dec.open(e["envelope"], aad))
-                ok, detail = tc.deep_verify_row(row); assert ok, detail
+                ok, detail = tc.deep_verify_row(row)
+                assert ok, detail
             # signed migration event present
             log = httpx.get(f"{url}/replica/{r}/custody-log", timeout=10).json()["events"]
             assert any(ev["event"] == "custody_migration" for ev in log), log
@@ -751,7 +770,8 @@ def test_custodian_attribution_grants_and_refusals(customer_keys, tmp_path):
             seed = seed_ledger_rows(1, f"ATTR{uuid.uuid4().hex[:4]}")
             tp = write_targets(scratch("t.json"), r, url, "tok-attr", cust_pub)
             set_cursor(r, seed[0]["id"] - 1)
-            ship(tp); sync()
+            ship(tp)
+            sync()
             e = [e for e in get_entries(url, r) if e["primary_id"] == seed[0]["id"]][0]
             aad = {"replica_id": r, "primary_id": e["primary_id"], "current_hash": e["current_hash"]}
 
@@ -793,10 +813,11 @@ def test_multisite_fanout_independent_verdicts(customer_keys, tmp_path):
         for (rr, url, tok) in [(ra, url_a, "tok-a"), (rb, url_b, "tok-b")]:
             tp = write_targets(scratch(f"{rr}.json"), rr, url, tok, customer_keys["pub"])
             set_cursor(rr, seed[0]["id"] - 1)
-            ship(tp); sync()
+            ship(tp)
+            sync()
         # tamper site-b only (as the customer who owns site-b's store)
         customer_sql(db_b,
-            f"UPDATE replica_entries SET current_hash='{'0' * 64}' "
+            f"UPDATE replica_entries SET current_hash='{'0' * 64}' "  # nosec B608 -- deliberate test tamper-simulation, hardcoded hex
             f"WHERE replica_id='{rb}' AND primary_id={ids[0]}")
         conn = _iceberg_admin()
         with conn.cursor() as cur:
@@ -822,7 +843,7 @@ def test_never_blocks_primary(customer_keys, tmp_path):
     flush_sync_queue()
     r = rid()
     dead_port = _free_port()  # nothing listening
-    seed = seed_ledger_rows(1, f"BLK{uuid.uuid4().hex[:4]}")
+    seed_ledger_rows(1, f"BLK{uuid.uuid4().hex[:4]}")
     tp = write_targets(scratch("t.json"), r, f"http://127.0.0.1:{dead_port}",
                        "tok-blk", customer_keys["pub"])
     set_cursor(r, 0)
@@ -852,7 +873,8 @@ def test_wipe_detection_via_extras(customer_keys, tmp_path):
         seed = seed_ledger_rows(3, f"WIPE{uuid.uuid4().hex[:4]}")
         tp = write_targets(scratch("t.json"), r, url, "tok-wipe", customer_keys["pub"])
         set_cursor(r, seed[0]["id"] - 1)
-        ship(tp); sync()
+        ship(tp)
+        sync()
         ours = [e for e in get_entries(url, r) if e["primary_id"] in {x["id"] for x in seed}]
         # feed as if the primary now shows NONE of these rows (wiped)
         rep = run_detection(ours, primary_feed=[], submission_record=[],
@@ -876,7 +898,8 @@ def test_restore_drill(customer_keys, tmp_path):
         seed = seed_ledger_rows(2, f"DRL{uuid.uuid4().hex[:4]}")
         tp = write_targets(scratch("t.json"), r, url, "tok-drill", customer_keys["pub"])
         set_cursor(r, seed[0]["id"] - 1)
-        ship(tp); sync()
+        ship(tp)
+        sync()
         # a custody event too, so we prove the whole DB round-trips
         ev_payload = {"replica_id": r, "event": "evidence_designation",
                       "detail": {"note": "primary evidence"}, "actor": "customer-admin"}
@@ -892,7 +915,7 @@ def test_restore_drill(customer_keys, tmp_path):
     assert d.returncode == 0, d.stderr
     run_as("twincustomer", ["dropdb", drill_db], timeout=60)
     run_as("twincustomer", ["createdb", drill_db], timeout=60)
-    rr = run_as("twincustomer", ["pg_restore", "-d", drill_db, dump_path], timeout=120)
+    run_as("twincustomer", ["pg_restore", "-d", drill_db, dump_path], timeout=120)
     # pg_restore can warn (nonzero) on comments/owners; assert data instead
     with receiver(drill_db) as (url2, db2, port2):
         after = httpx.get(f"{url2}/replica/{r}/head", timeout=10).json()["count"]
@@ -920,7 +943,8 @@ def test_probe_clean_and_seeded_findings(customer_keys, tmp_path):
         set_cursor(r, seed[0]["id"] - 1)
         # omit one row at ship time
         omitted = seed[2]
-        ship(tp, extra_env={"TWIN_SHIPPER_SKIP_SIDS": omitted["call_sid"]}); sync()
+        ship(tp, extra_env={"TWIN_SHIPPER_SKIP_SIDS": omitted["call_sid"]})
+        sync()
         # signed creation event so custody log is non-empty and verifies
         ev = {"replica_id": r, "event": "replica_created", "detail": {}, "actor": "customer-admin"}
         httpx.post(f"{url}/replica/{r}/custody-event",
@@ -937,7 +961,7 @@ def test_probe_clean_and_seeded_findings(customer_keys, tmp_path):
 
         # tamper one delivered row in the customer DB (as the customer)
         customer_sql(db,
-            f"UPDATE replica_entries SET current_hash='{'a' * 64}' "
+            f"UPDATE replica_entries SET current_hash='{'a' * 64}' "  # nosec B608 -- deliberate test tamper-simulation, hardcoded hex
             f"WHERE replica_id='{r}' AND primary_id={seed[0]['id']}")
 
         # run the probe AS THE CUSTOMER
@@ -959,7 +983,8 @@ def test_probe_clean_and_seeded_findings(customer_keys, tmp_path):
         seed2 = seed_ledger_rows(2, f"PRBOK{uuid.uuid4().hex[:4]}")
         tp2 = write_targets(scratch("t2.json"), r2, url, "tok-clean2", customer_keys["pub"])
         set_cursor(r2, seed2[0]["id"] - 1)
-        ship(tp2); sync()
+        ship(tp2)
+        sync()
         ev2 = {"replica_id": r2, "event": "replica_created", "detail": {}, "actor": "admin"}
         httpx.post(f"{url}/replica/{r2}/custody-event",
                    json={"event": "replica_created", "detail": {}, "actor": "admin",
@@ -987,7 +1012,8 @@ def test_sla_pending_vs_missing_and_clock_skew_immunity(customer_keys, tmp_path)
         tp = write_targets(scratch("t.json"), r, url, "tok-sla", customer_keys["pub"])
         set_cursor(r, seed[0]["id"] - 1)
         # ship only the FIRST row (advance cursor so second is unshipped)
-        ship(tp, extra_env={"TWIN_SHIPPER_ONEROW": "1"}); sync()
+        ship(tp, extra_env={"TWIN_SHIPPER_ONEROW": "1"})
+        sync()
         conn = _iceberg_admin()
         with conn.cursor() as cur:
             cur.execute("SELECT id, previous_hash, current_hash, COALESCE(call_sid, data->>'call_sid') FROM ledger_entries WHERE id=ANY(%s) ORDER BY id",
@@ -1015,7 +1041,7 @@ def test_sla_pending_vs_missing_and_clock_skew_immunity(customer_keys, tmp_path)
         # clock-skew immunity: wildly rewrite received_at on the replica; verdict
         # for the SHIPPED row is unchanged (it is never consulted)
         customer_sql(db,
-            f"UPDATE replica_entries SET received_at = now() + interval '5 years' "
+            f"UPDATE replica_entries SET received_at = now() + interval '5 years' "  # nosec B608 -- deliberate test tamper-simulation, no interpolated values on this line at all
             f"WHERE replica_id='{r}'")
         ours2 = [e for e in get_entries(url, r) if e["primary_id"] in {x["id"] for x in seed}]
         rep_skew = run_detection(ours2, feed_young, [], sla_seconds=5, replica_id=r,

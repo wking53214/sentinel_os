@@ -54,7 +54,7 @@ def test_twilio_log_parsing():
     journey = parser.parse_call_log(twilio_record)
     
     assert journey is not None
-    assert journey.resolved == True
+    assert journey.resolved
     assert journey.caller_id.startswith("twilio_")
     assert "intent_menu" in journey.journey
     assert "agent_a" in journey.journey
@@ -82,7 +82,7 @@ def test_twilio_abandonment_parsing():
     journey = parser.parse_call_log(twilio_record)
     
     assert journey is not None
-    assert journey.resolved == False
+    assert not journey.resolved
     assert journey.abandonment_reason == "no_answer"
     assert journey.friction_count == 0
     

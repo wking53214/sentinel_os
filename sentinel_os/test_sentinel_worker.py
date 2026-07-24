@@ -24,7 +24,7 @@ import pytest
 os.environ.setdefault("ICEBERG_LEDGER_RUNTIME_USER", "")
 
 from production_harness import IcebergProductionHarness
-from queue_schema import Outcome, Reason, TransmissionQueue
+from queue_schema import Outcome, TransmissionQueue
 from sentinel_worker import SentinelWorker
 
 REDIS_PORT = 6398

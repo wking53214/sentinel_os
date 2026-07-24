@@ -159,7 +159,10 @@ def _ensure_ledger_write_test_role():
     conn.autocommit = True
     cur = conn.cursor()
     cur.execute(
-        f"DO $$ BEGIN IF NOT EXISTS "
+        # LEDGER_WRITE_TEST_USER/PASSWORD are hardcoded test constants (see
+        # module top), never external input; role names can't be
+        # parameterized as DDL identifiers via %s anyway.
+        f"DO $$ BEGIN IF NOT EXISTS "  # nosec B608
         f"(SELECT FROM pg_roles WHERE rolname='{LEDGER_WRITE_TEST_USER}') THEN "
         f"CREATE ROLE {LEDGER_WRITE_TEST_USER} WITH LOGIN "
         f"PASSWORD '{LEDGER_WRITE_TEST_PASSWORD}'; END IF; END $$;"

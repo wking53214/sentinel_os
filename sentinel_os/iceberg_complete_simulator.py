@@ -155,7 +155,7 @@ def main():
     print("="*70)
     
     # Setup
-    ledger = LogRotationManager(LocalDiskAdapter("/tmp/iceberg_final"), seed="815")
+    ledger = LogRotationManager(LocalDiskAdapter("/tmp/iceberg_final"), seed="815")  # nosec B108 -- standalone in-memory/local-disk simulator (README: zero-setup demo path), deliberately not the production PostgreSQL-backed ledger
     rl_trainer = SimpleRLTrainer(state_dim=10, action_dim=2, lr=0.001)
     observe = ObserveCore()
     

@@ -351,7 +351,6 @@ def test_harness_binds_cassette_on_load_by_default():
     assert harness.require_cassette_binding is True
     assert harness.ledger is not None
 
-    L = _ledger()
     row = [r for r in _rows(conn) if r["record_kind"] == "cassette_binding"
            and r["cassette_version"] == "ivr:standard-ivr:2.0.1"]
     assert row, "expected a cassette_binding row for the loaded cassette's version"
