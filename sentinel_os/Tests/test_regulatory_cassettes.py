@@ -80,10 +80,14 @@ from regulatory_checks import (
     DIMENSION_KNOWN_BAD_VARIABLE_NAMES,
     DIMENSION_NARRATIVE_LEGITIMACY,
     DIMENSION_STATISTICAL_OUTCOME_EQUITY,
+    T0_PROHIBITED,
     RegulationCheckProfile,
+    TierDeclaration,
     assess_reason_specificity,
+    check_input_authorization_tier,
     check_proxy_variables,
     check_reason_specificity,
+    resolve_tier_conflict,
 )
 from regulatory_deck import GovernedJudgment, RegulatoryDeck
 from twin_custody import SHIPPED_COLUMNS, recompute_current_hash
@@ -691,6 +695,179 @@ def test_explain_includes_findings_but_writes_nothing():
     assert len(regulatory) == 2
     # Kernel verification factors still ride first (outcome mismatch).
     assert any(f.get("factor") == "outcome_mismatch" for f in factors)
+
+
+# ==========================================================================
+# 5b. Cross-lens tier-conflict detection
+# ==========================================================================
+
+# A second, stricter jurisdiction's lens -- models a state fair-lending
+# regime that has explicitly PROHIBITED zip-code inputs (T0), unlike
+# CFPB's federal lens (CFPB_REG_B_PROFILE), which has no declared tier
+# for it at all (T5_UNDECLARED once its tier screen is enabled). Its
+# check is deliberately named DIFFERENTLY from CFPB's
+# ("state_tier_authorization_screen" vs. "input_authorization_tier_
+# screen") -- cross-lens conflict detection is structural (any finding
+# carrying "variable" + "tier" in its evidence), not a match on check
+# name, and this fixture is what proves that, not just asserts it.
+_STRICT_STATE_TIER_CHECK = "state_tier_authorization_screen"
+
+_STRICT_STATE_PROFILE = RegulationCheckProfile(
+    regulation="Illustrative State X Fair Lending Act (test fixture)",
+    authorized_inputs={
+        r"zip": TierDeclaration(
+            tier=T0_PROHIBITED, authorized_by="state-regulator",
+            justification="state law bars zip-code inputs in lending decisions",
+        ),
+    },
+)
+
+
+class _StrictStateTierLens(RegulatoryCassette):
+    """Test fixture: a second live regulatory lens with its own,
+    stricter tier claim for a variable CFPB's reference lens has no
+    declared tier for at all -- exists to prove two genuinely
+    independent lenses can disagree, not to be a real regulation."""
+
+    MODES = (MODE_LIVE, MODE_OBSERVER)
+
+    def __init__(self, version: str = "1.0.0"):
+        self._version = str(version)
+
+    def get_config(self):
+        return RegulatoryCassetteConfig(
+            name="test-strict-state-tier", version=self._version,
+            description="Test fixture: a stricter state tier-authorization lens.",
+            regulation=_STRICT_STATE_PROFILE.regulation,
+            authority="Illustrative State X Regulator (test fixture)",
+        )
+
+    def get_checks(self):
+        return (_STRICT_STATE_TIER_CHECK,)
+
+    def get_profile(self):
+        return _STRICT_STATE_PROFILE.as_dict()
+
+    def review(self, material):
+        return check_input_authorization_tier(
+            material, _STRICT_STATE_PROFILE, check_name=_STRICT_STATE_TIER_CHECK,
+        )
+
+    def validate(self):
+        return bool(_STRICT_STATE_PROFILE.authorized_inputs)
+
+
+def _fresh_strict_lens(**kwargs):
+    kwargs.setdefault("version", f"1.0.0-t{uuid.uuid4().hex[:8]}")
+    return _StrictStateTierLens(**kwargs)
+
+
+def _tier_screen_cfpb_lens():
+    return _fresh_lens(enable_input_authorization_tier_screen=True)
+
+
+def test_cross_lens_tier_conflict_flags_stricter_tier_wins():
+    """CFPB (tier screen on, no declared tier for zip -> T5_UNDECLARED)
+    and the strict-state lens (zip declared T0_PROHIBITED) both flag
+    the same episode's zip_code input with DIFFERENT tiers. A
+    cross_lens_tier_conflict finding must fire, resolved to whichever
+    tier resolve_tier_conflict itself says wins (T0, the legal bar) --
+    asserted against the real function, not a hardcoded literal."""
+    L = _ledger()
+    deck = RegulatoryDeck(L)
+    cfpb = _tier_screen_cfpb_lens()
+    strict = _fresh_strict_lens()
+    cfpb_receipt = deck.insert(cfpb, MODE_LIVE, inserted_by="auditor:cfpb-live")
+    strict_receipt = deck.insert(strict, MODE_LIVE, inserted_by="auditor:state-live")
+    episode = _lending_episode(SPECIFIC_REASON, inputs={"zip_code": "60601"})
+
+    governed = deck.judge(BankingCassette(), episode)
+    conflicts = [f for f in governed.findings
+                if f.classification == "cross_lens_tier_conflict"]
+    assert len(conflicts) == 1
+    conflict = conflicts[0]
+    expected_tier = resolve_tier_conflict("T5_UNDECLARED", T0_PROHIBITED)
+    assert expected_tier == T0_PROHIBITED  # sanity: the stricter tier really does win
+    assert conflict.evidence["variable"] == "zip_code"
+    assert conflict.evidence["resolved_tier"] == expected_tier
+    assert conflict.action == ACTION_FLAG  # never escalates to a block on its own
+    assert conflict.subject_id == episode.episode_id
+    claim_lenses = {c["lens"] for c in conflict.evidence["conflicting_claims"]}
+    assert claim_lenses == {cfpb_receipt["identity"], strict_receipt["identity"]}
+    claim_tiers = {c["tier"] for c in conflict.evidence["conflicting_claims"]}
+    assert claim_tiers == {"T5_UNDECLARED", T0_PROHIBITED}
+
+
+def test_cross_lens_tier_conflict_disclosed_under_the_winning_lens():
+    conn = _conn()
+    L = _ledger()
+    deck = RegulatoryDeck(L)
+    deck.insert(_tier_screen_cfpb_lens(), MODE_LIVE, inserted_by="auditor:cfpb-live")
+    strict_receipt = deck.insert(_fresh_strict_lens(), MODE_LIVE,
+                                 inserted_by="auditor:state-live")
+    deck.judge(BankingCassette(),
+              _lending_episode(SPECIFIC_REASON, inputs={"zip_code": "60601"}))
+
+    disclosures = [r for r in _rows(conn)
+                   if r["record_kind"] == "regulatory_disclosure"
+                   and r["data"]["check"] == "cross_lens_tier_conflict"
+                   and r["cassette_version"] == strict_receipt["identity"]]
+    assert len(disclosures) == 1
+    row = disclosures[0]
+    # T0_PROHIBITED (the resolved/stricter tier) is the strict-state
+    # lens's own claim -- the conflict is disclosed under ITS identity.
+    assert row["cassette_version"] == strict_receipt["identity"]
+    assert recompute_current_hash(row) == row["current_hash"]
+    assert L.verify_chain(mode="lenient")["ok"] is True
+
+
+def test_no_conflict_when_only_one_live_lens_claims_the_variable():
+    L = _ledger()
+    deck = RegulatoryDeck(L)
+    deck.insert(_fresh_strict_lens(), MODE_LIVE, inserted_by="auditor:state-live")
+    governed = deck.judge(BankingCassette(),
+                          _lending_episode(SPECIFIC_REASON, inputs={"zip_code": "60601"}))
+    assert all(f.classification != "cross_lens_tier_conflict" for f in governed.findings)
+
+
+def test_no_conflict_when_live_lenses_agree_on_the_tier():
+    L = _ledger()
+    deck = RegulatoryDeck(L)
+    deck.insert(_fresh_strict_lens(), MODE_LIVE, inserted_by="auditor:state-live-1")
+    deck.insert(_fresh_strict_lens(), MODE_LIVE, inserted_by="auditor:state-live-2")
+    governed = deck.judge(BankingCassette(),
+                          _lending_episode(SPECIFIC_REASON, inputs={"zip_code": "60601"}))
+    # Both lenses declare zip as T0_PROHIBITED -- agreement, not conflict.
+    assert all(f.classification != "cross_lens_tier_conflict" for f in governed.findings)
+    assert sum(1 for f in governed.findings
+              if f.classification == "prohibited_input") == 2
+
+
+def test_cross_lens_tier_conflict_never_blocks_judgment():
+    L = _ledger()
+    deck = RegulatoryDeck(L)
+    deck.insert(_tier_screen_cfpb_lens(), MODE_LIVE, inserted_by="auditor:cfpb-live")
+    deck.insert(_fresh_strict_lens(), MODE_LIVE, inserted_by="auditor:state-live")
+    # Would raise RegulatoryBlock if the conflict finding were ever
+    # escalated to ACTION_BLOCK -- it must not be.
+    governed = deck.judge(BankingCassette(),
+                          _lending_episode(SPECIFIC_REASON, inputs={"zip_code": "60601"}))
+    assert any(f.classification == "cross_lens_tier_conflict" for f in governed.findings)
+
+
+def test_explain_includes_cross_lens_conflict_but_writes_nothing():
+    conn = _conn()
+    L = _ledger()
+    deck = RegulatoryDeck(L)
+    deck.insert(_tier_screen_cfpb_lens(), MODE_LIVE, inserted_by="auditor:cfpb-live")
+    deck.insert(_fresh_strict_lens(), MODE_LIVE, inserted_by="auditor:state-live")
+    before = _row_count(conn)
+    factors = deck.explain(BankingCassette(),
+                           _lending_episode(SPECIFIC_REASON, inputs={"zip_code": "60601"}))
+    assert _row_count(conn) == before  # explain never writes, conflicts included
+    conflict_factors = [f for f in factors if f.get("classification")
+                        == "cross_lens_tier_conflict"]
+    assert len(conflict_factors) == 1
 
 
 # ==========================================================================
