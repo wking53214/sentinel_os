@@ -97,7 +97,7 @@ never be described to, determine or certify ECOA / Reg B compliance.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from regulatory_cassette_interface import (
     ACTION_BLOCK,
@@ -312,7 +312,9 @@ class CFPBRegBLens(RegulatoryCassette):
             ))
         return findings
 
-    def c2_rollup(self, material: DecisionMaterial) -> C2Rollup:
+    def c2_rollup(self, material: DecisionMaterial,
+                  statistical_outcome_equity_findings: Optional[List[RegulatoryFinding]] = None,
+                  ) -> C2Rollup:
         """Combine this lens's findings into one C2 bias-identification
         status via rollup_c2_bias_identification.
 
@@ -328,15 +330,21 @@ class CFPBRegBLens(RegulatoryCassette):
         the silent default-behavior change this lens's opt-in design
         avoids (see the class and module docstrings).
 
-        Dimension 4 (statistical_outcome_equity) is always passed as
-        None: it is unbuilt (blocked on a separate product decision),
-        so this rollup can never legitimately report PASS on its own --
-        only FLAG (something in 1-3 fired) or INDETERMINATE (dimension
-        4 pending, which is always true today). That is intentional,
-        not a bug: dimensions 2 and 3 still surface real per-dimension
-        findings and flagged_dimensions to the human reviewer even
-        though the top-line status can't go green until dimension 4
-        exists.
+        Dimension 4 (statistical_outcome_equity) is COHORT-level, not
+        per-decision (see regulatory_checks.check_statistical_outcome_
+        equity's own docstring for why) -- this single-`material` method
+        has no cohort of its own to compute it from. Default None:
+        exactly the same "unbuilt/no data" posture as before dimension 4
+        existed, so a caller who does nothing differently sees identical
+        behavior. A caller that HAS already run
+        check_statistical_outcome_equity against the relevant cohort
+        (reading sealed-channel data -- never the live decision) may pass
+        its findings list here (an empty list for a clean cohort result,
+        a non-empty list for flagged groups) to have it included for
+        real. Passing None still means "not yet evaluated" and keeps the
+        rollup INDETERMINATE -- this method never runs the cohort check
+        itself, so it cannot silently fabricate a result the caller
+        didn't actually compute.
         """
         dimension_findings: Dict[str, Any] = {
             DIMENSION_KNOWN_BAD_VARIABLE_NAMES: check_proxy_variables(
@@ -357,7 +365,9 @@ class CFPBRegBLens(RegulatoryCassette):
                     check_name=CHECK_NARRATIVE_LEGITIMACY,
                 )
             )
-        dimension_findings[DIMENSION_STATISTICAL_OUTCOME_EQUITY] = None
+        dimension_findings[DIMENSION_STATISTICAL_OUTCOME_EQUITY] = (
+            statistical_outcome_equity_findings
+        )
         return rollup_c2_bias_identification(dimension_findings)
 
     def validate(self) -> bool:
