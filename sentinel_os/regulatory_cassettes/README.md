@@ -155,6 +155,61 @@ declared variables with no single suspicious name). The
 narrative-legitimacy screen cannot catch a sufficiently disconnected
 fabricated reason, and its phrase matching is English-only to start.
 
+## CFPB lens: opt-in wiring for C2 dimensions 2 & 3
+
+`cfpb_reg_b.py`'s `CFPBRegBLens` ships two Reg B checks by default
+(reason specificity, prohibited-basis/proxy input screen — C2
+dimension 1) and now also supports wiring in the input-authorization
+tier screen (dimension 2) and narrative-legitimacy screen (dimension
+3), each behind its own constructor boolean:
+
+```python
+CFPBRegBLens(
+    enable_input_authorization_tier_screen=False,  # dimension 2, off by default
+    enable_narrative_legitimacy_screen=False,       # dimension 3, off by default
+)
+```
+
+Both default `False` — an existing insertion/instantiation with no
+arguments behaves byte-identically to before this wiring landed.
+Independent toggles on purpose: a deployment might have no free-text
+narrative field to screen but still want tier checking, or vice versa.
+Like `block_on_placeholder`, both booleans live inside `get_profile()`'s
+returned dict, so flipping either automatically changes the lens's
+content hash and requires a new version string at insertion — no new
+hashing logic needed. Both are **disclosure-only** regardless of the
+toggle: unlike `block_on_placeholder`, nothing here ever escalates a
+tier or narrative finding to `ACTION_BLOCK`. If a blocking variant of
+either is wanted later, the pattern to follow is the same one
+`block_on_placeholder` already demonstrates — escalate one specific
+finding *classification*, never a whole check.
+
+`CFPBRegBLens.c2_rollup(material)` combines whichever dimensions this
+lens instance actually evaluated into one `C2Rollup` via
+`rollup_c2_bias_identification`: dimension 1 is always included,
+dimensions 2/3 are included only when their toggle is on, and — this
+is the detail that keeps opting in from silently changing behavior for
+everyone else — a **disabled** dimension's key is **omitted** from the
+mapping entirely, never passed as `None`. `None` means "applicable but
+not yet evaluated" and forces the overall status to `INDETERMINATE`;
+omission means "not part of this call" and is excluded from the status
+calculation. Dimension 4 (statistical outcome-equity) is always passed
+as `None` since it isn't built yet, so `c2_rollup()` can never return
+`PASS` on its own today — only `FLAG` or `INDETERMINATE` — but the
+per-dimension findings and `flagged_dimensions` it returns still reach
+the human reviewer, which is the real value dimensions 2 and 3 add
+even before dimension 4 exists.
+
+The CFPB profile itself (`CFPB_REG_B_PROFILE`) leaves the tier ladder
+(`authorized_inputs`, `tier_floor`) and `narrative_field` at
+`RegulationCheckProfile`'s defaults — Reg B has no filed-variable
+regime and no single universal narrative field, so populating either
+with real content is a separate data decision for whoever configures a
+specific deployment, not attempted in this wiring pass. Enabling the
+tier toggle with an empty `authorized_inputs` map is still a valid,
+honest configuration: every input reports `T5_UNDECLARED` rather than
+the checker silently passing or erroring.
+
 ## Explicitly out of scope
 
 CPPA ADMT consumer-facing notice/opt-out/appeal rights (new capability
