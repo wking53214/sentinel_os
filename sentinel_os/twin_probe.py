@@ -26,7 +26,7 @@ import hashlib
 import json
 import sys
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 

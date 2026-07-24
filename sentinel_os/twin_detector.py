@@ -53,7 +53,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 import psycopg2
 
-from twin_custody import CustodyError, canonical_json, deep_verify_row, open_envelope, sign
+from twin_custody import CustodyError, deep_verify_row, open_envelope, sign
 
 
 def _canon(obj: Any) -> str:

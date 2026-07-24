@@ -3,8 +3,6 @@ operation, not a mocked one; the recompute tests run against real rows the
 live stack wrote to the primary ledger."""
 
 import base64
-import json
-import os
 
 import psycopg2
 import psycopg2.extras
@@ -93,7 +91,7 @@ def _live_rows():
                             user="iceberg", password="iceberg")
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(f"SELECT {', '.join(tc.SHIPPED_COLUMNS)} FROM ledger_entries ORDER BY id")
+            cur.execute(f"SELECT {', '.join(tc.SHIPPED_COLUMNS)} FROM ledger_entries ORDER BY id")  # nosec B608 -- SHIPPED_COLUMNS is a fixed, code-defined column list, never external input
             return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()

@@ -103,7 +103,7 @@ def ship_available(queue: TransmissionQueue, r: redis.Redis,
             cursor_val = int(r.get(ckey) or 0)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
-                    f"SELECT {', '.join(SHIPPED_COLUMNS)} FROM ledger_entries "
+                    f"SELECT {', '.join(SHIPPED_COLUMNS)} FROM ledger_entries "  # nosec B608 -- SHIPPED_COLUMNS is a fixed, code-defined column list, never external input; cursor_val/batch below use real %s parameterization
                     f"WHERE id > %s ORDER BY id ASC LIMIT %s", (cursor_val, batch))
                 rows = [dict(x) for x in cur.fetchall()]
             count = 0

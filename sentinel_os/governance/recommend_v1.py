@@ -46,7 +46,7 @@ def recommend(signals: List[DriftSignal], ledger) -> List[Recommendation]:
         if not s.breached:
             continue
         role = _role(s.node)
-        head = ledger.flush([{
+        ledger.flush([{
             "action": "recommendation",
             "status": "pending",
             "node": s.node,

@@ -120,10 +120,19 @@ def test_graph_no_cycles():
     def dfs(node_name, stack):
         if node_name in stack:
             pytest.fail(f"Cycle detected involving node '{node_name}'")
+        if node_name in visited:
+            # Already fully explored from a different path with no cycle
+            # found -- the graph didn't change since, so re-walking this
+            # subtree again would only re-confirm the same result. Without
+            # this, any DAG with shared descendants (a node reachable via
+            # more than one path -- common, and not itself a cycle) gets
+            # re-explored once per incoming path.
+            return
 
         stack.add(node_name)
         for n in nodes[node_name].neighbors:
             dfs(n, stack)
         stack.remove(node_name)
+        visited.add(node_name)
 
     dfs("root", set())

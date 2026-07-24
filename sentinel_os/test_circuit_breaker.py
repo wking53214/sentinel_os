@@ -234,7 +234,8 @@ def test_is_failure_predicate_trips_breaker_on_return_value():
     def swallows_and_returns_failure():
         return {"safe": False, "reasoning": "transport_error: connection refused"}
 
-    is_failure = lambda r: isinstance(r, dict) and str(r.get("reasoning", "")).startswith("transport_error:")
+    def is_failure(r):
+        return isinstance(r, dict) and str(r.get("reasoning", "")).startswith("transport_error:")
 
     r1 = cb.call(swallows_and_returns_failure, is_failure=is_failure)
     assert r1["safe"] is False
@@ -254,7 +255,8 @@ def test_is_failure_predicate_does_not_trip_on_non_matching_return():
     def ordinary_rejection():
         return {"safe": False, "reasoning": "risk too high, policy violation"}
 
-    is_failure = lambda r: isinstance(r, dict) and str(r.get("reasoning", "")).startswith("transport_error:")
+    def is_failure(r):
+        return isinstance(r, dict) and str(r.get("reasoning", "")).startswith("transport_error:")
 
     for _ in range(10):
         r = cb.call(ordinary_rejection, is_failure=is_failure)

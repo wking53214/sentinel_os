@@ -458,7 +458,7 @@ if __name__ == "__main__":
         kw["ssl_keyfile"] = os.environ["SSL_KEYFILE"]
     uvicorn.run(
         "api_server_v2:app",
-        host=os.getenv("INGRESS_HOST", "0.0.0.0"),
+        host=os.getenv("INGRESS_HOST", "0.0.0.0"),  # nosec B104 -- overridable via INGRESS_HOST; 0.0.0.0 default is for containerized deployment
         port=int(os.getenv("INGRESS_PORT", "8000")),
         workers=int(os.getenv("INGRESS_WORKERS", "1")),
         **kw,

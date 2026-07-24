@@ -27,7 +27,7 @@ import time
 import uuid
 
 import httpx
-import pytest
+import redis
 
 BUILD_DIR = os.path.dirname(os.path.abspath(__file__))
 REDIS_URL = "redis://localhost:6379/0"
@@ -53,10 +53,10 @@ def sid() -> str:
 
 
 def _flush(prefix: str):
-    subprocess.run(
-        f"redis-cli --scan --pattern '{prefix}:*' | xargs -r redis-cli del",
-        shell=True, capture_output=True,
-    )
+    r = redis.from_url(REDIS_URL)
+    keys = list(r.scan_iter(match=f"{prefix}:*"))
+    if keys:
+        r.delete(*keys)
 
 
 def _spawn(cmd, env_extra, logname):

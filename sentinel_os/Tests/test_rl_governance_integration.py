@@ -4,13 +4,13 @@ import tempfile
 import array_ops as np
 np.random.seed(42)
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from cassette_loader import CassetteLoader
-from cassette_schema import validate_cassette
+from cassette_loader import CassetteLoader  # noqa: E402
+from cassette_schema import validate_cassette  # noqa: E402
 
-from Engines.simple_rl_trainer import SimpleRLTrainer
-from governance.drift_core_v1 import DriftPolicy, detect_drift, baseline_from_holds
-from governance.self_heal_v1 import heal, HealBand, InMemoryParameterStore
-from governance.log_rotation_v1 import LogRotationManager, LocalDiskAdapter
+from Engines.simple_rl_trainer import SimpleRLTrainer  # noqa: E402
+from governance.drift_core_v1 import DriftPolicy, detect_drift, baseline_from_holds  # noqa: E402
+from governance.self_heal_v1 import heal, HealBand, InMemoryParameterStore  # noqa: E402
+from governance.log_rotation_v1 import LogRotationManager, LocalDiskAdapter  # noqa: E402
 
 def test_complete_rl_governance_integration():
     print("\n" + "="*70)

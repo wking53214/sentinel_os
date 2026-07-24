@@ -6,12 +6,10 @@ real OS processes (worker and Redis both). Run:  pytest -q -s
 """
 from __future__ import annotations
 
-import json
 import multiprocessing as mp
 import os
 import shutil
 import signal
-import socket
 import subprocess
 import tempfile
 import threading
@@ -21,7 +19,7 @@ import uuid
 import pytest
 import redis as redis_lib
 
-from queue_schema import ClaimedJob, Outcome, Reason, TransmissionQueue
+from queue_schema import Outcome, Reason, TransmissionQueue
 
 MAIN_PORT = 6399
 CRASH_PORT = 6400

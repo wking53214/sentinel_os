@@ -195,7 +195,7 @@ if __name__ == "__main__":
     if use_tls:
         uvicorn.run(
             app,
-            host="0.0.0.0",
+            host="0.0.0.0",  # nosec B104 -- containerized deployment: must bind all interfaces to be reachable from outside the container (see docker-compose.yml)
             port=port,
             ssl_certfile=cert_file,
             ssl_keyfile=key_file,
@@ -204,7 +204,7 @@ if __name__ == "__main__":
     else:
         uvicorn.run(
             app,
-            host="0.0.0.0",
+            host="0.0.0.0",  # nosec B104 -- containerized deployment: must bind all interfaces to be reachable from outside the container (see docker-compose.yml)
             port=port,
             log_level="info"
         )

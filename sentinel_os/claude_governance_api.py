@@ -57,7 +57,6 @@ class ClaudeGovernanceDecider:
                 "model_identity": None,
             }
 
-        prompt = None  # replaced by structured system+messages below
         system, messages = build_governance_call(
             system_instruction=(
                 "You are an IVR governance expert. A call queue has experienced "

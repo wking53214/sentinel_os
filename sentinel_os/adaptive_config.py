@@ -3,7 +3,7 @@ import json
 # Production configuration for adaptive pipeline
 CONFIG = {
     "ledger": {
-        "storage_dir": "/tmp/iceberg_ledger",
+        "storage_dir": "/tmp/iceberg_ledger",  # nosec B108 -- legacy/archived config, only referenced by archive/run_adaptive.py; the live production ledger is PostgreSQL-backed (governance/ledger_postgres.py), not this local-disk path
         "seed": "815-production",
         "secret": None,  # Set to b"your-secret" for HMAC signing
     },
