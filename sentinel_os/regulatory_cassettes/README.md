@@ -215,9 +215,11 @@ the checker silently passing or erroring.
 CPPA ADMT consumer-facing notice/opt-out/appeal rights (new capability
 class); HMDA-style aggregate geographic reporting (new rollup
 capability); actual hiring/insurance domain cassettes; Illinois
-applicant-facing AI-use notices; the banking fraud-escalation scoring
-decision (still deliberately open); C2's fourth dimension — statistical
+applicant-facing AI-use notices; C2's fourth dimension — statistical
 outcome-equity — blocked on Wm's decision about whether Sentinel ever
 ingests real protected-characteristic data; unicode/encoding
 normalization, non-English phrase lists, and empty-vs-absent-field
-handling for the narrative screen (cheap fixes, not prioritized).
+handling for the narrative screen (cheap fixes, not prioritized). (The
+banking fraud-escalation scoring decision, previously listed here as
+open, is resolved — see `cassettes/banking_cassette.py`'s
+`_score_components`.)
