@@ -736,7 +736,8 @@ class TransmissionQueue:
             if enq is not None:
                 oldest_pending_age_ms = now - int(enq)
 
-        dec = lambda h: {k.decode(): v.decode() for k, v in h.items()}
+        def dec(h):
+            return {k.decode(): v.decode() for k, v in h.items()}
         counters = {k: int(v) if v.lstrip("-").isdigit() else v
                     for k, v in dec(r[7]).items()}
         return {

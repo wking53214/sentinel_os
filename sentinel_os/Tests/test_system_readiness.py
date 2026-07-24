@@ -30,12 +30,16 @@ def test_imports():
     print("\n[TEST 2] All imports available")
     
     try:
-        from production_harness import IcebergProductionHarness
-        from twilio_log_ingestion import TwilioLogParser
-        from metrics_prometheus import PrometheusMetrics
-        from claude_governance_api import ClaudeGovernanceDecider
-        from observe_perceive_core import ObserveCore
-        from sentinel_core import SentinelCore
+        # These 6 imports exist to prove the modules import cleanly -- that
+        # IS this test's job (test_imports), not incidental. F401 (unused
+        # import) is a false positive here, not dead code -- noqa'd rather
+        # than deleted, which would silently turn this into a no-op test.
+        from production_harness import IcebergProductionHarness  # noqa: F401
+        from twilio_log_ingestion import TwilioLogParser  # noqa: F401
+        from metrics_prometheus import PrometheusMetrics  # noqa: F401
+        from claude_governance_api import ClaudeGovernanceDecider  # noqa: F401
+        from observe_perceive_core import ObserveCore  # noqa: F401
+        from sentinel_core import SentinelCore  # noqa: F401
         print("  ✓ PASSED - All imports successful")
         return True
     except ImportError as e:

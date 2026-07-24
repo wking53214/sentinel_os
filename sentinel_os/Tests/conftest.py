@@ -1,5 +1,7 @@
 import sys
 import os
+import importlib.util
+import importlib.machinery
 
 import pytest
 
@@ -47,10 +49,6 @@ def pytest_pyfunc_call(pyfuncitem):
 
 
 # Map old 'Domain' imports to actual locations
-import importlib.util
-import importlib.machinery
-
-
 class DomainFinder:
     def find_spec(self, fullname, path, target=None):
         if fullname.startswith('Domain.'):

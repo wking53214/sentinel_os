@@ -216,6 +216,21 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
     
+    def _table_columns(self, cursor) -> set:
+        """Column names currently on ledger_entries. A plain
+        information_schema query -- reads the system catalogs, takes only
+        an AccessShareLock, never queues behind concurrent readers the way
+        ALTER TABLE's ACCESS EXCLUSIVE lock does. Used to skip each
+        migration block below when the schema is already current, so a
+        normal boot against an up-to-date ledger never takes that
+        exclusive lock at all.
+        """
+        cursor.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'ledger_entries';"
+        )
+        return {row[0] for row in cursor.fetchall()}
+
     def _initialize_schema(self):
         """Create ledger table if not exists"""
         
@@ -240,32 +255,48 @@ class PostgreSQLLedger:
                 CREATE INDEX IF NOT EXISTS idx_node ON ledger_entries(node);
                 CREATE INDEX IF NOT EXISTS idx_hash ON ledger_entries(current_hash);
             """)
+            # Every ALTER TABLE ... ADD COLUMN below is individually
+            # idempotent (IF NOT EXISTS), but ALTER TABLE takes an ACCESS
+            # EXCLUSIVE lock to even EVALUATE that IF NOT EXISTS check --
+            # so re-running these unconditionally on every construction
+            # meant a boot against an already-current schema could still
+            # queue indefinitely behind any lingering reader holding
+            # ACCESS SHARE on ledger_entries (idle-in-transaction
+            # connections, a long-running query, etc.). existing_columns
+            # is a one-time, lock-cheap read of the current schema;
+            # each block below only runs -- and only then takes the
+            # exclusive lock -- when it would actually change something.
+            existing_columns = self._table_columns(cursor)
+
             # In-place migration for structured governance decisions.
             # Legacy rows keep their shape (columns stay NULL); new
             # decision rows fill them. The hash chain is shared: legacy
             # append() and structured append_decision() interleave on
             # one chain, each hashing its own canonical form.
-            cursor.execute("""
-                ALTER TABLE ledger_entries
-                    ADD COLUMN IF NOT EXISTS record_kind VARCHAR(40) DEFAULT 'legacy',
-                    ADD COLUMN IF NOT EXISTS cassette_version VARCHAR(200),
-                    ADD COLUMN IF NOT EXISTS input_data JSONB,
-                    ADD COLUMN IF NOT EXISTS policy_parameters JSONB,
-                    ADD COLUMN IF NOT EXISTS decision_output JSONB;
-                CREATE INDEX IF NOT EXISTS idx_cassette_version
-                    ON ledger_entries(cassette_version);
-            """)
+            if not {"record_kind", "cassette_version", "input_data",
+                    "policy_parameters", "decision_output"} <= existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS record_kind VARCHAR(40) DEFAULT 'legacy',
+                        ADD COLUMN IF NOT EXISTS cassette_version VARCHAR(200),
+                        ADD COLUMN IF NOT EXISTS input_data JSONB,
+                        ADD COLUMN IF NOT EXISTS policy_parameters JSONB,
+                        ADD COLUMN IF NOT EXISTS decision_output JSONB;
+                    CREATE INDEX IF NOT EXISTS idx_cassette_version
+                        ON ledger_entries(cassette_version);
+                """)
             # Forensic ledger item: cassette snapshots for regulatory audit.
             # Safe to run on existing ledgers (adds nullable columns, no data deleted).
             # Backfill: existing decisions have NULL cassette_snapshot/cassette_hash
             # (cannot be reconstructed, but chain remains intact and verifiable).
-            cursor.execute("""
-                ALTER TABLE ledger_entries
-                    ADD COLUMN IF NOT EXISTS cassette_snapshot JSONB,
-                    ADD COLUMN IF NOT EXISTS cassette_hash VARCHAR(64);
-                CREATE INDEX IF NOT EXISTS idx_cassette_hash
-                    ON ledger_entries(cassette_hash);
-            """)
+            if not {"cassette_snapshot", "cassette_hash"} <= existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS cassette_snapshot JSONB,
+                        ADD COLUMN IF NOT EXISTS cassette_hash VARCHAR(64);
+                    CREATE INDEX IF NOT EXISTS idx_cassette_hash
+                        ON ledger_entries(cassette_hash);
+                """)
             # Phase 2 forensic columns. Same migration guarantee as above:
             # all nullable, no data deleted, legacy rows keep NULL and hash
             # exactly as before (the fields only enter the canonical form
@@ -274,36 +305,70 @@ class PostgreSQLLedger:
             #   model_identity     -- Item 5 (governing model per decision)
             #   authorized_by      -- Item 7 (authorizing identity)
             #   supersedes_id/hash -- Item 6 (formal supersession link)
-            cursor.execute("""
-                ALTER TABLE ledger_entries
-                    ADD COLUMN IF NOT EXISTS cassette_code_hash VARCHAR(64),
-                    ADD COLUMN IF NOT EXISTS model_identity VARCHAR(120),
-                    ADD COLUMN IF NOT EXISTS authorized_by VARCHAR(120),
-                    ADD COLUMN IF NOT EXISTS supersedes_id INTEGER,
-                    ADD COLUMN IF NOT EXISTS supersedes_hash VARCHAR(64);
-                CREATE INDEX IF NOT EXISTS idx_model_identity
-                    ON ledger_entries(model_identity);
-                CREATE INDEX IF NOT EXISTS idx_authorized_by
-                    ON ledger_entries(authorized_by);
-                CREATE INDEX IF NOT EXISTS idx_supersedes_id
-                    ON ledger_entries(supersedes_id);
-            """)
+            if not {"cassette_code_hash", "model_identity", "authorized_by",
+                    "supersedes_id", "supersedes_hash"} <= existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS cassette_code_hash VARCHAR(64),
+                        ADD COLUMN IF NOT EXISTS model_identity VARCHAR(120),
+                        ADD COLUMN IF NOT EXISTS authorized_by VARCHAR(120),
+                        ADD COLUMN IF NOT EXISTS supersedes_id INTEGER,
+                        ADD COLUMN IF NOT EXISTS supersedes_hash VARCHAR(64);
+                    CREATE INDEX IF NOT EXISTS idx_model_identity
+                        ON ledger_entries(model_identity);
+                    CREATE INDEX IF NOT EXISTS idx_authorized_by
+                        ON ledger_entries(authorized_by);
+                    CREATE INDEX IF NOT EXISTS idx_supersedes_id
+                        ON ledger_entries(supersedes_id);
+                """)
             # Idempotency: store the raw Twilio sid so duplicate
             # submissions can be rejected before processing. UNIQUE
             # constraint on the column itself is the last-resort guard
             # (catches races the application-level check can't); the
             # normal path rejects earlier via sid_exists(). Nullable
             # so legacy/non-Twilio rows don't collide.
-            cursor.execute("""
-                ALTER TABLE ledger_entries
-                    ADD COLUMN IF NOT EXISTS call_sid VARCHAR(100);
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_call_sid
-                    ON ledger_entries(call_sid)
-                    WHERE call_sid IS NOT NULL;
-            """)
+            if not {"call_sid"} <= existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS call_sid VARCHAR(100);
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_call_sid
+                        ON ledger_entries(call_sid)
+                        WHERE call_sid IS NOT NULL;
+                """)
             conn.commit()
         finally:
             self.pool.putconn(conn)
+
+    def _immutability_already_applied(self, cursor) -> bool:
+        """True when the triggers, role, and grants ledger_immutability.sql
+        sets up are already exactly in place -- i.e. reapplying the file
+        would be a no-op. Every check here is a plain catalog read
+        (AccessShareLock only); used to skip the file entirely on a
+        normal boot against an already-protected ledger, since its
+        DROP TRIGGER / CREATE TRIGGER and GRANT/REVOKE statements all
+        take the same ACCESS EXCLUSIVE-class lock on ledger_entries
+        that ALTER TABLE does -- the other half of the migration-lock
+        stall alongside the column migrations in _initialize_schema.
+        """
+        cursor.execute("""
+            SELECT tgname FROM pg_trigger t
+            JOIN pg_class r ON t.tgrelid = r.oid
+            WHERE r.relname = 'ledger_entries' AND NOT t.tgisinternal;
+        """)
+        installed = {row[0] for row in cursor.fetchall()}
+        if not set(self._REQUIRED_IMMUTABILITY_TRIGGERS) <= installed:
+            return False
+
+        cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = 'ledger_reader';")
+        if cursor.fetchone() is None:
+            return False
+
+        cursor.execute("""
+            SELECT privilege_type FROM information_schema.role_table_grants
+            WHERE table_name = 'ledger_entries' AND grantee = 'ledger_reader';
+        """)
+        grants = {row[0] for row in cursor.fetchall()}
+        return grants == {"SELECT", "INSERT"}
 
     def _apply_immutability_and_verify(self):
         """Apply ledger_immutability.sql and verify it actually took effect.
@@ -318,6 +383,14 @@ class PostgreSQLLedger:
         pg_trigger to confirm the three protective triggers exist --
         refusing to construct the ledger otherwise. No fallback: a
         ledger that cannot prove its own immutability does not start.
+
+        Skips actually reapplying the file when
+        _immutability_already_applied() says everything is already in
+        place -- see that method's docstring for why unconditional
+        reapplication was a real bug, not just belt-and-suspenders.
+        Verification (the pg_trigger check below) still runs either way,
+        so a ledger that's missing protection for any other reason still
+        refuses to start.
         """
         sql_path = Path(__file__).resolve().parent.parent / "ledger_immutability.sql"
         if not sql_path.exists():
@@ -330,8 +403,10 @@ class PostgreSQLLedger:
         try:
             conn.autocommit = False
             cursor = conn.cursor()
-            cursor.execute(sql_path.read_text())
-            conn.commit()
+
+            if not self._immutability_already_applied(cursor):
+                cursor.execute(sql_path.read_text())
+                conn.commit()
 
             cursor.execute("""
                 SELECT tgname FROM pg_trigger t

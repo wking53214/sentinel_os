@@ -122,7 +122,7 @@ class LiveLoadTester:
             ]
             
             for i, future in enumerate(as_completed(futures)):
-                result = future.result()
+                future.result()
                 if i % 5 == 0:
                     print(f"  Processed: {i+1}/{num_calls}")
         

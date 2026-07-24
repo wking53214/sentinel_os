@@ -131,7 +131,13 @@ def test_api_server_has_auth():
     if has_auth:
         print("  ✗ FAILED - /health endpoint should be public")
         return False
-    
+
+    assert health_section, (
+        "/health route not found in api_server_resilient.py -- this test's "
+        "auth check only fires when the route is present, so a removed or "
+        "renamed /health route would otherwise silently pass here"
+    )
+
     print("  ✓ PASSED - API server configured with authentication")
     print("             - /health: public (no auth)")
     print("             - /process: protected")
