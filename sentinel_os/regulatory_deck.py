@@ -44,6 +44,24 @@ Observer mode is exactly as safe as it sounds: review of decisions
 already in the immutable ledger, producing a report. The only ledger
 writes an observer-mode lens ever causes are its own insertion and
 removal events.
+
+CROSS-LENS TIER CONFLICTS (live mode only): when two or more LIVE
+lenses each flag the same input variable with a DIFFERENT declared
+authorization tier (regulatory_checks.check_input_authorization_tier,
+C2 dimension 2), that disagreement is itself a finding an examiner
+needs to see -- silently letting whichever lens happened to run first
+"win" would hide a real jurisdictional conflict. Detection is
+STRUCTURAL, not tied to any one check's name: any finding carrying
+both a "variable" and a "tier" key in its evidence is treated as a
+tier claim, from whichever lens and whichever check produced it.
+resolve_tier_conflict's stricter-tier-wins rule (regulatory_checks)
+decides which tier stands; a single cross_lens_tier_conflict finding
+is raised, disclosed like any other live finding, and attributed to
+whichever lens already held the resolved (stricter) tier -- the
+other lens's claim is superseded on the record, never silently
+dropped. Always ACTION_FLAG: a conflict between two lenses' own
+claims is a fact for a human to resolve, not grounds for this deck to
+unilaterally block judgment on either lens's behalf.
 """
 
 from __future__ import annotations
@@ -55,6 +73,7 @@ from cassette_forensics import compute_cassette_code_hash, compute_cassette_hash
 from episode import Episode, explain_episode, judge_episode
 from regulatory_cassette_interface import (
     ACTION_BLOCK,
+    ACTION_FLAG,
     MODE_LIVE,
     MODE_OBSERVER,
     REGULATORY_MODES,
@@ -67,6 +86,7 @@ from regulatory_cassette_interface import (
     regulatory_cassette_version_of,
     validate_regulatory_cassette,
 )
+from regulatory_checks import resolve_tier_conflict
 
 
 @dataclass(frozen=True)
@@ -312,6 +332,81 @@ class RegulatoryDeck:
             authorized_by=entry.inserted_by,
         )
 
+    def _cross_lens_tier_conflicts(
+            self, entries_and_findings: List[Tuple[InsertedLens, RegulatoryFinding]],
+            ) -> List[Tuple[InsertedLens, RegulatoryFinding]]:
+        """Structural cross-lens tier-conflict detection over one
+        episode's already-collected (lens, finding) pairs -- see the
+        module docstring. Any finding carrying both "variable" and
+        "tier" in its evidence is a tier claim, regardless of which
+        check or lens produced it. When two or more DIFFERENT lenses
+        hold conflicting tier claims for the SAME variable, folds them
+        pairwise through resolve_tier_conflict to find the resolved
+        (stricter) tier, and returns one cross_lens_tier_conflict
+        finding per conflicting variable, paired with the lens whose
+        own claim matches that resolved tier (the finding is disclosed
+        under that lens's identity). Two lenses agreeing on a variable
+        is not a conflict and produces nothing.
+        """
+        by_variable: Dict[str, Dict[str, Tuple[InsertedLens, RegulatoryFinding]]] = {}
+        for entry, finding in entries_and_findings:
+            variable = finding.evidence.get("variable")
+            tier = finding.evidence.get("tier")
+            if variable is None or tier is None:
+                continue
+            # Keyed by lens identity: a lens flagging the same variable
+            # via more than one check reports the same tier every time
+            # (assess_input_authorization is deterministic per name),
+            # so last-write-wins here is harmless, not a data loss.
+            by_variable.setdefault(variable, {})[entry.identity] = (entry, finding)
+
+        conflicts: List[Tuple[InsertedLens, RegulatoryFinding]] = []
+        for variable, claims in sorted(by_variable.items()):
+            if len(claims) < 2:
+                continue
+            ordered = [claims[identity] for identity in sorted(claims)]
+            resolved_tier = ordered[0][1].evidence["tier"]
+            winner_entry, winner_finding = ordered[0]
+            tiers_seen = {resolved_tier}
+            for entry, finding in ordered[1:]:
+                tier = finding.evidence["tier"]
+                tiers_seen.add(tier)
+                new_resolved = resolve_tier_conflict(resolved_tier, tier)
+                if new_resolved != resolved_tier:
+                    winner_entry, winner_finding = entry, finding
+                resolved_tier = new_resolved
+            if len(tiers_seen) < 2:
+                continue  # every lens claiming this variable agrees
+            conflicts.append((winner_entry, RegulatoryFinding(
+                check="cross_lens_tier_conflict",
+                subject_id=winner_finding.subject_id,
+                regulation=winner_entry.regulation,
+                action=ACTION_FLAG,
+                classification="cross_lens_tier_conflict",
+                score=1.0,
+                evidence={
+                    "variable": variable,
+                    "resolved_tier": resolved_tier,
+                    "conflicting_claims": [
+                        {"lens": entry.identity, "regulation": entry.regulation,
+                         "tier": finding.evidence["tier"]}
+                        for entry, finding in ordered
+                    ],
+                    "detail": f"live lenses disagree on input variable "
+                              f"'{variable}''s authorization tier; the "
+                              f"stricter tier ('{resolved_tier}') governs "
+                              "per the cross-jurisdiction conflict rule "
+                              "(resolve_tier_conflict) and is attributed to "
+                              "the lens that already held it -- the other "
+                              "lens's claim is superseded on the record, "
+                              "not silently dropped",
+                    "score_meaning": "1.0 = a real disagreement was "
+                                     "detected between live lenses; not a "
+                                     "measure of how severe it is",
+                },
+            )))
+        return conflicts
+
     def judge(self, domain_cassette, episode: Episode) -> GovernedJudgment:
         """The live-governed judgment entry point.
 
@@ -319,23 +414,31 @@ class RegulatoryDeck:
         episode.judge_episode -- no judgment path admits an
         unvalidated episode, this one included). Then every LIVE lens
         reviews the episode; EVERY finding is disclosed to the ledger
-        as it is raised. Only after all findings from all lenses are
-        on the record does a block take effect (RegulatoryBlock), so
-        the chain always holds the complete picture of what the lenses
+        as it is raised. Cross-lens tier conflicts (see module
+        docstring) are detected and disclosed next, once every lens's
+        own findings are already on the record. Only after ALL of
+        that -- lens findings and any conflict findings alike -- is on
+        the chain does a block take effect (RegulatoryBlock), so the
+        chain always holds the complete picture of what the lenses
         saw, not just the first thing that stopped the music.
         """
         quality = judge_episode(domain_cassette, episode)
         all_findings: List[RegulatoryFinding] = []
+        entries_and_findings: List[Tuple[InsertedLens, RegulatoryFinding]] = []
         blocking: List[RegulatoryFinding] = []
         blocking_entry: Optional[InsertedLens] = None
         for entry in self._live_entries():
             for finding in entry.lens.review(material_from_episode(episode)):
                 self._disclose(entry, finding)  # fail-closed: may raise
                 all_findings.append(finding)
+                entries_and_findings.append((entry, finding))
                 if finding.action == ACTION_BLOCK:
                     blocking.append(finding)
                     if blocking_entry is None:
                         blocking_entry = entry
+        for entry, conflict in self._cross_lens_tier_conflicts(entries_and_findings):
+            self._disclose(entry, conflict)  # fail-closed, same as any other finding
+            all_findings.append(conflict)
         if blocking:
             raise RegulatoryBlock(
                 lens_identity=blocking_entry.identity,
@@ -347,7 +450,8 @@ class RegulatoryDeck:
     def explain(self, domain_cassette, episode: Episode) -> List[Dict[str, Any]]:
         """Kernel explanation plus regulatory findings as factors.
 
-        Read-only, like the kernel's own explain: findings appear as
+        Read-only, like the kernel's own explain: findings (including
+        any cross-lens tier-conflict finding) appear as
         "regulatory_finding" factor entries but are NOT disclosed to
         the ledger here, because explanation is a reporting surface --
         nothing about the episode's handling changes when it is
@@ -356,6 +460,7 @@ class RegulatoryDeck:
         not write two more ledger rows.)
         """
         factors = explain_episode(domain_cassette, episode)
+        entries_and_findings: List[Tuple[InsertedLens, RegulatoryFinding]] = []
         for entry in self._live_entries():
             for finding in entry.lens.review(material_from_episode(episode)):
                 factors.append({
@@ -363,4 +468,11 @@ class RegulatoryDeck:
                     "lens": entry.identity,
                     **finding.as_dict(),
                 })
+                entries_and_findings.append((entry, finding))
+        for entry, conflict in self._cross_lens_tier_conflicts(entries_and_findings):
+            factors.append({
+                "factor": "regulatory_finding",
+                "lens": entry.identity,
+                **conflict.as_dict(),
+            })
         return factors
