@@ -54,31 +54,38 @@ from regulatory_cassette_interface import (
     ACTION_FLAG,
     MODE_LIVE,
     MODE_OBSERVER,
+    SCREENING_DISCLAIMER,
     DecisionMaterial,
     RegulatoryBlock,
     RegulatoryCassette,
     RegulatoryCassetteConfig,
     RegulatoryCassetteRegistry,
     RegulatoryValidationError,
-    SCREENING_DISCLAIMER,
     material_from_episode,
     material_from_ledger_row,
     regulatory_cassette_version_of,
     validate_regulatory_cassette,
 )
+from regulatory_cassettes.cfpb_reg_b import (
+    CFPB_REG_B_PROFILE,
+    CHECK_INPUT_AUTHORIZATION_TIER,
+    CHECK_NARRATIVE_LEGITIMACY,
+    CHECK_PROHIBITED_BASIS,
+    CHECK_REASON_SPECIFICITY,
+    CFPBRegBLens,
+)
 from regulatory_checks import (
+    C2_INDETERMINATE,
+    DIMENSION_INPUT_AUTHORIZATION_TIER,
+    DIMENSION_KNOWN_BAD_VARIABLE_NAMES,
+    DIMENSION_NARRATIVE_LEGITIMACY,
+    DIMENSION_STATISTICAL_OUTCOME_EQUITY,
     RegulationCheckProfile,
     assess_reason_specificity,
     check_proxy_variables,
     check_reason_specificity,
 )
 from regulatory_deck import GovernedJudgment, RegulatoryDeck
-from regulatory_cassettes.cfpb_reg_b import (
-    CFPB_REG_B_PROFILE,
-    CHECK_PROHIBITED_BASIS,
-    CHECK_REASON_SPECIFICITY,
-    CFPBRegBLens,
-)
 from twin_custody import SHIPPED_COLUMNS, recompute_current_hash
 
 DSN = dict(
@@ -707,3 +714,143 @@ def test_code_hash_covers_regulatory_checks_source(monkeypatch):
                     if m != "regulatory_checks")
     monkeypatch.setattr(cassette_forensics, "_GOVERNANCE_CODE_MODULES", reduced)
     assert compute_cassette_code_hash(lens) != full
+
+
+# ==========================================================================
+# 7. C2 dimensions 2 & 3 -- opt-in wiring into the CFPB lens
+# ==========================================================================
+
+def _tier_narrative_episode(reason=SPECIFIC_REASON, inputs=None):
+    return _lending_episode(reason, inputs=inputs)
+
+
+def test_both_toggles_off_is_byte_identical_to_default_lens():
+    """The whole point of Requirement 1/3: instantiating with the two
+    new booleans explicitly False must produce identical findings,
+    identical declared checks, and an identical profile/snapshot to a
+    lens built with no arguments at all -- opting in changes nothing
+    for callers who don't opt in."""
+    default = CFPBRegBLens(version="1.0.0-default-a")
+    explicit_off = CFPBRegBLens(
+        enable_input_authorization_tier_screen=False,
+        enable_narrative_legitimacy_screen=False,
+        version="1.0.0-default-a",
+    )
+    assert default.get_checks() == explicit_off.get_checks()
+    assert default.get_checks() == (CHECK_REASON_SPECIFICITY, CHECK_PROHIBITED_BASIS)
+    assert default.get_profile() == explicit_off.get_profile()
+    assert default.snapshot() == explicit_off.snapshot()
+
+    material = material_from_episode(_tier_narrative_episode(
+        GENERIC_REASON, inputs={"zip_code": "60601", "reviewer_notes":
+                                "She's a single mom, I can empathize."}))
+    assert default.review(material) == explicit_off.review(material)
+
+    rollup = default.c2_rollup(material)
+    assert rollup.evaluated_dimensions == (DIMENSION_KNOWN_BAD_VARIABLE_NAMES,)
+    assert rollup.not_evaluated_dimensions == (DIMENSION_STATISTICAL_OUTCOME_EQUITY,)
+    # Dimensions 2/3 never appear at all -- omitted, not None.
+    assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.evaluated_dimensions
+    assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.not_evaluated_dimensions
+    assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.evaluated_dimensions
+    assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.not_evaluated_dimensions
+    assert rollup.status == C2_INDETERMINATE  # dimension 4 always pending
+
+
+def test_tier_screen_on_alone_wires_dimension_2_only():
+    lens = _fresh_lens(enable_input_authorization_tier_screen=True)
+    assert CHECK_INPUT_AUTHORIZATION_TIER in lens.get_checks()
+    assert CHECK_NARRATIVE_LEGITIMACY not in lens.get_checks()
+    assert lens.get_profile()["enable_input_authorization_tier_screen"] is True
+    assert lens.get_profile()["enable_narrative_legitimacy_screen"] is False
+
+    material = material_from_episode(_tier_narrative_episode(
+        SPECIFIC_REASON, inputs={"income": 92000}))
+    findings = lens.review(material)
+    tier_findings = [f for f in findings if f.check == CHECK_INPUT_AUTHORIZATION_TIER]
+    # CFPB_REG_B_PROFILE declares no authorized_inputs -- every input
+    # variable legitimately reports undeclared (T5), not a crash and
+    # not silently clean.
+    assert tier_findings
+    assert all(f.classification == "undeclared_input" for f in tier_findings)
+    assert all(f.action == ACTION_FLAG for f in tier_findings)  # never escalated
+
+    rollup = lens.c2_rollup(material)
+    assert DIMENSION_INPUT_AUTHORIZATION_TIER in rollup.evaluated_dimensions
+    assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.evaluated_dimensions
+    assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.not_evaluated_dimensions
+    assert DIMENSION_INPUT_AUTHORIZATION_TIER in rollup.flagged_dimensions
+    assert rollup.status == C2_INDETERMINATE  # dimension 4 still pending
+
+
+def test_narrative_screen_on_alone_wires_dimension_3_only():
+    lens = _fresh_lens(enable_narrative_legitimacy_screen=True)
+    assert CHECK_NARRATIVE_LEGITIMACY in lens.get_checks()
+    assert CHECK_INPUT_AUTHORIZATION_TIER not in lens.get_checks()
+
+    # CFPB_REG_B_PROFILE leaves narrative_field unset -- Phase A means
+    # this is a legitimate no-op (zero findings), not a silent gap.
+    material = material_from_episode(_tier_narrative_episode(
+        SPECIFIC_REASON, inputs={"reviewer_notes": "anything at all"}))
+    findings = lens.review(material)
+    assert [f for f in findings if f.check == CHECK_NARRATIVE_LEGITIMACY] == []
+
+    rollup = lens.c2_rollup(material)
+    assert DIMENSION_NARRATIVE_LEGITIMACY in rollup.evaluated_dimensions
+    assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.evaluated_dimensions
+    assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.not_evaluated_dimensions
+    # No findings from dimensions 1 or 3 on this clean-input material.
+    assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.flagged_dimensions
+    assert rollup.status == C2_INDETERMINATE  # dimension 4 still pending
+
+
+def test_both_c2_toggles_on_wires_both_dimensions():
+    lens = _fresh_lens(enable_input_authorization_tier_screen=True,
+                       enable_narrative_legitimacy_screen=True)
+    assert set(lens.get_checks()) == {CHECK_REASON_SPECIFICITY, CHECK_PROHIBITED_BASIS,
+                                      CHECK_INPUT_AUTHORIZATION_TIER,
+                                      CHECK_NARRATIVE_LEGITIMACY}
+    material = material_from_episode(_tier_narrative_episode(
+        SPECIFIC_REASON, inputs={"income": 92000}))
+    findings = lens.review(material)
+    assert any(f.check == CHECK_INPUT_AUTHORIZATION_TIER for f in findings)
+
+    rollup = lens.c2_rollup(material)
+    assert set(rollup.evaluated_dimensions) == {
+        DIMENSION_KNOWN_BAD_VARIABLE_NAMES,
+        DIMENSION_INPUT_AUTHORIZATION_TIER,
+        DIMENSION_NARRATIVE_LEGITIMACY,
+    }
+    assert rollup.not_evaluated_dimensions == (DIMENSION_STATISTICAL_OUTCOME_EQUITY,)
+    assert rollup.status == C2_INDETERMINATE
+
+
+def test_toggling_either_c2_setting_bumps_content_hash():
+    """Same tripwire proof as
+    test_changed_lens_config_same_version_refused_at_insertion, for the
+    two new booleans: both live inside get_profile()'s dict (like
+    block_on_placeholder already does), so flipping either changes
+    snapshot()/content hash with no new hashing logic, and a lens
+    presenting altered content under an unchanged version string is
+    refused at bind."""
+    off = CFPBRegBLens(version="1.0.0-hash-a")
+    tier_on = CFPBRegBLens(enable_input_authorization_tier_screen=True,
+                           version="1.0.0-hash-a")
+    narrative_on = CFPBRegBLens(enable_narrative_legitimacy_screen=True,
+                                version="1.0.0-hash-a")
+    both_on = CFPBRegBLens(enable_input_authorization_tier_screen=True,
+                           enable_narrative_legitimacy_screen=True,
+                           version="1.0.0-hash-a")
+
+    hashes = {compute_cassette_hash(lens.snapshot())
+             for lens in (off, tier_on, narrative_on, both_on)}
+    assert len(hashes) == 4  # all four configurations hash distinctly
+
+    L = _ledger()
+    shared_version = f"1.0.0-t{uuid.uuid4().hex[:8]}"
+    RegulatoryDeck(L).insert(CFPBRegBLens(version=shared_version), MODE_OBSERVER,
+                             inserted_by="auditor:a")
+    altered = CFPBRegBLens(enable_input_authorization_tier_screen=True,
+                           version=shared_version)
+    with pytest.raises(ValueError, match="binding conflict"):
+        RegulatoryDeck(L).insert(altered, MODE_OBSERVER, inserted_by="auditor:b")
