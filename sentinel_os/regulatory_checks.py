@@ -61,18 +61,40 @@ Checks in this module, all deterministic and fully explainable:
    one -- closing the gap where this would otherwise silently never
    fire. Phase B (the scan) only runs when narrative content exists.
 
-5. rollup_c2_bias_identification -- combines findings across whichever
+5. check_statistical_outcome_equity -- dimension 4, the one check that
+   can prove the AFFIRMATIVE ("outcomes were actually fair"), not just
+   the negative. Structurally different from checks 1-4 above: those
+   are PER-DECISION (one episode/row in, findings out); this one is
+   inherently COHORT-level -- disparate impact is a comparison across
+   groups, not a property of one decision. It does not run inside
+   review()/judge()/explain() at all; it runs out-of-band against a
+   cohort of decisions, the same batch shape
+   regulatory_deck.RegulatoryDeck.observer_review already uses (reads a
+   list, returns an aggregate report, writes nothing). Reads protected-
+   characteristic data ONLY from the sealed channel
+   (sealed_demographic_channel.py) -- self-reported or BISG-estimated
+   (bisg_estimator.py) depending on the profile's consent_model -- NEVER
+   from the live decision. Uses the EEOC four-fifths rule (a group's
+   favorable-outcome rate below 80% of the highest-rate group's is a
+   finding) -- the most established starting point in real regulatory
+   practice, not a novel metric; flagged as a choice, not a certainty,
+   in the function's own docstring. Below MIN_COHORT_SIZE_FOR_STATISTICAL_TEST,
+   reports INDETERMINATE rather than a statistically meaningless PASS or
+   FLAG from too few observations.
+
+6. rollup_c2_bias_identification -- combines findings across whichever
    of the (up to four) C2 bias-identification dimensions actually ran
    for one decision into a single PASS / FLAG / INDETERMINATE status,
    per the AND-rollup rule: PASS only if every applicable dimension
    passes; FLAG if any applicable dimension flags; INDETERMINATE if
-   any applicable dimension hasn't been evaluated. Checks 1-4 above
-   can only ever prove the NEGATIVE ("nothing bad found" -- absence of
-   a bad signal); only a statistical outcome-equity dimension (not
-   built -- blocked on Wm's decision about whether Sentinel ever
-   ingests real protected-characteristic data) could prove the
-   AFFIRMATIVE ("outcomes were actually fair"). Never describe checks
-   1-4 passing as though they were that affirmative proof.
+   any applicable dimension hasn't been evaluated. Checks 1-4 can only
+   ever prove the NEGATIVE ("nothing bad found" -- absence of a bad
+   signal); check 5 is the one dimension that can prove the
+   AFFIRMATIVE, and only when real or estimated protected-characteristic
+   data actually exists for the cohort in question -- absent that data,
+   dimension 4 still reports None/INDETERMINATE, same posture as before
+   it was built. Never describe checks 1-4 passing as though they were
+   that affirmative proof.
 
 DISCLOSED, UNSOLVED, NOT ATTEMPTED THIS SESSION: renaming a bad or
 proxy or undeclared-tier variable to an innocuous name defeats checks
@@ -177,6 +199,26 @@ CONFIDENCE_ATTESTED_UNSUPPORTED = "attested-unsupported"
 CONFIDENCE_ATTESTED_ACCOUNTABLE_UNSUPPORTED = "attested-accountable-unsupported"
 CONFIDENCE_ATTESTED_ACCOUNTABLE_EVIDENCED = "attested-accountable-evidenced"
 CONFIDENCE_VERIFIED = "verified"
+
+# ---------------------------------------------------------------------------
+# Consent model (check 5 / dimension 4 -- statistical outcome-equity)
+# ---------------------------------------------------------------------------
+
+# Default: GDPR, Virginia, and most non-CA US jurisdictions. Statistical
+# (BISG) estimation is the default method for the fairness check under
+# this model; voluntary opt-in self-disclosure is a supplement for
+# customers who choose to provide real data, never a substitute this
+# checker assumes exists.
+CONSENT_OPT_IN_REQUIRED = "opt_in_required"
+
+# e.g. California. Self-reported demographic data is collected by
+# default (the customer may decline); a decline falls back to BISG
+# estimation -- mirrors Reg B's own visual-observation/surname fallback
+# pattern for mortgage GMI (12 CFR 1002.13), but statistical instead of
+# human guessing.
+CONSENT_OPT_OUT_PERMITTED = "opt_out_permitted"
+
+VALID_CONSENT_MODELS = (CONSENT_OPT_IN_REQUIRED, CONSENT_OPT_OUT_PERMITTED)
 
 
 @dataclass(frozen=True)
@@ -341,6 +383,18 @@ class RegulationCheckProfile:
                               phrases and protected-characteristic-
                               adjacent phrases are not the same
                               vocabulary.
+      consent_model         -- CONSENT_OPT_IN_REQUIRED (default) or
+                              CONSENT_OPT_OUT_PERMITTED (check 5 /
+                              dimension 4, statistical outcome-equity).
+                              Governs how protected-characteristic data
+                              collected into the sealed channel
+                              (sealed_demographic_channel.py) is sourced
+                              for THIS regulation -- BISG-by-default vs.
+                              self-report-by-default-with-BISG-fallback.
+                              Never read by check_statistical_outcome_
+                              equity itself (that function only reads
+                              already-collected sealed-channel data); it
+                              governs collection, upstream of the check.
     """
 
     regulation: str
@@ -356,6 +410,14 @@ class RegulationCheckProfile:
     prohibited_inputs: Tuple[str, ...] = ()
     narrative_field: str | None = None
     narrative_flag_phrases: Tuple[str, ...] = ()
+    consent_model: str = CONSENT_OPT_IN_REQUIRED
+
+    def __post_init__(self):
+        if self.consent_model not in VALID_CONSENT_MODELS:
+            raise ValueError(
+                f"consent_model must be one of {VALID_CONSENT_MODELS}, "
+                f"got {self.consent_model!r}"
+            )
 
     def as_dict(self) -> Dict[str, Any]:
         """JSON-safe form for lens snapshots (content-hashed)."""
@@ -376,6 +438,7 @@ class RegulationCheckProfile:
             "prohibited_inputs": sorted(self.prohibited_inputs),
             "narrative_field": self.narrative_field,
             "narrative_flag_phrases": sorted(self.narrative_flag_phrases),
+            "consent_model": self.consent_model,
         }
 
 
@@ -822,6 +885,189 @@ def check_narrative_legitimacy(material: DecisionMaterial,
                              "motivated by the flagged characteristic",
         },
     )]
+
+
+# ---------------------------------------------------------------------------
+# Check 5: statistical outcome-equity (dimension 4) -- COHORT-level.
+#
+# Structurally different from checks 1-4: those take a single
+# DecisionMaterial and return findings for THAT decision. Disparate
+# impact is not a property of one decision -- it is a comparison across
+# a cohort. This runs out-of-band against a batch of decisions, the same
+# shape regulatory_deck.RegulatoryDeck.observer_review already uses
+# (reads a list, returns an aggregate report, writes nothing) -- not
+# forced into review()/judge()/explain()'s single-episode interface.
+#
+# Protected-characteristic data comes ONLY from the sealed channel
+# (sealed_demographic_channel.py) -- self-reported or BISG-estimated
+# (bisg_estimator.py), sourced per the profile's consent_model. This
+# function never touches a live episode or the ledger's decision path
+# directly; it operates on already-assembled CohortDecision records, the
+# caller's job to assemble from sealed-channel reads + whatever
+# outcome/subject data their own decision system already has.
+# ---------------------------------------------------------------------------
+
+# A common statistical rule-of-thumb minimum for a comparison to mean
+# anything at all (roughly where the normal approximation to a binomial
+# proportion starts being reasonable) -- proposed as a floor, not a
+# certainty; real EEOC enforcement practice often wants larger cohorts
+# before treating a four-fifths finding as more than a screening signal.
+# Flagged as a choice: raise this for a specific regulation via a
+# subclass/wrapper if that regulation's own practice expects more.
+MIN_COHORT_SIZE_FOR_STATISTICAL_TEST = 30
+
+# EEOC's four-fifths (80%) rule (29 CFR 1607.4(D)): a group's favorable-
+# outcome rate below 80% of the highest-rate group's is evidence of
+# adverse impact. The most established starting point in real
+# regulatory practice -- proposed here as A defensible choice, not
+# invented, and not the only one: four-fifths assumes a binary/
+# categorical favorable-outcome definition and is a screening heuristic,
+# not a legal determination on its own (same SCREENING_DISCLAIMER
+# posture as every other check in this module). A standardized-mean-
+# difference test would be more appropriate for a continuous outcome
+# measure; not built here because C2's own outcome shape (approved/
+# denied, resolved/unresolved) is categorical throughout this codebase.
+FOUR_FIFTHS_THRESHOLD = 0.8
+
+
+@dataclass(frozen=True)
+class CohortDecision:
+    """One decision's outcome plus its protected-characteristic
+    estimate, already assembled by the caller from the sealed channel
+    (SealedDemographicChannel.get_estimates_for_cohort) -- the unit
+    check_statistical_outcome_equity operates on.
+
+    favorable_outcome  -- the caller's own domain definition of
+                          "favorable" (approved, resolved, granted,
+                          ...) for this one decision. Domain-blind by
+                          design, same as every other checker in this
+                          module -- this function never guesses what
+                          counts as favorable.
+    group_distribution -- race/ethnicity -> probability, straight from
+                          a sealed-channel estimate. A self-report is a
+                          single-category distribution ({"hispanic":
+                          1.0}); a BISG estimate is a real posterior
+                          across all six categories. The same
+                          probability-weighted arithmetic below handles
+                          both without a special case.
+    """
+
+    subject_id: str
+    favorable_outcome: bool
+    group_distribution: Mapping[str, float]
+
+
+def check_statistical_outcome_equity(
+        cohort: "List[CohortDecision]", profile: RegulationCheckProfile,
+        check_name: str = "statistical_outcome_equity_four_fifths",
+        ) -> List[RegulatoryFinding]:
+    """Four-fifths-rule disparate-impact screen across a COHORT of
+    decisions. Returns [] when clean, one FLAG finding per group whose
+    weighted favorable-outcome rate falls below 80% of the
+    highest-rate group's, or one INDETERMINATE finding when the cohort
+    is too small to mean anything (see MIN_COHORT_SIZE_FOR_STATISTICAL_TEST)
+    -- never a spurious PASS or FLAG from too few observations.
+
+    PROBABILITY-WEIGHTED, not hard-assigned: each decision contributes
+    to EVERY group's rate in proportion to that group's estimated
+    probability for that decision (group_distribution), rather than
+    assigning each decision to its single most-likely group. This is
+    deliberate -- hard-thresholding a probabilistic BISG estimate into
+    one category before comparing rates introduces bias the weighted
+    approach avoids, and it means self-reported (single-category) and
+    BISG-estimated (full posterior) records combine in the cohort with
+    no special-casing: a self-report is simply a distribution with all
+    its mass on one category.
+
+    For group r: weighted_rate(r) = sum_i(distribution_i[r] * favorable_i)
+    / sum_i(distribution_i[r]) -- a probability-weighted mean favorable
+    rate. Groups with negligible total weight in this cohort (fewer than
+    1.0 effective decisions) are excluded from the comparison entirely
+    -- not enough signal to say anything about that group here.
+    """
+    if len(cohort) < MIN_COHORT_SIZE_FOR_STATISTICAL_TEST:
+        return [RegulatoryFinding(
+            check=check_name,
+            subject_id=f"cohort:{len(cohort)}",
+            regulation=profile.regulation,
+            action=ACTION_FLAG,
+            classification="indeterminate_insufficient_cohort",
+            score=0.0,
+            evidence={
+                "cohort_size": len(cohort),
+                "minimum_required": MIN_COHORT_SIZE_FOR_STATISTICAL_TEST,
+                "detail": "cohort is too small for a statistical disparate-impact "
+                          "comparison to mean anything -- reporting indeterminate "
+                          "rather than a spurious pass or flag",
+            },
+        )]
+
+    weighted_favorable: Dict[str, float] = {}
+    weighted_total: Dict[str, float] = {}
+    for decision in cohort:
+        for race, prob in decision.group_distribution.items():
+            if prob <= 0:
+                continue
+            weighted_total[race] = weighted_total.get(race, 0.0) + prob
+            if decision.favorable_outcome:
+                weighted_favorable[race] = weighted_favorable.get(race, 0.0) + prob
+
+    rates = {
+        race: weighted_favorable.get(race, 0.0) / total
+        for race, total in weighted_total.items()
+        if total >= 1.0  # negligible-weight groups excluded, see docstring
+    }
+    if len(rates) < 2:
+        return [RegulatoryFinding(
+            check=check_name,
+            subject_id=f"cohort:{len(cohort)}",
+            regulation=profile.regulation,
+            action=ACTION_FLAG,
+            classification="indeterminate_insufficient_group_coverage",
+            score=0.0,
+            evidence={
+                "cohort_size": len(cohort),
+                "groups_with_sufficient_weight": sorted(rates),
+                "detail": "fewer than two groups have enough estimated weight in "
+                          "this cohort to compare -- cannot compute a four-fifths "
+                          "ratio between groups that don't both have signal here",
+            },
+        )]
+
+    highest_rate = max(rates.values())
+    findings: List[RegulatoryFinding] = []
+    if highest_rate > 0:
+        for race, rate in sorted(rates.items()):
+            ratio = rate / highest_rate
+            if ratio < FOUR_FIFTHS_THRESHOLD:
+                findings.append(RegulatoryFinding(
+                    check=check_name,
+                    subject_id=f"cohort:{len(cohort)}",
+                    regulation=profile.regulation,
+                    action=ACTION_FLAG,
+                    classification="four_fifths_adverse_impact",
+                    score=round(1.0 - ratio, 4),
+                    evidence={
+                        "group": race,
+                        "group_favorable_rate": round(rate, 4),
+                        "highest_group_favorable_rate": round(highest_rate, 4),
+                        "ratio": round(ratio, 4),
+                        "threshold": FOUR_FIFTHS_THRESHOLD,
+                        "cohort_size": len(cohort),
+                        "all_group_rates": {r: round(v, 4) for r, v in sorted(rates.items())},
+                        "detail": f"estimated favorable-outcome rate for '{race}' "
+                                  f"is {ratio:.1%} of the highest-rate group's, "
+                                  f"below the {FOUR_FIFTHS_THRESHOLD:.0%} four-fifths "
+                                  "threshold -- a screening signal for human "
+                                  "review, not a legal determination of "
+                                  "disparate impact",
+                        "score_meaning": "0.0-1.0, how far below the four-fifths "
+                                        "threshold this group's rate falls "
+                                        "(1.0 - ratio); never a compliance "
+                                        "probability",
+                    },
+                ))
+    return findings
 
 
 # ---------------------------------------------------------------------------
