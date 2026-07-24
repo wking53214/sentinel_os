@@ -3,6 +3,25 @@
 Dated, human-readable summary of notable changes. Git history has the
 full detail; this is the skim version.
 
+## 2026-07-24
+
+- **C2 dimension 4: statistical outcome-equity** — the fourth C2
+  bias-identification dimension, unbuilt until now, is real: a
+  COHORT-level four-fifths-rule disparate-impact checker
+  (`regulatory_checks.check_statistical_outcome_equity`), a sealed
+  channel for protected-characteristic data completely walled off from
+  the live judgment path (`sealed_demographic_channel.py` — new table,
+  new role, no grant to `ledger_reader`, ever), and a real BISG
+  estimator (`bisg_estimator.py`) reproducing CFPB's own published
+  methodology over live Census geocoding/ACS data plus the actual 2010
+  Census surname list — never a fabricated estimate; any unreachable
+  data source makes the whole estimate INDETERMINATE. `RegulationCheckProfile`
+  gains `consent_model` (`opt_in_required` default, or
+  `opt_out_permitted`). `CFPBRegBLens.c2_rollup()` can now genuinely
+  reach `PASS`, not just `FLAG`/`INDETERMINATE`, when a caller supplies
+  an already-computed dimension-4 result for a cohort — automatic
+  cohort assembly is not built this session.
+
 ## 2026-07-23
 
 - **Cassette kernel/capability split** — the cassette contract is no
