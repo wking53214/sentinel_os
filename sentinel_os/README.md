@@ -152,6 +152,10 @@ python3 sentinel_os/iceberg_complete_simulator.py
 - **Analytics:** `sentinel_os/observe_perceive_core.py`
 - **Operations:** `sentinel_os/queue_staffing_bayes_integration.py`
 - **API Server:** `sentinel_os/api_server.py`
+- **Standalone simulator's supporting modules:** `sentinel_os/Domain/`,
+  `Engines/`, `Model/`, `Sim/`, `observe/` (each has its own README) --
+  used only by `iceberg_complete_simulator.py` and its tests, not by the
+  production governance path above.
 
 ---
 
