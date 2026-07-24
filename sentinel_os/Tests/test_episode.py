@@ -226,11 +226,96 @@ def test_banking_judge_preserves_old_arithmetic():
     r = judge_episode(bank, _call_episode(False, 400.0, 2, 0.6))
     assert r.score == 0.0 and r.tier == "failed"
 
-    # unresolved fast clean call: 0.2 + 0.2 = 0.4 -> poor (escalation
-    # is acceptable in banking, still not "resolved" -- the documented
-    # open decision on fraud escalations is deliberately unchanged)
+    # unresolved fast clean call, NEITHER fraud-escalation path fired
+    # (no customer_stated_fraud attribute, no fraud_detection_queue in
+    # journey -- both absent here): 0.2 + 0.2 = 0.4 -> poor. An ordinary
+    # non-fraud escalation (agent gives up, unresolved dispute, IVR
+    # loop-out) still lands here -- see the fraud-escalation tests below
+    # for the two paths that now carve out "excellent" instead.
     r = judge_episode(bank, _call_episode(False, 60.0, 0, 0.0))
     assert r.score == pytest.approx(0.4) and r.tier == "poor"
+
+
+# ---------------------------------------------------------------------------
+# Fraud-escalation top-tier carve-out (banking_cassette._score_components):
+# a fraud escalation now scores as banking's best possible outcome under
+# exactly two legitimate, non-discretionary paths -- customer-stated, or
+# system-identified via the cassette's own already-declared
+# fraud_detection_queue. Neither is an AI judgment call, so neither needs
+# verification. Non-fraud escalations are untouched (proven above).
+# ---------------------------------------------------------------------------
+
+def test_customer_stated_fraud_path_scores_top_tier():
+    ep = _call_episode(False, 400.0, 2, 0.6,
+                       attributes={"duration": 400.0, "friction_count": 2,
+                                   "emotion": {"frustration": 0.6},
+                                   "customer_stated_fraud": True})
+    r = judge_episode(BankingCassette(), ep)
+    assert (r.score, r.tier) == (1.0, "excellent")
+
+    factors = explain_episode(BankingCassette(), ep)
+    top_tier = next(f for f in factors if f["factor"] == "fraud_escalation_top_tier")
+    assert top_tier["escalation_path"] == "customer_stated"
+    assert top_tier["matched_parameter"] is None
+
+
+def test_system_identified_fraud_path_via_fraud_detection_queue_scores_top_tier():
+    ep = _call_episode(False, 400.0, 2, 0.6,
+                       attributes={"duration": 400.0, "friction_count": 2,
+                                   "emotion": {"frustration": 0.6},
+                                   "journey": ["entry", "fraud_detection_queue"]})
+    r = judge_episode(BankingCassette(), ep)
+    assert (r.score, r.tier) == (1.0, "excellent")
+
+    factors = explain_episode(BankingCassette(), ep)
+    top_tier = next(f for f in factors if f["factor"] == "fraud_escalation_top_tier")
+    assert top_tier["escalation_path"] == "system_identified:fraud_detection_queue"
+    assert top_tier["matched_parameter"] == "fraud_detection_queue"
+
+
+def test_no_escalation_path_present_does_not_qualify_for_top_tier():
+    """Neither path present (no customer_stated_fraud, no
+    fraud_detection_queue in journey) -- no audit trail to point to, so
+    no top-tier classification; ordinary unresolved scoring applies."""
+    ep = _call_episode(False, 400.0, 2, 0.6,
+                       attributes={"duration": 400.0, "friction_count": 2,
+                                   "emotion": {"frustration": 0.6},
+                                   "journey": ["entry", "billing_queue"]})
+    r = judge_episode(BankingCassette(), ep)
+    assert r.tier != "excellent"
+    assert r.score == 0.0 and r.tier == "failed"  # same arithmetic as before
+
+    factors = explain_episode(BankingCassette(), ep)
+    assert not any(f["factor"] == "fraud_escalation_top_tier" for f in factors)
+
+
+def test_resolved_call_does_not_trigger_fraud_top_tier_override():
+    """An escalation is by definition not resolved in-system -- a
+    resolved call already competes for excellent on the ordinary
+    arithmetic and the carve-out must not fire for it even if
+    customer_stated_fraud happens to be set (e.g. a false alarm that
+    was cleared and resolved anyway)."""
+    ep = _call_episode(True, 150.0, 0, 0.1,
+                       attributes={"duration": 150.0, "friction_count": 0,
+                                   "emotion": {"frustration": 0.1},
+                                   "customer_stated_fraud": True})
+    r = judge_episode(BankingCassette(), ep)
+    assert (r.score, r.tier) == (pytest.approx(0.89), "excellent")  # ordinary arithmetic
+    factors = explain_episode(BankingCassette(), ep)
+    top_tier = [f for f in factors if f["factor"] == "fraud_escalation_top_tier"]
+    assert top_tier == []
+
+
+def test_non_fraud_escalation_is_unaffected_by_the_carve_out():
+    """Agent gives up / unresolved billing dispute / IVR loop-out --
+    unresolved, but neither fraud path applies. Byte-identical to the
+    pre-carve-out arithmetic (test_banking_judge_preserves_old_arithmetic
+    pins the same numbers)."""
+    ep = _call_episode(False, 400.0, 2, 0.6)
+    r = judge_episode(BankingCassette(), ep)
+    assert r.score == 0.0 and r.tier == "failed"
+    factors = explain_episode(BankingCassette(), ep)
+    assert not any(f["factor"] == "fraud_escalation_top_tier" for f in factors)
 
 
 def test_domains_may_disagree_on_the_same_episode():

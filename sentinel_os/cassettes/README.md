@@ -49,10 +49,13 @@ approved-but-reduced — not just formal denials).
   routing + rl + self_healing, **no** telephony (no real banking call
   data exists yet, so the capability is off rather than faked).
   Judges the same episodes as IVR by different rules — that
-  difference is the point of the system, not a bug. One documented
-  open decision: a correct fraud escalation still scores unresolved in
-  judgment even though the reward signal treats it as a win; needs an
-  explicit call before an escalation carve-out is added.
+  difference is the point of the system, not a bug. A fraud escalation
+  now scores as this cassette's best possible outcome (tier
+  "excellent") under two legitimate, non-discretionary paths —
+  customer-stated, or system-identified via the cassette's own
+  already-declared `fraud_detection_queue` — resolving the open
+  decision that used to live here. See `_score_components` for the
+  full reasoning and audit-trail requirement.
 
 ## Loading and tamper evidence
 

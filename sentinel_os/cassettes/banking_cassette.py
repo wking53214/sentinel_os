@@ -99,7 +99,12 @@ class BankingCassette(Cassette, RoutingTopology, ReinforcementLearning,
             # joined the shared governance code-hash surface (see
             # ivr_cassette for the identical note). Behavior unchanged;
             # moved code hash => new version under binding enforcement.
-            version="2.0.1",
+            # 2.0.1 -> 2.0.2: fraud-escalation top-tier carve-out (see
+            # _score_components). A genuine behavior change -- a
+            # qualifying fraud escalation now scores "excellent"
+            # instead of capping at "poor" -- so this is a real version
+            # bump, not just a moved-code-hash formality.
+            version="2.0.2",
             description="Financial services & banking",
             domain="banking"
         )
@@ -142,8 +147,19 @@ class BankingCassette(Cassette, RoutingTopology, ReinforcementLearning,
     # Field convention this cassette reads (fail-loud on absence):
     # episode.actual["resolved"] (an OUTCOME -- read from the observed
     # record, never from actor_report); episode.attributes "duration",
-    # "friction_count", optional "emotion" (dict), and optional
-    # "journey"/"friction_events" for explanation.
+    # "friction_count", optional "emotion" (dict), optional
+    # "journey"/"friction_events" for explanation, and optional
+    # "customer_stated_fraud" (bool) for the fraud-escalation carve-out
+    # below.
+
+    # The one existing, fixed parameter that names banking's
+    # system-identified fraud signal: the queue this cassette already
+    # declares in get_queue_definitions() and already reads structurally
+    # in _security_signals' own fraud lookup. Reused here verbatim --
+    # not a new detection heuristic -- so a call only qualifies as
+    # "system identified" if it was actually routed through this exact,
+    # already-declared queue.
+    _FRAUD_DETECTION_QUEUE = "fraud_detection_queue"
 
     def _episode_facts(self, episode: Episode):
         try:
@@ -162,17 +178,76 @@ class BankingCassette(Cassette, RoutingTopology, ReinforcementLearning,
                 f"declared attributes: {sorted(episode.attributes)}"
             )
         emotion_data = dict(episode.attributes.get("emotion", {}))
-        return resolved, duration, friction_count, emotion_data
+        customer_stated_fraud = bool(episode.attributes.get("customer_stated_fraud",
+                                                             False))
+        journey = list(episode.attributes.get("journey", []))
+        return (resolved, duration, friction_count, emotion_data,
+                customer_stated_fraud, journey)
+
+    def _fraud_escalation_path(self, resolved: bool, customer_stated_fraud: bool,
+                               journey: List[str]):
+        """Which of the two legitimate fraud-escalation paths (if any)
+        this episode qualifies under, for the top-tier carve-out in
+        _score_components. Returns None when neither applies -- normal
+        scoring then resumes unchanged, so a non-fraud escalation
+        (agent gives up, unresolved billing dispute, IVR loop-out) is
+        completely unaffected.
+
+        An escalation is by definition NOT resolved in-system -- a
+        resolved call already competes for excellent/good on the
+        ordinary arithmetic and needs no carve-out -- so this only
+        ever fires for resolved=False.
+
+        1. customer_stated: episode.attributes["customer_stated_fraud"]
+           is truthy -- the customer directly indicated they believe
+           it's fraud. Recorded as-is; not re-verified (see the class
+           docstring note on why no feedback loop is needed here).
+        2. system_identified: the journey routed through
+           _FRAUD_DETECTION_QUEUE, the one fixed, already-declared
+           parameter for this signal -- not open-ended model judgment,
+           and not loosened or extended beyond what this cassette
+           already declares.
+        """
+        if resolved:
+            return None
+        if customer_stated_fraud:
+            return "customer_stated"
+        if self._FRAUD_DETECTION_QUEUE in journey:
+            return f"system_identified:{self._FRAUD_DETECTION_QUEUE}"
+        return None
 
     def _score_components(self, resolved: bool, duration: float,
-                          friction_count: int, emotion_data: Dict):
+                          friction_count: int, emotion_data: Dict,
+                          customer_stated_fraud: bool = False,
+                          journey: List[str] = ()):
         """THE banking scoring arithmetic, in one place (see judge).
 
-        NOTE (open decision, not silently changed): a *correct* fraud
-        escalation to a human still scores as unresolved here, even
-        though compute_reward already treats it as a win. Whether a
-        proper escalation counts as a success needs an explicit call
-        before this cassette grows an escalation carve-out.
+        FRAUD-ESCALATION TOP-TIER DECISION (resolves the note that used
+        to live here): a fraud escalation is now scored as this
+        cassette's best possible outcome -- score 1.0, tier
+        "excellent", the top of the existing four-tier hierarchy --
+        under exactly two legitimate paths, both checked in
+        _fraud_escalation_path: the customer directly states they
+        believe it's fraud, or the call was routed through this
+        cassette's own already-declared fraud-detection queue. Neither
+        path is a discretionary AI judgment call: a customer's own
+        direct statement isn't a model inference, and routing through a
+        specific named queue is a fixed structural fact, not a tunable
+        score. That is why no verification of "was it real fraud" is
+        required or possible here, and why it isn't a gaming risk --
+        there is no feedback loop for either signal to game, and
+        attempts to game outcome scoring are assumed to be derivatives
+        of already-known tactics (misrouting, false claims), not novel
+        discretionary failures a detector would need to catch after the
+        fact. The fix closes discretion at the source instead. The
+        override is unconditional (bypasses the duration/friction/
+        frustration arithmetic below entirely) and always carries a
+        "fraud_escalation_top_tier" factor naming exactly which path
+        fired and, for system-identified, which parameter matched --
+        the audit trail Requirement 6 requires for the classification
+        to apply at all. Non-fraud escalations (agent gives up,
+        unresolved billing dispute, IVR loop-out, etc.) take neither
+        path and are scored exactly as before, still capped at "poor".
         """
 
         score = 0.0
@@ -236,18 +311,42 @@ class BankingCassette(Cassette, RoutingTopology, ReinforcementLearning,
         else:
             tier = "failed"
 
+        fraud_path = self._fraud_escalation_path(
+            resolved, customer_stated_fraud, list(journey)
+        )
+        if fraud_path is not None:
+            matched_parameter = (self._FRAUD_DETECTION_QUEUE
+                                 if fraud_path.startswith("system_identified")
+                                 else None)
+            factors.append({
+                "factor": "fraud_escalation_top_tier",
+                "value": True,
+                "contribution": None,
+                "escalation_path": fraud_path,
+                "matched_parameter": matched_parameter,
+                "detail": "fraud escalation classified as the best possible "
+                          "outcome (score 1.0, tier excellent); overrides the "
+                          "duration/friction/frustration factors above -- see "
+                          "escalation_path for which of the two legitimate "
+                          "paths triggered this and matched_parameter for the "
+                          "exact system-identified parameter, when applicable",
+            })
+            return QualityResult(score=1.0, tier="excellent"), factors
+
         return QualityResult(score=score, tier=tier), factors
 
     def judge(self, episode: Episode) -> QualityResult:
         """Judge one validated episode with banking's own rules.
 
         Deliberately keeps its own 0.80 "excellent" cutoff and its own
-        weights (see _score_components).
+        weights (see _score_components), including the fraud-escalation
+        top-tier carve-out documented there.
         """
-        resolved, duration, friction_count, emotion_data = \
-            self._episode_facts(episode)
+        (resolved, duration, friction_count, emotion_data,
+         customer_stated_fraud, journey) = self._episode_facts(episode)
         result, _ = self._score_components(
-            resolved, duration, friction_count, emotion_data
+            resolved, duration, friction_count, emotion_data,
+            customer_stated_fraud, journey,
         )
         return result
 
@@ -256,13 +355,13 @@ class BankingCassette(Cassette, RoutingTopology, ReinforcementLearning,
         episodes, the security-focused signals (the old abandonment
         diagnosis logic, kept as _security_signals) ride along. Kernel
         verification findings are prepended by episode.explain_episode."""
-        resolved, duration, friction_count, emotion_data = \
-            self._episode_facts(episode)
+        (resolved, duration, friction_count, emotion_data,
+         customer_stated_fraud, journey) = self._episode_facts(episode)
         _, factors = self._score_components(
-            resolved, duration, friction_count, emotion_data
+            resolved, duration, friction_count, emotion_data,
+            customer_stated_fraud, journey,
         )
         if not resolved:
-            journey = list(episode.attributes.get("journey", []))
             friction_events = list(episode.attributes.get("friction_events", []))
             signals = self._security_signals(
                 journey, friction_events, emotion_data, resolved
