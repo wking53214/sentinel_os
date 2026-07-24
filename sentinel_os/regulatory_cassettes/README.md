@@ -163,11 +163,34 @@ deliberately, not forgotten.
   only dimension 4 can prove the *affirmative* — never describe 1-3
   passing as though it were that.
 
-**Disclosed, unsolved, not attempted:** renaming a bad, proxy, or
-undeclared-tier variable to an innocuous name defeats both the proxy
-screen and the tier screen alike — same class of gap for both, and not
-fixed this session (a model can encode bias through jointly-boring
-declared variables with no single suspicious name). The
+- **Correlation-based proxy detection**
+  (`check_correlation_based_proxy_detection`) — a MITIGATION for the
+  renamed-variable gap below, not a full close. Screens input variable
+  *values* (not names) for Pearson correlation with estimated group
+  membership, so renaming a proxy variable to an innocuous name no
+  longer defeats detection on its own. COHORT-level, same reason as
+  dimension 4: correlation is a property of a variable across many
+  decisions, not of one decision alone. Scope is deliberately narrow —
+  numeric and boolean input variables only (a bare Pearson `r` against
+  each group's estimated membership probability, flagged at
+  `CORRELATION_FLAG_THRESHOLD`, currently 0.5); string/categorical
+  variable values are not screened. Reads the sealed channel only,
+  never a live decision. **Not wired into `rollup_c2_bias_identification`
+  or `CFPBRegBLens.c2_rollup()` this session** — a caller may fold its
+  findings into their own `known_bad_variable_names` bucket alongside
+  the declared-name proxy screen's results if and when they choose to;
+  the wiring decision is deliberately left open, same posture dimensions
+  2/3 sat in before a later session wired them into the shipped lens.
+
+**Disclosed, unsolved, partially mitigated for numeric/boolean
+inputs:** renaming a bad, proxy, or undeclared-tier variable to an
+innocuous name defeats both the proxy screen and the tier screen
+alike — same class of gap for both. Correlation-based proxy detection
+(above) mitigates this for numeric and boolean variables by screening
+values instead of names, but does not close it: string/categorical
+proxy values, a cohort too small to correlate against, or a
+jurisdiction with no sealed-channel data at all (consent withheld,
+dimension 4 never run) all still leave a renamed proxy undetected. The
 narrative-legitimacy screen cannot catch a sufficiently disconnected
 fabricated reason, and its phrase matching is English-only to start.
 
