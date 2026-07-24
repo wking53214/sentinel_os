@@ -78,6 +78,41 @@ def services():
     yield
 
 
+def _resolve_python_invocation(argv: List[str]) -> List[str]:
+    """Make a python3 invocation immune to PYTHONPATH/cwd not reliably
+    reaching the exec'd process through `runuser` + `env -i`.
+
+    Both run_as and spawn_as already pass PYTHONPATH=REPO and cwd=REPO,
+    which is sufficient in most environments -- but not, observed
+    directly in CI, on every runuser/PAM configuration: a switched-user
+    `import twin_custody` (or any repo-sibling module) can fail with
+    ModuleNotFoundError even with both set correctly on the parent
+    subprocess.run/Popen call, because PAM session setup for the target
+    user can rewrite or ignore env vars and/or cwd before the final
+    exec, in ways that differ by runuser/PAM version and are not
+    reproducible on every box (this repo's own dev-container runuser
+    does not exhibit it; GitHub's hosted ubuntu-latest runner does).
+
+    This sidesteps the question entirely by never depending on an
+    inherited env var or cwd for module resolution: for `-c` code, REPO
+    is injected as a sys.path.insert() prefix baked into the code
+    argument itself; for a script-file invocation, the script's
+    filename is resolved to an absolute path under REPO. Command-line
+    ARGUMENTS are never subject to PAM/env stripping the way
+    environment variables are, so this is robust regardless of the
+    underlying cause. PYTHONPATH/cwd are kept as-is alongside this --
+    belt and suspenders, not a replacement.
+    """
+    if not argv or argv[0] != PY:
+        return list(argv)
+    argv = list(argv)
+    if len(argv) >= 3 and argv[1] == "-c":
+        argv[2] = f"import sys; sys.path.insert(0, {REPO!r})\n" + argv[2]
+    elif len(argv) >= 2 and argv[1].endswith(".py") and not os.path.isabs(argv[1]):
+        argv[1] = os.path.join(REPO, argv[1])
+    return argv
+
+
 def run_as(user: str, argv: List[str], env: Optional[Dict[str, str]] = None,
            timeout: int = 60) -> subprocess.CompletedProcess:
     """Run a command as an OS user with a clean environment (exercises creds)."""
@@ -86,6 +121,7 @@ def run_as(user: str, argv: List[str], env: Optional[Dict[str, str]] = None,
     if env:
         full_env.update(env)
     envs = [f"{k}={v}" for k, v in full_env.items()]
+    argv = _resolve_python_invocation(argv)
     return subprocess.run(["runuser", "-u", user, "--", "env", "-i", *envs, *argv],
                           capture_output=True, text=True, timeout=timeout, cwd=REPO)
 
@@ -97,6 +133,7 @@ def spawn_as(user: str, argv: List[str], env: Dict[str, str], health_url: str,
     full_env = {"PATH": "/usr/local/bin:/usr/bin:/bin",
                 "HOME": f"/home/{user}", "PYTHONPATH": REPO, **env}
     envs = [f"{k}={v}" for k, v in full_env.items()]
+    argv = _resolve_python_invocation(argv)
     proc = subprocess.Popen(["runuser", "-u", user, "--", "env", "-i", *envs, *argv],
                             cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             start_new_session=True)
