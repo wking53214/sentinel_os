@@ -133,19 +133,35 @@ deliberately, not forgotten.
   motivation dressed up as a policy-sounding one. A regulation that
   expects a narrative but whose decision doesn't carry one reports
   `not_screened` rather than silently never firing.
+- **Statistical outcome-equity** (`check_statistical_outcome_equity`,
+  dimension 4) — the one check that can prove the *affirmative*
+  ("outcomes were actually fair"), not just the negative. Structurally
+  different from checks 1-3: it is COHORT-level, not per-decision —
+  disparate impact is a comparison across groups, so it runs out-of-band
+  against a batch of decisions (the same shape
+  `RegulatoryDeck.observer_review` already uses), never inside
+  `review()`/`judge()`/`explain()`. Reads protected-characteristic data
+  *only* from the sealed channel (`sealed_demographic_channel.py`) —
+  never the live decision — sourced per the profile's `consent_model`
+  (self-reported or BISG-estimated via `bisg_estimator.py`). Uses the
+  EEOC four-fifths rule (29 CFR 1607.4(D)): a group's probability-
+  weighted favorable-outcome rate below 80% of the highest-rate group's
+  flags. Below `MIN_COHORT_SIZE_FOR_STATISTICAL_TEST` (30, a proposed
+  floor, not a certainty), reports INDETERMINATE rather than a
+  statistically meaningless PASS or FLAG.
 - **C2 rollup** (`rollup_c2_bias_identification`) — combines findings
   across whichever of the (up to four) C2 bias-identification
   dimensions actually ran into one PASS / FLAG / INDETERMINATE status:
   PASS only if every applicable dimension passes; FLAG if any
   applicable dimension flags; INDETERMINATE if any applicable
   dimension hasn't been evaluated — and INDETERMINATE takes precedence
-  over FLAG when both occur. The fourth dimension (statistical
-  outcome-equity) is not built — blocked on an open product decision —
-  so a lending-shaped rollup that includes it stays honestly
-  INDETERMINATE regardless of how clean the other three come back.
+  over FLAG when both occur. Dimension 4 is now built, but the rollup
+  still only includes a real result for it when a caller has actually
+  computed one for the relevant cohort (see `c2_rollup()` below) — no
+  data still means None/INDETERMINATE, same honest posture as before.
   Checks 1-3 can only ever prove the *negative* (nothing bad found);
-  only dimension 4 could prove the *affirmative* (outcomes were
-  actually fair) — never describe 1-3 passing as though it were that.
+  only dimension 4 can prove the *affirmative* — never describe 1-3
+  passing as though it were that.
 
 **Disclosed, unsolved, not attempted:** renaming a bad, proxy, or
 undeclared-tier variable to an innocuous name defeats both the proxy
@@ -184,21 +200,24 @@ either is wanted later, the pattern to follow is the same one
 `block_on_placeholder` already demonstrates — escalate one specific
 finding *classification*, never a whole check.
 
-`CFPBRegBLens.c2_rollup(material)` combines whichever dimensions this
-lens instance actually evaluated into one `C2Rollup` via
-`rollup_c2_bias_identification`: dimension 1 is always included,
-dimensions 2/3 are included only when their toggle is on, and — this
-is the detail that keeps opting in from silently changing behavior for
-everyone else — a **disabled** dimension's key is **omitted** from the
-mapping entirely, never passed as `None`. `None` means "applicable but
-not yet evaluated" and forces the overall status to `INDETERMINATE`;
-omission means "not part of this call" and is excluded from the status
-calculation. Dimension 4 (statistical outcome-equity) is always passed
-as `None` since it isn't built yet, so `c2_rollup()` can never return
-`PASS` on its own today — only `FLAG` or `INDETERMINATE` — but the
-per-dimension findings and `flagged_dimensions` it returns still reach
-the human reviewer, which is the real value dimensions 2 and 3 add
-even before dimension 4 exists.
+`CFPBRegBLens.c2_rollup(material, statistical_outcome_equity_findings=None)`
+combines whichever dimensions this lens instance actually evaluated
+into one `C2Rollup` via `rollup_c2_bias_identification`: dimension 1 is
+always included, dimensions 2/3 are included only when their toggle is
+on, and — this is the detail that keeps opting in from silently
+changing behavior for everyone else — a **disabled** dimension's key is
+**omitted** from the mapping entirely, never passed as `None`. `None`
+means "applicable but not yet evaluated" and forces the overall status
+to `INDETERMINATE`; omission means "not part of this call" and is
+excluded from the status calculation. Dimension 4 (statistical
+outcome-equity) is COHORT-level (see above) — this single-`material`
+method has no cohort of its own, so it defaults to `None` exactly as
+before dimension 4 existed. A caller that has already run
+`check_statistical_outcome_equity` against the relevant cohort
+(reading sealed-channel data, never the live decision) may pass its
+findings list in — an empty list for a clean cohort, a non-empty one
+for flagged groups — and `c2_rollup()` can then genuinely reach `PASS`,
+which was not possible before this session.
 
 The CFPB profile itself (`CFPB_REG_B_PROFILE`) leaves the tier ladder
 (`authorized_inputs`, `tier_floor`) and `narrative_field` at
@@ -210,16 +229,71 @@ tier toggle with an empty `authorized_inputs` map is still a valid,
 honest configuration: every input reports `T5_UNDECLARED` rather than
 the checker silently passing or erroring.
 
+## C2 dimension 4: statistical outcome-equity, the sealed channel, and BISG
+
+`consent_model` (`RegulationCheckProfile`, default `opt_in_required`)
+governs how protected-characteristic data gets INTO the sealed channel
+for a given regulation — never how `check_statistical_outcome_equity`
+itself works, which only reads what's already there:
+
+- `opt_in_required` (GDPR, Virginia, most non-CA US jurisdictions) —
+  BISG-style statistical estimation (`bisg_estimator.py`) is the
+  default method; voluntary opt-in self-disclosure is a supplement for
+  customers who choose to provide real data.
+- `opt_out_permitted` (e.g. California) — self-reported demographic
+  data is collected by default (the customer may decline), falling
+  back to BISG if declined — mirrors Reg B's own visual-observation/
+  surname fallback for mortgage GMI (12 CFR 1002.13), statistical
+  instead of human guessing.
+
+**The sealed channel** (`sealed_demographic_channel.py`) is the only
+place this data lives: a table (`protected_characteristic_estimates`)
+and role (`sealed_channel_writer`) completely separate from
+`ledger_entries`/`ledger_reader` — the live judgment path's runtime
+identity has no grant on this table, ever (see
+`sealed_demographic_channel.sql`, mirroring `ledger_immutability.sql`'s
+own role-separation pattern, including the same append-only triggers).
+`episode.py` and every cassette's `judge()`/`explain()` have zero
+import of this module — proven directly, not just documented (see
+`Tests/test_sealed_demographic_channel.py`).
+
+**BISG** (`bisg_estimator.py`) reproduces CFPB's own published
+methodology (`github.com/cfpb/proxy-methodology`) — the same reference
+this repo's proxy-screen docstring already names — over three real,
+live data sources: Census geocoding (address → tract, free, no key),
+the ACS API (tract → race/ethnicity distribution, needs `CENSUS_API_KEY`),
+and the actual 2010 Census surname list (downloaded and cached on first
+use, never committed — 9MB+ of government data doesn't belong in
+application source control). Any step that can't reach real data makes
+the whole estimate **INDETERMINATE**, never a fabricated distribution.
+Two documented simplifications relative to CFPB's exact reference (see
+the module docstring for the full reasoning): tract-level geography
+only (not the full block-group/tract/ZIP precision hierarchy), and a
+simpler "Other race" combination than CFPB's proportional Word-2008
+redistribution. `Tests/test_bisg_estimator.py` proves the parsing/
+combination logic deterministically (using a small, genuinely real
+excerpt of actual Census surname rows); `Tests/test_bisg_estimator_live.py`
+proves the live-data path end to end, skipping cleanly (never failing
+the suite) when `CENSUS_API_KEY` isn't set.
+
+**Not fully closed:** this only reaches `PASS`/`FLAG` (instead of
+`INDETERMINATE`) when a caller has actually assembled a cohort and run
+`check_statistical_outcome_equity` against it — there is no
+automatic, scheduled, or ledger-driven cohort assembly built this
+session (`CFPBRegBLens.c2_rollup()` only accepts an already-computed
+result; it does not compute one). That orchestration — reading a
+cohort of decisions plus their sealed-channel estimates and calling the
+checker — is a natural next step, deliberately not built here to keep
+this session's scope to the statistical/storage core.
+
 ## Explicitly out of scope
 
 CPPA ADMT consumer-facing notice/opt-out/appeal rights (new capability
 class); HMDA-style aggregate geographic reporting (new rollup
 capability); actual hiring/insurance domain cassettes; Illinois
-applicant-facing AI-use notices; C2's fourth dimension — statistical
-outcome-equity — blocked on Wm's decision about whether Sentinel ever
-ingests real protected-characteristic data; unicode/encoding
-normalization, non-English phrase lists, and empty-vs-absent-field
-handling for the narrative screen (cheap fixes, not prioritized). (The
-banking fraud-escalation scoring decision, previously listed here as
-open, is resolved — see `cassettes/banking_cassette.py`'s
-`_score_components`.)
+applicant-facing AI-use notices; automatic/scheduled cohort assembly
+for dimension 4 (see above); unicode/encoding normalization,
+non-English phrase lists, and empty-vs-absent-field handling for the
+narrative screen (cheap fixes, not prioritized). (The banking
+fraud-escalation scoring decision, previously listed here as open, is
+resolved — see `cassettes/banking_cassette.py`'s `_score_components`.)
