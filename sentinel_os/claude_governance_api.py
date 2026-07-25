@@ -13,33 +13,18 @@ from governor_injection_defense import build_governance_call
 class ClaudeGovernanceDecider:
     """Uses real Claude API for governance decisions"""
     
-    def __init__(self, api_key: Optional[str] = None, governance_params=None):
+    def __init__(self, api_key: Optional[str] = None):
         """Initialize Claude client.
 
         The client is only constructed when an API key is actually
         provided -- constructing it unconditionally made the decider
         impossible to build in any environment without a key (every
-        harness test, every offline run). governance_params, when
-        supplied, is the validated GovernanceParameters view so fallback
-        bounds come from the cassette instead of literals baked in here.
+        harness test, every offline run).
         """
         self.client = anthropic.Anthropic(api_key=api_key) if api_key else None
         self.model = "claude-opus-4-6"
-        self.governance_params = governance_params
         self.decisions = []
 
-    def _fallback_bounds(self):
-        """Healing bounds for the JSON-parse fallback path, sourced from
-        the cassette when available. No cassette wired in -> no invented
-        numbers: the fields are omitted rather than defaulted."""
-        if self.governance_params is None:
-            return None, None
-        try:
-            lo, hi = self.governance_params.range_value("expected_wait_bounds")
-            return lo, hi
-        except (KeyError, TypeError):
-            return None, None
-    
     def decide_healing_bounds(self, queue_name: str, current_wait: float,
                              baseline_wait: float, drift_magnitude: float) -> Dict:
         """Ask Claude: should we heal this queue? Fail-closed on any error."""
