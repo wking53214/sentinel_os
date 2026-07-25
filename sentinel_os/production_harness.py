@@ -318,8 +318,18 @@ class IcebergProductionHarness:
                 self.metrics.record_drift_detection(first_queue, 0.2)
 
             # 6. Bayes: Update intent success rates
+            #
+            # Previously passed intent_signal.queue_chosen (e.g.
+            # "billing_queue"), but BayesianIntentEngine.intent_stats is
+            # keyed by the cassette's short intent labels (e.g. "billing").
+            # observe_outcome() silently no-ops on an unrecognized key, so
+            # every single observation was dropped -- the belief state
+            # never updated no matter how many calls ran. classification
+            # is the cassette-native label ("BILLING", "UNKNOWN", ...);
+            # lowercased it matches intent_stats exactly for every mapped
+            # queue.
             self.bayes.observe_outcome(
-                intent_signal.queue_chosen,
+                intent_signal.classification.lower(),
                 journey.resolved,
                 journey.total_duration
             )
