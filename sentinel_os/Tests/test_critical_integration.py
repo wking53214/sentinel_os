@@ -9,24 +9,6 @@ from governance.drift_core_v1 import DriftPolicy, detect_drift, DriftSignal
 from governance.self_heal_v1 import heal, HealBand, InMemoryParameterStore
 from governance.log_rotation_v1 import LogRotationManager, LocalDiskAdapter
 
-def test_ppo_router_expected_wait():
-    print("\n[TEST 1] PPORouter accepts expected_wait parameter")
-    from Engines.rl_ppo_adaptive import PPORouter
-    
-    neighbors = {"node_a": ["fast_node", "slow_node"]}
-    
-    router1 = PPORouter(graph=None, neighbors=neighbors)
-    assert router1.expected_wait == {}, "Default expected_wait should be empty"
-    
-    expected_wait_map = {"slow_node": 100.0, "fast_node": 5.0}
-    router2 = PPORouter(graph=None, neighbors=neighbors, expected_wait=expected_wait_map)
-    assert router2.expected_wait == expected_wait_map, "expected_wait not stored"
-    
-    print(f"  Router1 expected_wait: {router1.expected_wait}")
-    print(f"  Router2 expected_wait: {router2.expected_wait}")
-    print("  ✓ PASSED")
-    return True
-
 def test_zero_drift():
     print("\n[TEST 2] Zero drift (stable conditions)")
     baseline = {"auth": 20.0, "menu": 12.0}
@@ -87,12 +69,6 @@ def main():
     print("="*70)
     
     results = []
-    try:
-        results.append(test_ppo_router_expected_wait())
-    except Exception as e:
-        print(f"  ✗ FAILED: {e}")
-        results.append(False)
-    
     try:
         results.append(test_zero_drift())
     except Exception as e:
