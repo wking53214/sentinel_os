@@ -52,7 +52,11 @@ def test_staffing_adjustment():
 
 def test_bayes_intent():
     print("\n[TEST 3] Bayesian intent learning")
-    bayes = BayesianIntentEngine()
+    # Unreachable URL -> forces in-memory-only, so this stays deterministic
+    # regardless of whether a real Redis happens to be available (CI now
+    # runs one; see Tests/test_bayes_learning_loop.py for the Redis-backed
+    # persistence coverage).
+    bayes = BayesianIntentEngine(redis_url="redis://localhost:1/0")
     
     # Simulate 20 billing calls: 15 resolved, 5 not
     for i in range(15):
