@@ -195,7 +195,6 @@ class IcebergProductionHarness:
             try:
                 self.claude_decider = ClaudeGovernanceDecider(
                     api_key=self.config.get("claude_api_key"),
-                    governance_params=self._params(),
                 )
                 print("✓ Claude governance API connected")
             except Exception as e:
