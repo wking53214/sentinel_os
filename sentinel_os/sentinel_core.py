@@ -1,7 +1,13 @@
 """
-Sentinel - IVR Analytics & Diagnostics Layer
+Sentinel - Analytics & Diagnostics Layer
 
-Infers caller intent, scores quality, diagnoses abandonment, prescribes fixes
+Infers caller intent, scores quality, diagnoses abandonment, prescribes
+fixes -- for cassettes that declare the telephony_ingest and
+routing_topology capabilities (see cassette_capabilities.py). Requiring
+those capabilities is what keeps this intentionally telephony/queue-
+shaped: a cassette without phone-call or queue structure never
+constructs a SentinelCore, so nothing here needs to be domain-agnostic.
+That's a deliberate scope boundary, not the same thing as dead code.
 """
 
 from dataclasses import dataclass
@@ -9,16 +15,6 @@ from typing import List, Dict, Optional
 from enum import Enum
 import hashlib
 import json
-
-class CallerIntent(Enum):
-    BILLING = "billing"
-    TECHNICAL = "technical"
-    SALES = "sales"
-    CANCEL = "cancel"
-    UPGRADE = "upgrade"
-    COMPLAINT = "complaint"
-    GENERAL = "general"
-    UNKNOWN = "unknown"
 
 class OutcomeQuality(Enum):
     EXCELLENT = "excellent"  # Resolved quickly
