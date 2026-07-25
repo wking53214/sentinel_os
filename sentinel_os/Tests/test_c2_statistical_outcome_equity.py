@@ -190,7 +190,9 @@ def test_c2_rollup_flags_when_precomputed_dimension_4_result_flagged():
     lens = CFPBRegBLens(version="1.0.0-d4-c")
     cohort = _cohort(20, rate_a=0.9, rate_b=0.5)
     d4_findings = check_statistical_outcome_equity(cohort, _PROFILE)
-    rollup = lens.c2_rollup(_material(), statistical_outcome_equity_findings=d4_findings)
+    rollup = lens.c2_rollup(_material(),
+                            statistical_outcome_equity_findings=d4_findings,
+                            correlation_proxy_findings=[])
     assert rollup.status == C2_FLAG
     assert DIMENSION_STATISTICAL_OUTCOME_EQUITY in rollup.flagged_dimensions
 
@@ -201,6 +203,8 @@ def test_c2_rollup_can_reach_pass_only_when_dimension_4_actually_clean():
     other dimension flagged."""
     lens = CFPBRegBLens(version="1.0.0-d4-d")
     material = _material(inputs={"income": 90000})  # nothing proxy-shaped
-    rollup = lens.c2_rollup(material, statistical_outcome_equity_findings=[])
+    rollup = lens.c2_rollup(material,
+                            statistical_outcome_equity_findings=[],
+                            correlation_proxy_findings=[])
     from regulatory_checks import C2_PASS
     assert rollup.status == C2_PASS

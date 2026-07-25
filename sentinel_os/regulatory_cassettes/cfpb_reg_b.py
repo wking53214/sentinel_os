@@ -2,7 +2,8 @@
 CFPB / ECOA / Regulation B lens -- the reference regulatory cassette.
 
 Checks lending-shaped decisions against two Reg B expectations by
-default, plus two independent OPT-IN C2 bias-identification screens:
+default, plus three independent C2 bias-identification screens (two per-
+decision OPT-IN, one cohort-level):
 
 1. Adverse-action reason SPECIFICITY (12 CFR 1002.9): when an outcome
    differs from what was requested, the stated reasons must be
@@ -51,7 +52,22 @@ default, plus two independent OPT-IN C2 bias-identification screens:
    narrative_field for a specific deployment is, again, a data
    decision left to whoever configures that deployment.
 
-Both C2 opt-in screens are wired the same way block_on_placeholder
+5. Correlation-based proxy detection (C2 dimension 5, COHORT-LEVEL):
+   detects renamed proxies that evade declared-name screening by
+   analyzing input variable VALUES instead of names. For numeric and
+   boolean variables across a cohort, computes Pearson correlation
+   between each variable's value and sealed-channel group membership
+   probabilities; a high correlation (|r| >= 0.5, default threshold)
+   flags a suspicious proxy pattern. Like dimension 4 (statistical
+   outcome equity), this is cohort-level, not per-decision -- the
+   c2_rollup method accepts it as an optional parameter only. See
+   regulatory_checks.check_correlation_based_proxy_detection. Scope is
+   deliberately narrow and disclosed: numeric/boolean variables only;
+   string/categorical values are NOT screened this session, a real
+   remaining gap.
+
+The two per-decision C2 opt-in screens (dimensions 2 & 3) are wired the
+same way block_on_placeholder
 already is: independent booleans that live in get_profile()'s
 returned dict, so enabling either automatically changes this lens's
 content hash (no new hashing logic needed -- see
@@ -65,11 +81,15 @@ non-opted-in caller's rollup status to INDETERMINATE, which is exactly
 the silent behavior change this lens avoids.
 
 DISCLOSED LIMITATIONS (also documented in regulatory_checks, repeated
-here because they apply directly to how this lens screens): renaming a
-bad, proxy, or undeclared-tier variable to an innocuous name defeats
-both the proxy screen and the tier screen alike. The narrative screen
-cannot catch a sufficiently disconnected fabricated reason, and its
-phrase matching is English-only to start.
+here because they apply directly to how this lens screens): the declared-
+name proxy screen (dimension 1) and declared-name tier screen (dimension 2)
+are both defeated by renaming a bad, proxy, or undeclared-tier variable
+to an innocuous name. The correlation-based proxy screen (dimension 5),
+when enabled, mitigates this by screening variable VALUES instead, so a
+simple rename no longer defeats detection -- but it requires cohort data
+and does not apply to string/categorical variables. The narrative screen
+(dimension 3) cannot catch a sufficiently disconnected fabricated reason,
+and its phrase matching is English-only to start.
 
 FUTURE BLOCKING VARIANTS: block_on_placeholder shows the pattern for
 granting a live insertion blocking behavior -- escalate a SPECIFIC
@@ -109,6 +129,7 @@ from regulatory_cassette_interface import (
     RegulatoryFinding,
 )
 from regulatory_checks import (
+    DIMENSION_CORRELATION_PROXY_SIGNAL,
     DIMENSION_INPUT_AUTHORIZATION_TIER,
     DIMENSION_KNOWN_BAD_VARIABLE_NAMES,
     DIMENSION_NARRATIVE_LEGITIMACY,
@@ -314,6 +335,7 @@ class CFPBRegBLens(RegulatoryCassette):
 
     def c2_rollup(self, material: DecisionMaterial,
                   statistical_outcome_equity_findings: Optional[List[RegulatoryFinding]] = None,
+                  correlation_proxy_findings: Optional[List[RegulatoryFinding]] = None,
                   ) -> C2Rollup:
         """Combine this lens's findings into one C2 bias-identification
         status via rollup_c2_bias_identification.
@@ -330,21 +352,20 @@ class CFPBRegBLens(RegulatoryCassette):
         the silent default-behavior change this lens's opt-in design
         avoids (see the class and module docstrings).
 
-        Dimension 4 (statistical_outcome_equity) is COHORT-level, not
-        per-decision (see regulatory_checks.check_statistical_outcome_
-        equity's own docstring for why) -- this single-`material` method
-        has no cohort of its own to compute it from. Default None:
-        exactly the same "unbuilt/no data" posture as before dimension 4
-        existed, so a caller who does nothing differently sees identical
-        behavior. A caller that HAS already run
-        check_statistical_outcome_equity against the relevant cohort
-        (reading sealed-channel data -- never the live decision) may pass
-        its findings list here (an empty list for a clean cohort result,
-        a non-empty list for flagged groups) to have it included for
-        real. Passing None still means "not yet evaluated" and keeps the
-        rollup INDETERMINATE -- this method never runs the cohort check
-        itself, so it cannot silently fabricate a result the caller
-        didn't actually compute.
+        Dimension 4 (statistical_outcome_equity) and Dimension 5
+        (correlation_proxy_signal) are both COHORT-level, not per-decision
+        (see regulatory_checks.check_statistical_outcome_equity and
+        check_correlation_based_proxy_detection docstrings for why) --
+        this single-`material` method has no cohort of its own to compute
+        either from. Both default None: exactly the same "unbuilt/no data"
+        posture as before these dimensions existed, so a caller who does
+        nothing differently sees identical behavior. A caller that HAS
+        already run either check against the relevant cohort may pass its
+        findings list here (empty list for clean result, non-empty for
+        flagged) to have it included for real. Passing None still means
+        "not yet evaluated" and keeps the rollup INDETERMINATE -- this
+        method never runs cohort checks itself, so it cannot silently
+        fabricate a result the caller didn't actually compute.
         """
         dimension_findings: Dict[str, Any] = {
             DIMENSION_KNOWN_BAD_VARIABLE_NAMES: check_proxy_variables(
@@ -367,6 +388,9 @@ class CFPBRegBLens(RegulatoryCassette):
             )
         dimension_findings[DIMENSION_STATISTICAL_OUTCOME_EQUITY] = (
             statistical_outcome_equity_findings
+        )
+        dimension_findings[DIMENSION_CORRELATION_PROXY_SIGNAL] = (
+            correlation_proxy_findings
         )
         return rollup_c2_bias_identification(dimension_findings)
 
