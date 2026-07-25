@@ -60,6 +60,7 @@ from regulatory_cassette_interface import (
     RegulatoryCassette,
     RegulatoryCassetteConfig,
     RegulatoryCassetteRegistry,
+    RegulatoryFinding,
     RegulatoryValidationError,
     material_from_episode,
     material_from_ledger_row,
@@ -75,7 +76,10 @@ from regulatory_cassettes.cfpb_reg_b import (
     CFPBRegBLens,
 )
 from regulatory_checks import (
+    C2_FLAG,
     C2_INDETERMINATE,
+    C2_PASS,
+    DIMENSION_CORRELATION_PROXY_SIGNAL,
     DIMENSION_INPUT_AUTHORIZATION_TIER,
     DIMENSION_KNOWN_BAD_VARIABLE_NAMES,
     DIMENSION_NARRATIVE_LEGITIMACY,
@@ -925,13 +929,14 @@ def test_both_toggles_off_is_byte_identical_to_default_lens():
 
     rollup = default.c2_rollup(material)
     assert rollup.evaluated_dimensions == (DIMENSION_KNOWN_BAD_VARIABLE_NAMES,)
-    assert rollup.not_evaluated_dimensions == (DIMENSION_STATISTICAL_OUTCOME_EQUITY,)
+    assert rollup.not_evaluated_dimensions == (DIMENSION_CORRELATION_PROXY_SIGNAL,
+                                               DIMENSION_STATISTICAL_OUTCOME_EQUITY)
     # Dimensions 2/3 never appear at all -- omitted, not None.
     assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.evaluated_dimensions
     assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.not_evaluated_dimensions
     assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.evaluated_dimensions
     assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.not_evaluated_dimensions
-    assert rollup.status == C2_INDETERMINATE  # dimension 4 always pending
+    assert rollup.status == C2_INDETERMINATE  # dimensions 4 & 5 always pending
 
 
 def test_tier_screen_on_alone_wires_dimension_2_only():
@@ -998,7 +1003,10 @@ def test_both_c2_toggles_on_wires_both_dimensions():
         DIMENSION_INPUT_AUTHORIZATION_TIER,
         DIMENSION_NARRATIVE_LEGITIMACY,
     }
-    assert rollup.not_evaluated_dimensions == (DIMENSION_STATISTICAL_OUTCOME_EQUITY,)
+    assert set(rollup.not_evaluated_dimensions) == {
+        DIMENSION_CORRELATION_PROXY_SIGNAL,
+        DIMENSION_STATISTICAL_OUTCOME_EQUITY,
+    }
     assert rollup.status == C2_INDETERMINATE
 
 
@@ -1031,3 +1039,92 @@ def test_toggling_either_c2_setting_bumps_content_hash():
                            version=shared_version)
     with pytest.raises(ValueError, match="binding conflict"):
         RegulatoryDeck(L).insert(altered, MODE_OBSERVER, inserted_by="auditor:b")
+
+
+# ==========================================================================
+# 7. C2 rollup with correlation-based proxy detection
+# ==========================================================================
+
+def test_c2_rollup_with_empty_correlation_findings_passes():
+    """When correlation-based proxy detection has no findings (clean
+    cohort), c2_rollup includes the dimension as evaluated and clean."""
+    lens = CFPBRegBLens()
+    material = material_from_episode(_lending_episode(GENERIC_REASON,
+                                                       inputs={"amount": 5000}))
+    rollup = lens.c2_rollup(material,
+                            statistical_outcome_equity_findings=[],
+                            correlation_proxy_findings=[])
+    assert rollup.status == C2_PASS
+    assert DIMENSION_CORRELATION_PROXY_SIGNAL in rollup.evaluated_dimensions
+    assert DIMENSION_CORRELATION_PROXY_SIGNAL not in rollup.flagged_dimensions
+
+
+def test_c2_rollup_with_correlation_findings_flags():
+    """When correlation-based proxy detection has findings, c2_rollup
+    includes the dimension as flagged."""
+    lens = CFPBRegBLens()
+    episode = _lending_episode(GENERIC_REASON, inputs={"amount": 5000})
+    material = material_from_episode(episode)
+    # Manually create a correlation finding (simulating what the check would produce)
+    correlation_finding = RegulatoryFinding(
+        check="correlation_screen",
+        subject_id=episode.episode_id,
+        regulation="CFPB Reg B",
+        action="flag",
+        classification="correlation_based_proxy_signal",
+        score=0.75,
+        evidence={
+            "variable": "zip_code",
+            "group": "group_0",
+            "correlation": 0.75,
+            "threshold": 0.5,
+            "detail": "suspicious proxy pattern detected by value correlation",
+        },
+    )
+    rollup = lens.c2_rollup(material,
+                            statistical_outcome_equity_findings=[],
+                            correlation_proxy_findings=[correlation_finding])
+    assert rollup.status == C2_FLAG
+    assert DIMENSION_CORRELATION_PROXY_SIGNAL in rollup.evaluated_dimensions
+    assert DIMENSION_CORRELATION_PROXY_SIGNAL in rollup.flagged_dimensions
+    assert correlation_finding in rollup.findings
+
+
+def test_c2_rollup_correlation_none_stays_indeterminate():
+    """When correlation_proxy_findings is None (not yet evaluated),
+    c2_rollup stays INDETERMINATE."""
+    lens = CFPBRegBLens()
+    material = material_from_episode(_lending_episode(GENERIC_REASON,
+                                                       inputs={"amount": 5000}))
+    rollup = lens.c2_rollup(material,
+                            statistical_outcome_equity_findings=[],
+                            correlation_proxy_findings=None)
+    assert rollup.status == C2_INDETERMINATE
+    assert DIMENSION_CORRELATION_PROXY_SIGNAL in rollup.not_evaluated_dimensions
+
+
+def test_c2_rollup_proxy_screen_and_correlation_both_flag():
+    """Dimension 1 (declared-name proxy) and dimension 5 (correlation
+    proxy) can flag together."""
+    lens = CFPBRegBLens()
+    episode = _lending_episode(GENERIC_REASON, inputs={"zip_code": "60601"})
+    material = material_from_episode(episode)
+    
+    correlation_finding = RegulatoryFinding(
+        check="correlation_screen",
+        subject_id=episode.episode_id,
+        regulation="CFPB Reg B",
+        action="flag",
+        classification="correlation_based_proxy_signal",
+        score=0.65,
+        evidence={"variable": "some_number", "detail": "test"},
+    )
+    rollup = lens.c2_rollup(material,
+                            statistical_outcome_equity_findings=[],
+                            correlation_proxy_findings=[correlation_finding])
+    
+    # Both dimension 1 (proxy/declared-name) and dimension 5 (correlation)
+    # should be in flagged_dimensions
+    assert DIMENSION_KNOWN_BAD_VARIABLE_NAMES in rollup.flagged_dimensions
+    assert DIMENSION_CORRELATION_PROXY_SIGNAL in rollup.flagged_dimensions
+    assert rollup.status == C2_FLAG
