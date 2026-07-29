@@ -218,6 +218,21 @@ SHIPPED_COLUMNS = [
 ]
 
 
+def domain_from_cassette_version(cassette_version: Optional[str]) -> Optional[str]:
+    """Extract the domain segment from a cassette_version string.
+
+    cassette_version is always "domain:name:version"
+    (cassette_schema.cassette_version_of) -- a fixed, code-generated
+    format, never free text -- so the domain is reliably everything
+    before the first colon. Returns None when there is nothing to parse,
+    same "not yet known" posture as outcome_obligation/decided_at when
+    a row predates this field.
+    """
+    if not cassette_version:
+        return None
+    return cassette_version.split(":", 1)[0] or None
+
+
 def _ledger_dumps(obj: Any) -> bytes:
     # Byte-for-byte the serialization ledger_postgres.py uses at append time:
     # json.dumps(canonical_entry, sort_keys=True, default=str).encode()
