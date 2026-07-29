@@ -9,7 +9,10 @@ import time
 from typing import Dict
 
 # Import all production components
-from twilio_log_ingestion import TwilioLogParser, TwilioStreamAdapter
+from twilio_log_ingestion import (
+    TwilioLogParser, TwilioStreamAdapter,
+    FALLBACK_ROUTE_METHOD, FALLBACK_WAIT_METHOD,
+)
 from metrics_prometheus import PrometheusMetrics
 from governance.ledger_postgres import PostgreSQLLedger
 from claude_governance_api import ClaudeGovernanceDecider
@@ -250,20 +253,17 @@ class IcebergProductionHarness:
     # ---- OutcomeV1 / EventV1: the live path, stamped -------------------------
     #
     # Everything below exists to stop the harness handing the kernel numbers
-    # whose origin it has forgotten. The route still comes from
-    # _reconstruct_journey's phone-digit rule and the per-node waits still come
-    # from _extract_wait_times' fixed 0.1/0.5/0.4 split -- this does not fix
-    # either one, and is not pretending to. What changes is that both now
-    # travel as ESTIMATED with the derivation named, so a reader of the ledger
-    # can tell at a glance which parts of a call were measured and which were
-    # inferred. That distinction did not previously survive past ingest.
+    # whose origin it has forgotten. By default the route still comes from
+    # twilio_log_ingestion's phone-digit rule and the per-node waits still
+    # come from its fixed 0.1/0.5/0.4 split -- that default does not fix
+    # either one, and is not pretending to. What changes is that both travel
+    # with an honest stamp: ESTIMATED with the derivation named when the
+    # ingest layer had to guess, VERIFIED naming the real source when the
+    # Twilio record carried real per-node events (see twilio_log_ingestion's
+    # ivr_events contract). The harness does not decide which happened for
+    # a given call -- it reads whatever twilio_log_ingestion already
+    # determined and stamps that, honestly, rather than assuming.
 
-    # Named once, here, so the label in the ledger and the code that produces
-    # the estimate cannot drift apart.
-    _ROUTE_METHOD = ("twilio_log_ingestion._reconstruct_journey: route inferred "
-                     "from the last digit of the caller number")
-    _WAIT_METHOD = ("twilio_log_ingestion._extract_wait_times: fixed 0.1/0.5/0.4 "
-                    "split of total call duration across intent_menu/queue/agent")
     _EMOTION_METHOD = "observe_perceive_core.get_emotional_state: inferred from friction"
     _ORIGIN_METHOD = ("call start derived as (ingest time - total duration); Twilio "
                       "log ingest carries no absolute start timestamp")
@@ -288,24 +288,46 @@ class IcebergProductionHarness:
         started_at = max(observed_at - duration, 1.0)
         base = f"{call_sid or journey.caller_id}"
 
+        route_provenance = getattr(journey, "route_provenance", PROVENANCE_ESTIMATED)
+        route_method = getattr(journey, "route_method", FALLBACK_ROUTE_METHOD)
+        wait_provenance = getattr(journey, "wait_provenance", PROVENANCE_ESTIMATED)
+        wait_method = getattr(journey, "wait_method", FALLBACK_WAIT_METHOD)
+
+        # event_v1's own integrity rule: a VERIFIED event cannot carry a
+        # `method` -- method names how something was DERIVED, and a
+        # verified fact was observed, not derived (see event_v1.validate_
+        # event). When real ivr_events produced this journey, the real
+        # system's name still has to reach the ledger -- it goes in
+        # `detail` instead, which carries no such restriction.
+        route_is_verified = route_provenance == PROVENANCE_VERIFIED
+        wait_is_verified = wait_provenance == PROVENANCE_VERIFIED
+
+        route_detail = {"journey": list(journey.journey),
+                         "origin_note": self._ORIGIN_METHOD}
+        if route_is_verified:
+            route_detail["real_source"] = route_method
+
         events = [
             make_event(
                 event_id=f"{base}:route", episode_id=base, domain="ivr",
                 kind="route_selected", occurred_at=started_at,
                 observed_at=observed_at, source="twilio_log_ingestion",
-                provenance=PROVENANCE_ESTIMATED, method=self._ROUTE_METHOD,
-                fields={"route": first_queue},
-                detail={"journey": list(journey.journey),
-                        "origin_note": self._ORIGIN_METHOD}),
+                provenance=route_provenance,
+                method=None if route_is_verified else route_method,
+                fields={"route": first_queue}, detail=route_detail),
         ]
         for node, wait in sorted((measured_waits or {}).items()):
+            wait_detail = {"node": node}
+            if wait_is_verified:
+                wait_detail["real_source"] = wait_method
             events.append(make_event(
                 event_id=f"{base}:wait:{node}", episode_id=base, domain="ivr",
                 kind="wait_observed",
                 occurred_at=min(started_at + float(wait), observed_at),
                 observed_at=observed_at, source="twilio_log_ingestion",
-                provenance=PROVENANCE_ESTIMATED, method=self._WAIT_METHOD,
-                fields={f"wait_{node}": float(wait)}, detail={"node": node}))
+                provenance=wait_provenance,
+                method=None if wait_is_verified else wait_method,
+                fields={f"wait_{node}": float(wait)}, detail=wait_detail))
         events.append(make_event(
             event_id=f"{base}:emotion", episode_id=base, domain="ivr",
             kind="emotion_inferred", occurred_at=observed_at,

@@ -2,12 +2,114 @@
 Twilio Log Ingestion - Parse real IVR call logs
 
 Converts actual Twilio call records into Iceberg call journeys with real friction
+
+THE ivr_events INGESTION CONTRACT
+----------------------------------
+A bare Twilio Call record (sid/from/to/duration/status) carries no per-node
+routing data -- there is no field on it that says which queue a caller
+reached or how long they waited at each stop. Absent that, this module has
+always had to guess: _reconstruct_journey picks a queue from the last digit
+of the caller's phone number, and _extract_wait_times slices total call
+duration into a fixed 0.1/0.5/0.4 ratio. Both are real, disclosed heuristics
+(see their docstrings) and both now travel stamped ESTIMATED (event_v1.py) --
+but a stamped guess is still a guess.
+
+Fixing that for real means a genuinely different input: real per-node events
+from wherever a caller's actual path is observed -- a Twilio Studio Flow
+execution log, TaskRouter Task/Reservation events, a custom IVR application's
+own Gather/Enqueue/Dequeue webhooks, or something else entirely. Which of
+those a given deployment has is an integration decision, not a code decision,
+so this module does not pick one. Instead it accepts a single generic shape
+(IVRNodeEvent: node name + wait seconds + a source label) on the incoming
+Twilio record, under the optional key "ivr_events". Whatever real system a
+deployment wires up is responsible for translating its own events into that
+shape; this module does not care which system it was.
+
+If a record carries a valid ivr_events list, the journey and wait times come
+from it directly and are stamped VERIFIED, with the method naming the
+source label the caller supplied (so the ledger shows which real system
+produced it, not just that it was "real"). If ivr_events is absent, nothing
+about existing behavior changes: the phone-digit / ratio-split fallback runs
+exactly as before, stamped ESTIMATED. If ivr_events is PRESENT but malformed
+(missing node/wait_seconds/source, negative wait, empty list), parsing fails
+loud rather than silently falling back -- a broken real-data integration
+that quietly downgraded to guesses would be a worse failure mode than an
+exception, the same fail-loud posture _count_friction already takes on
+missing cassette thresholds.
+
+DISCLOSED LIMITATION: the rest of the pipeline (SentinelCore.infer_intent,
+IVRCassette's friction counting, ObservePerceiveCore's resolution detection)
+still identifies queue/agent stops by name convention -- a node counts as a
+queue stop only if "queue" is a substring of its name, and only literal
+names in {agent_a, agent_b, agent_c, agent_d, ...} count as agent/resolution
+nodes (see observe_perceive_core.RESOLUTION_NODES). A real event source must
+emit node names that follow that same convention for the rest of the system
+to recognize them correctly. This module does not rename or reinterpret
+node names supplied via ivr_events -- closing that separate coupling is out
+of scope here.
 """
 
 import json
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from cassette_schema import validate_cassette
+from event_v1 import PROVENANCE_VERIFIED, PROVENANCE_ESTIMATED
+
+# Named once, here, next to the code that produces the estimate, so the
+# label recorded in the ledger and the logic that earned it cannot drift
+# apart (same discipline production_harness.py's method constants followed
+# before this file became the single source of truth for both).
+FALLBACK_ROUTE_METHOD = ("twilio_log_ingestion._reconstruct_journey: route inferred "
+                          "from the last digit of the caller number")
+FALLBACK_WAIT_METHOD = ("twilio_log_ingestion._extract_wait_times: fixed 0.1/0.5/0.4 "
+                         "split of total call duration across intent_menu/queue/agent")
+
+
+@dataclass
+class IVRNodeEvent:
+    """One real, observed stop in a caller's actual path.
+
+    node: the stop's name -- must follow the existing "*queue*" / literal
+        agent_a/b/c/d naming convention for downstream intent-inference and
+        resolution-detection to recognize it (see module docstring).
+    wait_seconds: how long the caller spent at this stop. Must be >= 0.
+    source: freeform label naming the real system this event came from
+        (e.g. "twilio_studio_flow", "taskrouter", "custom_webhook"). Required
+        -- an event that will not name its source is the same problem
+        EventV1 already refuses for an ESTIMATED value with no method.
+    """
+    node: str
+    wait_seconds: float
+    source: str
+
+
+def _validate_ivr_events(raw_events: List[Dict]) -> List[IVRNodeEvent]:
+    """Fail-loud validation of the ivr_events contract.
+
+    Malformed real-event data is a defect in the integration that supplied
+    it and should surface as one, not silently degrade into the ESTIMATED
+    fallback -- see module docstring.
+    """
+    if not raw_events:
+        raise ValueError("ivr_events was provided but is empty; omit the key "
+                          "entirely to use the ESTIMATED fallback")
+    events: List[IVRNodeEvent] = []
+    for i, raw in enumerate(raw_events):
+        node = raw.get("node")
+        wait_seconds = raw.get("wait_seconds")
+        source = raw.get("source")
+        if not node or not isinstance(node, str):
+            raise ValueError(f"ivr_events[{i}] missing a non-empty string 'node'")
+        if wait_seconds is None or not isinstance(wait_seconds, (int, float)):
+            raise ValueError(f"ivr_events[{i}] ({node!r}) missing a numeric 'wait_seconds'")
+        if float(wait_seconds) < 0:
+            raise ValueError(f"ivr_events[{i}] ({node!r}) has a negative wait_seconds")
+        if not source or not isinstance(source, str):
+            raise ValueError(f"ivr_events[{i}] ({node!r}) missing a non-empty string "
+                              "'source' -- an event that will not name where it came "
+                              "from cannot be stamped VERIFIED")
+        events.append(IVRNodeEvent(node=node, wait_seconds=float(wait_seconds), source=source))
+    return events
 
 @dataclass
 class TwilioCallLog:
@@ -33,6 +135,17 @@ class IcebergJourney:
     resolved: bool
     friction_count: int
     abandonment_reason: Optional[str]
+    # Defaulted so every existing caller that builds an IcebergJourney
+    # directly (tests, fixtures) keeps working unchanged. A journey built
+    # via parse_call_log always sets these explicitly, from whichever path
+    # (real ivr_events vs. fallback heuristic) actually produced it -- see
+    # module docstring. route_* and wait_* are separate fields on purpose:
+    # this version's two ingestion paths always set both together, but
+    # nothing about a caller/kernel reading them assumes that stays true.
+    route_provenance: str = PROVENANCE_ESTIMATED
+    route_method: str = FALLBACK_ROUTE_METHOD
+    wait_provenance: str = PROVENANCE_ESTIMATED
+    wait_method: str = FALLBACK_WAIT_METHOD
 
 class TwilioLogParser:
     """Parse Twilio call records into Iceberg journeys"""
@@ -68,11 +181,28 @@ class TwilioLogParser:
         # Map Twilio status to Iceberg outcome
         outcome = self.TWILIO_TO_ICEBERG[status]
         resolved = outcome["resolved"]
-        
-        # Reconstruct journey from call data
-        # In real system, would parse IVR logs/recordings
-        journey = self._reconstruct_journey(twilio_record)
-        
+
+        # Real per-node events take precedence over the ingest-side guess.
+        # Absent entirely -> unchanged fallback heuristic (ESTIMATED).
+        # Present but malformed -> fail loud (see module docstring).
+        raw_ivr_events = twilio_record.get("ivr_events")
+        if raw_ivr_events is not None:
+            events = _validate_ivr_events(raw_ivr_events)
+            journey = self._reconstruct_journey_from_events(events)
+            wait_times = self._wait_times_from_events(events)
+            sources = ", ".join(sorted({e.source for e in events}))
+            route_provenance = wait_provenance = PROVENANCE_VERIFIED
+            route_method = f"twilio_log_ingestion: real per-node events from {sources}"
+            wait_method = route_method
+        else:
+            # Reconstruct journey from call data
+            # In real system, would parse IVR logs/recordings
+            journey = self._reconstruct_journey(twilio_record)
+            wait_times = self._extract_wait_times(twilio_record, journey)
+            route_provenance = wait_provenance = PROVENANCE_ESTIMATED
+            route_method = FALLBACK_ROUTE_METHOD
+            wait_method = FALLBACK_WAIT_METHOD
+
         # Calculate friction (ingest-side heuristic ESTIMATE -- see
         # _count_friction; the production harness measures its own
         # friction from wait_times against the cassette threshold)
@@ -85,12 +215,39 @@ class TwilioLogParser:
             caller_id=f"twilio_{sid[:8]}",
             timestamp=timestamp,
             journey=journey,
-            wait_times=self._extract_wait_times(twilio_record, journey),
+            wait_times=wait_times,
             total_duration=float(duration),
             resolved=resolved,
             friction_count=friction_count,
-            abandonment_reason=abandonment_reason
+            abandonment_reason=abandonment_reason,
+            route_provenance=route_provenance,
+            route_method=route_method,
+            wait_provenance=wait_provenance,
+            wait_method=wait_method,
         )
+
+    def _reconstruct_journey_from_events(self, events: List[IVRNodeEvent]) -> List[str]:
+        """Build a journey from real per-node events, in the order given.
+
+        Keeps the existing "root" / "exit" bookends other code doesn't
+        depend on but tests and log-reading humans already expect; the
+        real stops in between are exactly the node names the caller
+        supplied, unrenamed (see module docstring on the naming convention
+        those names still need to follow).
+        """
+        return ["root"] + [e.node for e in events] + ["exit"]
+
+    def _wait_times_from_events(self, events: List[IVRNodeEvent]) -> Dict[str, float]:
+        """Real per-node wait times, keyed by the real node names.
+
+        Later events for a repeated node name add to that node's total --
+        a caller who visits the same queue twice had two real waits there,
+        not one overwriting the other.
+        """
+        waits: Dict[str, float] = {}
+        for e in events:
+            waits[e.node] = waits.get(e.node, 0.0) + e.wait_seconds
+        return waits
     
     def _reconstruct_journey(self, record: Dict) -> List[str]:
         """Reconstruct call path from Twilio metadata"""
