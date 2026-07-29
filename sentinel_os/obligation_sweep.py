@@ -352,3 +352,23 @@ def sweep(twin_client, replica_id: str, ledger_conn, sealed_channel,
                                     group_distributions, decision_materials)
         reviews.append(review_cohort(assembled, profile))
     return reviews
+
+
+def record_reviews(twin_client, replica_id: str,
+                   reviews: List[CohortEquityReview], swept_at: float,
+                   ) -> List[Dict[str, Any]]:
+    """POST each computed review to the twin's cohort-reviews endpoint
+    for tamper-evident storage. Deliberately separate from sweep()
+    itself: computing a review and recording it are two different
+    steps with two different failure modes (a network error recording
+    review 3 of 5 should not mean reviews 1-2 were never computed), and
+    a caller may want to inspect reviews before deciding to record them
+    at all -- e.g. a dry run."""
+    results = []
+    for review in reviews:
+        body = review.as_dict()
+        body["swept_at"] = swept_at
+        resp = twin_client.post(f"/replica/{replica_id}/cohort-reviews", json=body)
+        resp.raise_for_status()
+        results.append(resp.json())
+    return results
