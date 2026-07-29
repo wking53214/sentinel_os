@@ -176,3 +176,67 @@ def test_an_unreadable_maturation_rule_declares_nothing_rather_than_guessing(har
 
     harness.cassette = _Broken()
     assert harness._outcome_obligation_declaration() is None
+
+
+# ---------------------------------------------------------------------------
+# When the ingest layer has real per-node events, the harness stamps them
+# VERIFIED instead of ESTIMATED -- it does not decide this itself, it reads
+# whatever twilio_log_ingestion already determined (see that module's
+# ivr_events contract docstring).
+# ---------------------------------------------------------------------------
+
+CALL_WITH_REAL_EVENTS = dict(
+    CALL,
+    sid="CAKERNEL_REAL001",
+    ivr_events=[
+        {"node": "billing_queue", "wait_seconds": 22.0, "source": "taskrouter"},
+        {"node": "agent_a", "wait_seconds": 61.0, "source": "taskrouter"},
+    ],
+)
+
+
+def test_the_route_is_stamped_verified_when_real_events_are_supplied(harness):
+    assembly = _assembly(harness, CALL_WITH_REAL_EVENTS)
+    route = [e for e in assembly.episode.timeline if e.kind == "route_selected"][0]
+    assert route.detail["provenance"] == PROVENANCE_VERIFIED
+    assert "taskrouter" in route.detail["real_source"]
+
+
+def test_a_verified_route_carries_no_derivation_method(harness):
+    """event_v1's own invariant: VERIFIED means observed, not derived, so
+    a verified event may not carry a method at all -- see
+    event_v1.validate_event. The real source name lives in
+    detail['real_source'] instead (previous test), never in a method
+    field."""
+    assembly = _assembly(harness, CALL_WITH_REAL_EVENTS)
+    route = [e for e in assembly.episode.timeline if e.kind == "route_selected"][0]
+    assert "method" not in route.detail
+
+
+def test_the_wait_times_are_stamped_verified_when_real_events_are_supplied(harness):
+    assembly = _assembly(harness, CALL_WITH_REAL_EVENTS)
+    waits = [e for e in assembly.episode.timeline if e.kind == "wait_observed"]
+    assert waits
+    for event in waits:
+        assert event.detail["provenance"] == PROVENANCE_VERIFIED
+        assert "taskrouter" in event.detail["real_source"]
+        assert "method" not in event.detail
+
+
+def test_an_auditor_sees_route_no_longer_estimated_when_real(harness):
+    """Mirror of test_an_auditor_can_list_exactly_which_fields_were_estimated,
+    on the other side of the fork: real events mean 'route' drops out of the
+    estimated-fields list rather than appearing in it."""
+    from event_v1 import estimated_fields
+    assembly = _assembly(harness, CALL_WITH_REAL_EVENTS)
+    estimated = set(estimated_fields(assembly.episode))
+    assert "route" not in estimated
+
+
+def test_the_kernel_still_judges_a_call_with_real_events(harness):
+    """The fork happens at ingest; the kernel downstream doesn't care which
+    branch a given call took."""
+    from episode import judge_episode
+    assembly = _assembly(harness, CALL_WITH_REAL_EVENTS)
+    result = judge_episode(harness.cassette, assembly.episode)
+    assert result.tier in ("excellent", "good", "poor", "failed")
