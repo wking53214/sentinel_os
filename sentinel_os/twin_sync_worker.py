@@ -54,6 +54,7 @@ class TwinSyncWorker:
             "call_sid": p.get("call_sid"),
             "outcome_obligation": p.get("outcome_obligation"),
             "decided_at": p.get("decided_at"),
+            "domain": p.get("domain"),
             "previous_hash": p["previous_hash"],
             "current_hash": p["current_hash"],
             "envelope": p["envelope"],

@@ -38,7 +38,7 @@ import psycopg2.extras
 import redis
 
 from queue_schema import TransmissionQueue
-from twin_custody import SHIPPED_COLUMNS, canonical_json, seal
+from twin_custody import SHIPPED_COLUMNS, canonical_json, domain_from_cassette_version, seal
 
 SYNC_QUEUE_NAME = "twin_sync"
 CURSOR_KEY = "twin:cursor:{replica_id}"
@@ -139,6 +139,10 @@ def ship_available(queue: TransmissionQueue, r: redis.Redis,
                     "outcome_obligation": row.get("outcome_obligation"),
                     "decided_at": (row["timestamp"].timestamp()
                                    if row.get("timestamp") is not None else None),
+                    # Cohort assembly groups obligations by domain, not just
+                    # by obligation_kind -- two unrelated cassettes could
+                    # legitimately pick the same obligation_kind string.
+                    "domain": domain_from_cassette_version(row.get("cassette_version")),
                 }
                 queue.enqueue(payload, job_id=f"{rid}|{row['id']}")
                 count += 1

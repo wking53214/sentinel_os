@@ -73,6 +73,13 @@ CREATE TABLE IF NOT EXISTS replica_entries (
 CREATE INDEX IF NOT EXISTS idx_replica_entries_sid ON replica_entries (replica_id, call_sid);
 ALTER TABLE replica_entries ADD COLUMN IF NOT EXISTS outcome_obligation TEXT;
 ALTER TABLE replica_entries ADD COLUMN IF NOT EXISTS decided_at DOUBLE PRECISION;
+-- Cohort assembly needs to group obligations by domain, not just by
+-- obligation_kind (two unrelated cassettes could legitimately pick the same
+-- obligation_kind string). Shipped in the clear, same posture as
+-- outcome_obligation/decided_at above: it says which business line a
+-- decision belongs to, nothing about the subject, and the twin needs it
+-- without decryption authority.
+ALTER TABLE replica_entries ADD COLUMN IF NOT EXISTS domain TEXT;
 CREATE INDEX IF NOT EXISTS idx_replica_entries_obligation
     ON replica_entries (replica_id, outcome_obligation)
     WHERE outcome_obligation IS NOT NULL;
@@ -84,11 +91,17 @@ CREATE TABLE IF NOT EXISTS obligation_ledger (
     primary_id    BIGINT,
     decision_hash TEXT NOT NULL,
     declaration   TEXT NOT NULL,
+    domain        TEXT NOT NULL DEFAULT 'unknown',
     obligation_kind TEXT NOT NULL,
     opened_at     DOUBLE PRECISION NOT NULL,
     expected_by   DOUBLE PRECISION NOT NULL,
     state         TEXT NOT NULL,
     reason_code   TEXT,
+    resolved_at   DOUBLE PRECISION,
+    resolved_value JSONB,
+    resolution_provenance TEXT,
+    resolution_method TEXT,
+    favorable     BOOLEAN,
     detail        JSONB NOT NULL DEFAULT '{}'::jsonb,
     prev_hash     TEXT NOT NULL,
     curr_hash     TEXT NOT NULL,
@@ -99,6 +112,41 @@ CREATE TABLE IF NOT EXISTS obligation_ledger (
 );
 CREATE INDEX IF NOT EXISTS idx_obligation_ledger_oid
     ON obligation_ledger (replica_id, obligation_id, seq DESC);
+-- Backfill for a table created before these columns existed (dev/CI reruns
+-- against a persistent volume); a fresh CREATE TABLE above already has them.
+ALTER TABLE obligation_ledger ADD COLUMN IF NOT EXISTS resolved_at DOUBLE PRECISION;
+ALTER TABLE obligation_ledger ADD COLUMN IF NOT EXISTS resolved_value JSONB;
+ALTER TABLE obligation_ledger ADD COLUMN IF NOT EXISTS resolution_provenance TEXT;
+ALTER TABLE obligation_ledger ADD COLUMN IF NOT EXISTS resolution_method TEXT;
+ALTER TABLE obligation_ledger ADD COLUMN IF NOT EXISTS favorable BOOLEAN;
+ALTER TABLE obligation_ledger ADD COLUMN IF NOT EXISTS domain TEXT NOT NULL DEFAULT 'unknown';
+-- cohort_equity_review: the record kind obligation_sweep.py's output
+-- lands as. The twin never computes this itself (see obligation_sweep's
+-- module docstring) -- it only receives and chain-stores what the
+-- primary already computed, same posture as every other record kind
+-- here. Own table, own vocabulary: not a reuse of obligation_ledger's
+-- OPEN/RESOLVED/ABANDONED state machine, because a cohort review isn't
+-- an obligation and doesn't have one.
+CREATE TABLE IF NOT EXISTS cohort_review_ledger (
+    id            BIGSERIAL PRIMARY KEY,
+    replica_id    TEXT NOT NULL REFERENCES replica_meta(replica_id),
+    seq           INTEGER NOT NULL,
+    domain        TEXT NOT NULL,
+    obligation_kind TEXT NOT NULL,
+    total_resolved INTEGER NOT NULL,
+    dimension_4_cohort_size INTEGER NOT NULL,
+    dimension_5_cohort_size INTEGER NOT NULL,
+    dimension_4_findings JSONB NOT NULL,
+    dimension_5_findings JSONB NOT NULL,
+    skipped       JSONB NOT NULL,
+    swept_at      DOUBLE PRECISION NOT NULL,
+    prev_hash     TEXT NOT NULL,
+    curr_hash     TEXT NOT NULL,
+    at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (replica_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_cohort_review_ledger_key
+    ON cohort_review_ledger (replica_id, domain, obligation_kind, seq DESC);
 CREATE TABLE IF NOT EXISTS custody_log (
     id          BIGSERIAL PRIMARY KEY,
     replica_id  TEXT NOT NULL REFERENCES replica_meta(replica_id),
@@ -220,7 +268,7 @@ def build_app(dsn: str, site: str) -> FastAPI:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
                     """SELECT primary_id, call_sid, previous_hash, current_hash,
-                              envelope, outcome_obligation, decided_at
+                              envelope, outcome_obligation, decided_at, domain
                        FROM replica_entries WHERE replica_id=%s AND primary_id=%s""",
                     (replica_id, int(body["primary_id"])))
                 existing = cur.fetchone()
@@ -230,6 +278,7 @@ def build_app(dsn: str, site: str) -> FastAPI:
                         and existing["current_hash"] == body["current_hash"]
                         and existing["call_sid"] == body.get("call_sid")
                         and existing["outcome_obligation"] == body.get("outcome_obligation")
+                        and existing["domain"] == body.get("domain")
                         and canonical_json(existing["envelope"]) == canonical_json(body["envelope"])
                     )
                     if same:
@@ -243,12 +292,14 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 cur.execute(
                     """INSERT INTO replica_entries
                          (replica_id, primary_id, call_sid, previous_hash,
-                          current_hash, envelope, outcome_obligation, decided_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                          current_hash, envelope, outcome_obligation, decided_at,
+                          domain)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (replica_id, int(body["primary_id"]), body.get("call_sid"),
                      body["previous_hash"], body["current_hash"],
                      json.dumps(body["envelope"]),
-                     body.get("outcome_obligation"), body.get("decided_at")))
+                     body.get("outcome_obligation"), body.get("decided_at"),
+                     body.get("domain")))
         return {"status": "stored", "primary_id": int(body["primary_id"])}
 
     @app.get("/replica/{replica_id}/head")
@@ -376,25 +427,98 @@ def build_app(dsn: str, site: str) -> FastAPI:
                        "obligation_id": obligation.obligation_id,
                        "decision_hash": obligation.decision_hash,
                        "declaration": declaration,
+                       "domain": obligation.domain,
                        "obligation_kind": obligation.obligation_kind,
                        "opened_at": obligation.opened_at,
                        "expected_by": obligation.expected_by,
                        "state": obligation.state,
                        "reason_code": obligation.reason_code,
                        "prev_hash": prev_hash}
+            # Resolution fields enter the hashed payload ONLY when present --
+            # same "optional hashed field" discipline used for cassette_hash
+            # etc. in ledger_postgres.py. An OPEN-state row (all five None)
+            # hashes exactly as it did before this fix; only a RESOLVED row
+            # picks up the new fields, so nothing already on a chain is
+            # invalidated by adding the capability to record them.
+            resolution_fields = {
+                "resolved_at": obligation.resolved_at,
+                "resolved_value": obligation.resolved_value,
+                "resolution_provenance": obligation.resolution_provenance,
+                "resolution_method": obligation.resolution_method,
+                "favorable": obligation.favorable,
+            }
+            for key, value in resolution_fields.items():
+                if value is not None:
+                    payload[key] = value
             curr_hash = hashlib.sha256(canonical_json(payload)).hexdigest()
             cur.execute(
                 """INSERT INTO obligation_ledger
                      (replica_id, seq, obligation_id, primary_id, decision_hash,
-                      declaration, obligation_kind, opened_at, expected_by,
-                      state, reason_code, detail, prev_hash, curr_hash,
-                      signature, signer_pub)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                      declaration, domain, obligation_kind, opened_at, expected_by,
+                      state, reason_code, resolved_at, resolved_value,
+                      resolution_provenance, resolution_method, favorable,
+                      detail, prev_hash, curr_hash, signature, signer_pub)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (replica_id, seq, obligation.obligation_id, primary_id,
-                 obligation.decision_hash, declaration, obligation.obligation_kind,
+                 obligation.decision_hash, declaration, obligation.domain,
+                 obligation.obligation_kind,
                  obligation.opened_at, obligation.expected_by, obligation.state,
-                 obligation.reason_code, json.dumps(obligation.detail),
+                 obligation.reason_code, obligation.resolved_at,
+                 None if obligation.resolved_value is None
+                 else json.dumps(obligation.resolved_value),
+                 obligation.resolution_provenance, obligation.resolution_method,
+                 obligation.favorable, json.dumps(obligation.detail),
                  prev_hash, curr_hash, signature, signer_pub))
+        return seq, curr_hash
+
+    def _append_cohort_review(conn, replica_id: str, review: Dict[str, Any]):
+        """Append one cohort_equity_review record to its own hash chain.
+
+        The twin does not compute this -- it stores what
+        obligation_sweep.py already computed on the primary and chain-
+        links it, so a later re-sweep of the same cohort (or a
+        disagreement with a future re-audit) is a detectable NEW row,
+        never a silent overwrite. Same append-only, advisory-locked
+        posture as _append_obligation.
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(hashtext('cohort_review_ledger_' || %s))",
+                (replica_id,))
+            cur.execute("""SELECT seq, curr_hash FROM cohort_review_ledger
+                           WHERE replica_id=%s ORDER BY seq DESC LIMIT 1""",
+                       (replica_id,))
+            row = cur.fetchone()
+            seq = (row[0] + 1) if row else 1
+            prev_hash = row[1] if row else "genesis"
+            payload = {
+                "replica_id": replica_id, "seq": seq,
+                "domain": review["domain"],
+                "obligation_kind": review["obligation_kind"],
+                "total_resolved": review["total_resolved"],
+                "dimension_4_cohort_size": review["dimension_4_cohort_size"],
+                "dimension_5_cohort_size": review["dimension_5_cohort_size"],
+                "dimension_4_findings": review["dimension_4_findings"],
+                "dimension_5_findings": review["dimension_5_findings"],
+                "skipped": review["skipped"],
+                "swept_at": review["swept_at"],
+                "prev_hash": prev_hash,
+            }
+            curr_hash = hashlib.sha256(canonical_json(payload)).hexdigest()
+            cur.execute(
+                """INSERT INTO cohort_review_ledger
+                     (replica_id, seq, domain, obligation_kind, total_resolved,
+                      dimension_4_cohort_size, dimension_5_cohort_size,
+                      dimension_4_findings, dimension_5_findings, skipped,
+                      swept_at, prev_hash, curr_hash)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (replica_id, seq, review["domain"], review["obligation_kind"],
+                 review["total_resolved"], review["dimension_4_cohort_size"],
+                 review["dimension_5_cohort_size"],
+                 json.dumps(review["dimension_4_findings"]),
+                 json.dumps(review["dimension_5_findings"]),
+                 json.dumps(review["skipped"]), review["swept_at"],
+                 prev_hash, curr_hash))
         return seq, curr_hash
 
     def _latest_states(conn, replica_id: str) -> Dict[str, Dict[str, Any]]:
@@ -404,8 +528,10 @@ def build_app(dsn: str, site: str) -> FastAPI:
             cur.execute("""
                 SELECT DISTINCT ON (obligation_id)
                        obligation_id, primary_id, decision_hash, declaration,
-                       obligation_kind, opened_at, expected_by, state,
-                       reason_code, detail, seq, curr_hash
+                       domain, obligation_kind, opened_at, expected_by, state,
+                       reason_code, resolved_at, resolved_value,
+                       resolution_provenance, resolution_method, favorable,
+                       detail, seq, curr_hash
                 FROM obligation_ledger WHERE replica_id=%s
                 ORDER BY obligation_id, seq DESC""", (replica_id,))
             return {row["obligation_id"]: dict(row) for row in cur.fetchall()}
@@ -425,7 +551,7 @@ def build_app(dsn: str, site: str) -> FastAPI:
             _meta(conn, replica_id)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT primary_id, current_hash, outcome_obligation, decided_at
+                    SELECT primary_id, current_hash, outcome_obligation, decided_at, domain
                     FROM replica_entries
                     WHERE replica_id=%s AND outcome_obligation IS NOT NULL
                     ORDER BY primary_id ASC""", (replica_id,))
@@ -456,7 +582,7 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 obligation = open_obligation(
                     obligation_id=obligation_id,
                     decision_hash=row["current_hash"],
-                    domain=rule.kind,
+                    domain=row.get("domain") or rule.kind,
                     rule=rule,
                     opened_at=float(row["decided_at"]),
                 )
@@ -501,7 +627,7 @@ def build_app(dsn: str, site: str) -> FastAPI:
             existing = OutcomeObligation(
                 obligation_id=current["obligation_id"],
                 decision_hash=current["decision_hash"],
-                domain=current["obligation_kind"],
+                domain=current["domain"],
                 obligation_kind=current["obligation_kind"],
                 opened_at=float(current["opened_at"]),
                 expected_by=float(current["expected_by"]),
@@ -560,6 +686,54 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 summary[key] = summary.get(key, 0) + 1
         return {"replica_id": replica_id, "as_of": clock,
                 "summary": summary, "obligations": obligations}
+
+    @app.post("/replica/{replica_id}/cohort-reviews")
+    def store_cohort_review(replica_id: str, body: Dict[str, Any]):
+        """Append one cohort_equity_review record -- the output of one
+        run of obligation_sweep.py over one (domain, obligation_kind)
+        cohort. The twin does not recompute the findings; it stores
+        what the primary already computed and chain-links it, same
+        posture as every other record kind here (independent witness,
+        not independent judge)."""
+        required = ("domain", "obligation_kind", "total_resolved",
+                   "dimension_4_cohort_size", "dimension_5_cohort_size",
+                   "dimension_4_findings", "dimension_5_findings",
+                   "skipped", "swept_at")
+        missing = [k for k in required if k not in body]
+        if missing:
+            raise HTTPException(status_code=422,
+                               detail=f"missing fields: {missing}")
+        with db() as conn:
+            _meta(conn, replica_id)
+            seq, curr_hash = _append_cohort_review(conn, replica_id, body)
+        return {"seq": seq, "curr_hash": curr_hash}
+
+    @app.get("/replica/{replica_id}/cohort-reviews")
+    def list_cohort_reviews(replica_id: str, domain: Optional[str] = None,
+                            obligation_kind: Optional[str] = None):
+        """Every recorded review, oldest first, optionally filtered to
+        one cohort's history over time -- an auditor asking 'has
+        lending's loan_performance cohort ever flagged' wants the whole
+        history for that bucket, not just its latest sweep."""
+        with db() as conn:
+            _meta(conn, replica_id)
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                query = """SELECT seq, domain, obligation_kind, total_resolved,
+                                  dimension_4_cohort_size, dimension_5_cohort_size,
+                                  dimension_4_findings, dimension_5_findings,
+                                  skipped, swept_at, prev_hash, curr_hash
+                           FROM cohort_review_ledger WHERE replica_id=%s"""
+                params = [replica_id]
+                if domain is not None:
+                    query += " AND domain=%s"
+                    params.append(domain)
+                if obligation_kind is not None:
+                    query += " AND obligation_kind=%s"
+                    params.append(obligation_kind)
+                query += " ORDER BY seq ASC"
+                cur.execute(query, params)
+                reviews = [dict(row) for row in cur.fetchall()]
+        return {"replica_id": replica_id, "reviews": reviews}
 
     @app.exception_handler(Exception)
     def unhandled(_req: Request, exc: Exception):
