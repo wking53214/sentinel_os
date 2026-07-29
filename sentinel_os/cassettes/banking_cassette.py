@@ -104,7 +104,16 @@ class BankingCassette(Cassette, RoutingTopology, ReinforcementLearning,
             # qualifying fraud escalation now scores "excellent"
             # instead of capping at "poor" -- so this is a real version
             # bump, not just a moved-code-hash formality.
-            version="2.0.2",
+            # 2.0.2 -> 2.0.3: the outcome_obligation capability was
+            # added to cassette_capabilities.py, which is part of the
+            # shared governance code-hash surface
+            # (cassette_forensics._GOVERNANCE_CODE_MODULES). This
+            # cassette's own behavior is UNCHANGED and it does not
+            # enable the new capability yet. The code
+            # hash moved, and under binding enforcement a moved hash
+            # requires a new version string rather than a silent
+            # re-bind.
+            version="2.0.3",
             description="Financial services & banking",
             domain="banking"
         )

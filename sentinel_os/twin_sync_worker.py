@@ -52,6 +52,8 @@ class TwinSyncWorker:
         entry = {
             "primary_id": p["primary_id"],
             "call_sid": p.get("call_sid"),
+            "outcome_obligation": p.get("outcome_obligation"),
+            "decided_at": p.get("decided_at"),
             "previous_hash": p["previous_hash"],
             "current_hash": p["current_hash"],
             "envelope": p["envelope"],

@@ -144,7 +144,17 @@ class IvrCassette(Cassette, TelephonyIngest, RoutingTopology,
             # moved, and under binding enforcement a moved hash
             # requires a new version string rather than a silent
             # re-bind.
-            version="2.0.1",
+            # 2.0.1 -> 2.0.2: the outcome_obligation capability was
+            # added to cassette_capabilities.py, which is part of the
+            # shared governance code-hash surface
+            # (cassette_forensics._GOVERNANCE_CODE_MODULES). This
+            # cassette's own behavior is UNCHANGED and it does not
+            # enable the new capability -- an IVR call's outcome is
+            # settled at hangup, so it owes nothing later. The code
+            # hash moved, and under binding enforcement a moved hash
+            # requires a new version string rather than a silent
+            # re-bind.
+            version="2.0.2",
             description="Traditional call center IVR",
             domain="ivr"
         )

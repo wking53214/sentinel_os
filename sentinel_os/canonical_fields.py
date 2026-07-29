@@ -48,6 +48,7 @@ OPTIONAL_HASHED_FIELDS = (
     "model_identity",      # Item 5: which model produced the decision
     "authorized_by",       # Item 7: resolved authorizing identity (role/key name)
     "supersedes_hash",     # Item 6: link from a supersession row to the row it supersedes
+    "outcome_obligation",  # OutcomeV1: the maturation rule in force at decision time
 )
 
 

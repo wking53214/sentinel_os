@@ -71,6 +71,14 @@ class GovernanceDecisionRecord:
     #   supersedes -- proving the reviewer saw the actual decision. NULL on
     #   ordinary governance_decision rows.
     supersedes_hash: Optional[str] = None
+    # OutcomeV1: the maturation rule in force when this decision was made,
+    #   as a declaration string ("loan_performance@24mo"). Knowable AT
+    #   decision time, so it hashes in immediately and never changes -- the
+    #   decision row is closed forever and must never be edited to point at
+    #   an outcome that lands later. The obligation record points the other
+    #   way instead, at this row's current_hash. NULL for domains whose
+    #   outcomes are settled at decision time (an IVR call at hangup).
+    outcome_obligation: Optional[str] = None
 
 class PostgreSQLLedger:
     """Production ledger backed by PostgreSQL"""
@@ -320,6 +328,19 @@ class PostgreSQLLedger:
                         ON ledger_entries(authorized_by);
                     CREATE INDEX IF NOT EXISTS idx_supersedes_id
                         ON ledger_entries(supersedes_id);
+                """)
+            # OutcomeV1 column. Same migration guarantee as every optional
+            # hashed field before it: nullable, no backfill, rows written
+            # before it existed omit it from the canonical form and hash
+            # byte-identically to what they hashed at write time. Indexed
+            # because the twin's independent derivation of the open-obligation
+            # set scans exactly this column.
+            if "outcome_obligation" not in existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS outcome_obligation VARCHAR(120);
+                    CREATE INDEX IF NOT EXISTS idx_outcome_obligation
+                        ON ledger_entries(outcome_obligation);
                 """)
             # Idempotency: store the raw Twilio sid so duplicate
             # submissions can be rejected before processing. UNIQUE
@@ -585,6 +606,7 @@ class PostgreSQLLedger:
                 "model_identity": record.model_identity,
                 "authorized_by": record.authorized_by,
                 "supersedes_hash": record.supersedes_hash,
+                "outcome_obligation": record.outcome_obligation,
             }
             apply_optional_hashed_fields(canonical_entry, optional_source)
 
@@ -599,9 +621,9 @@ class PostgreSQLLedger:
                  record_kind, cassette_version, input_data, policy_parameters,
                  decision_output, cassette_snapshot, cassette_hash, call_sid,
                  cassette_code_hash, model_identity, authorized_by,
-                 supersedes_id, supersedes_hash)
+                 supersedes_id, supersedes_hash, outcome_obligation)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s)
+                        %s, %s, %s, %s, %s, %s)
             """, (record.action_type, record.node, record.previous_value,
                   record.applied_value, record.reasoning,
                   previous_hash, current_hash, json.dumps(data),
@@ -614,7 +636,8 @@ class PostgreSQLLedger:
                   record.input_data.get("call_sid"),
                   record.cassette_code_hash, record.model_identity,
                   record.authorized_by,
-                  getattr(record, "supersedes_id", None), record.supersedes_hash))
+                  getattr(record, "supersedes_id", None), record.supersedes_hash,
+                  record.outcome_obligation))
             conn.commit()
             return True
         except Exception:
@@ -960,6 +983,113 @@ class PostgreSQLLedger:
                 "regulation": str(regulation),
                 "check": str(check),
                 "action": action,
+                "subject": str(subject_id),
+                "current_hash": current_hash,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def record_outcome_harm_event(self, cassette_version: str,
+                                 decision_hash: str, harm_kind: str,
+                                 subject_id: str, finding: Dict[str, Any],
+                                 discovered_at: Optional[str] = None,
+                                 authorized_by: Optional[str] = None,
+                                 cassette_hash: Optional[str] = None) -> Dict[str, Any]:
+        """Record a HARM event against a closed decision. OutcomeV1.
+
+        The exception carved out of "per-decision outcomes are business
+        reporting, not governance". A defaulted loan on a calibrated
+        model is expected loss and stays out of the chain; a denial
+        reversed on appeal is different in kind, because what it
+        establishes is that the decision PROCESS failed, not that the
+        odds came in badly. That is a governance fact and it belongs
+        where governance facts live.
+
+        Deliberately NOT a decision_supersession. A supersession says
+        "a reviewer looked at the decision and replaced its output". A
+        harm event says "the world established, later, that this
+        decision caused harm" -- possibly with no replacement output at
+        all, possibly years afterward, possibly discovered by someone
+        with no authority to supersede anything. Filing both under one
+        record_kind would leave an examiner unable to count either.
+
+        The decision itself is NOT touched. decision_hash points at the
+        row from here; the row keeps pointing nowhere, which is what
+        lets it stay closed forever.
+        """
+        if not cassette_version or not isinstance(cassette_version, str):
+            raise ValueError("record_outcome_harm_event requires cassette_version")
+        if not decision_hash or not str(decision_hash).strip():
+            raise ValueError("record_outcome_harm_event requires the current_hash of "
+                             "the decision harmed -- a harm event with nothing to "
+                             "point at is an allegation, not a record")
+        if not harm_kind or not str(harm_kind).strip():
+            raise ValueError("record_outcome_harm_event requires harm_kind (e.g. "
+                             "'denial_reversed_on_appeal'); 'harm occurred' is not "
+                             "a finding an examiner can act on")
+        if not subject_id or not str(subject_id).strip():
+            raise ValueError("record_outcome_harm_event requires the subject the "
+                             "harm applies to")
+        if not isinstance(finding, dict) or not finding:
+            raise ValueError("record_outcome_harm_event requires a non-empty finding "
+                             "body as a dict")
+        finding = json.loads(json.dumps(finding, sort_keys=True, default=str))
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry = {
+                "record_kind": "outcome_harm_event",
+                "cassette_version": cassette_version,
+                "harmed_decision": str(decision_hash),
+                "harm_kind": str(harm_kind),
+                "subject": str(subject_id),
+                "discovered_at": str(discovered_at or ""),
+                "finding": finding,
+                "previous_hash": previous_hash,
+            }
+            apply_optional_hashed_fields(canonical_entry, {
+                "cassette_hash": cassette_hash,
+                "authorized_by": authorized_by,
+            })
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            data = {"record_kind": "outcome_harm_event",
+                    "harmed_decision": str(decision_hash),
+                    "harm_kind": str(harm_kind), "subject": str(subject_id),
+                    "discovered_at": str(discovered_at or ""),
+                    "parameter_changed": False}
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, previous_value, applied_value, reason,
+                 previous_hash, current_hash, data,
+                 record_kind, cassette_version, decision_output, cassette_hash,
+                 authorized_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, ("outcome_harm_event", str(harm_kind)[:100], 0.0, 0.0,
+                  f"outcome harm event: {str(harm_kind)[:80]} on decision "
+                  f"{str(decision_hash)[:16]}",
+                  previous_hash, current_hash, json.dumps(data),
+                  "outcome_harm_event", cassette_version,
+                  json.dumps(finding), cassette_hash, authorized_by))
+            conn.commit()
+            return {
+                "status": "created",
+                "cassette_version": cassette_version,
+                "harmed_decision": str(decision_hash),
+                "harm_kind": str(harm_kind),
                 "subject": str(subject_id),
                 "current_hash": current_hash,
             }
@@ -1397,7 +1527,7 @@ class PostgreSQLLedger:
                        data, cassette_version, input_data, policy_parameters,
                        decision_output, cassette_hash,
                        cassette_code_hash, model_identity, authorized_by,
-                       supersedes_id, supersedes_hash
+                       supersedes_id, supersedes_hash, outcome_obligation
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -1416,7 +1546,7 @@ class PostgreSQLLedger:
                  data, cassette_version, input_data, policy_parameters,
                  decision_output, cassette_hash,
                  cassette_code_hash, model_identity, authorized_by,
-                 supersedes_id, supersedes_hash) = row
+                 supersedes_id, supersedes_hash, outcome_obligation) = row
                 
                 # Check chain link integrity
                 if stored_prev != prev_hash:
@@ -1450,6 +1580,7 @@ class PostgreSQLLedger:
                             "model_identity": model_identity,
                             "authorized_by": authorized_by,
                             "supersedes_hash": supersedes_hash,
+                            "outcome_obligation": outcome_obligation,
                         })
                     elif record_kind == "cassette_binding":
                         # Item 2 -- mirrors bind_cassette_version()
@@ -1492,6 +1623,29 @@ class PostgreSQLLedger:
                             "check": d.get("check"),
                             "action": d.get("action"),
                             "subject": d.get("subject"),
+                            "finding": self._as_json(decision_output),
+                            "previous_hash": stored_prev,
+                        }
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "cassette_hash": cassette_hash,
+                            "authorized_by": authorized_by,
+                        })
+                    elif record_kind == "outcome_harm_event":
+                        # OutcomeV1 -- mirrors record_outcome_harm_event().
+                        # The finding body was stored in decision_output; the
+                        # pointer, kind, subject and discovery time in data.
+                        # Without this branch a harm event would fall through
+                        # to the legacy path and fail its own verification --
+                        # a new record kind is not done until all three
+                        # recompute sites (writer, this, twin_custody) agree.
+                        d = self._as_json(data)
+                        canonical_entry = {
+                            "record_kind": "outcome_harm_event",
+                            "cassette_version": cassette_version,
+                            "harmed_decision": d.get("harmed_decision"),
+                            "harm_kind": d.get("harm_kind"),
+                            "subject": d.get("subject"),
+                            "discovered_at": d.get("discovered_at"),
                             "finding": self._as_json(decision_output),
                             "previous_hash": stored_prev,
                         }

@@ -5,6 +5,7 @@ Real Twilio → Real Prometheus → Real PostgreSQL → Real Claude → Real Gov
 """
 
 import os
+import time
 from typing import Dict
 
 # Import all production components
@@ -19,6 +20,11 @@ from cassette_schema import validate_cassette
 from tracing import tracer, mark_error
 from governance.ledger_postgres import GovernanceDecisionRecord
 from governance.friction_core import compute_friction
+from episode import EpisodeIntegrityError, judge_episode
+from event_v1 import (EventIntegrityError, PROVENANCE_ESTIMATED,
+                      PROVENANCE_VERIFIED, assemble_episode,
+                      estimated_fields, make_event)
+from cassette_capabilities import CAPABILITY_OUTCOME_OBLIGATION
 from queue_staffing_bayes_integration import (
     StaffingCoordinator, BayesianIntentEngine
 )
@@ -241,6 +247,116 @@ class IcebergProductionHarness:
         self.sentinel = SentinelCore(cassette)
         self.twilio_parser.cassette = cassette
 
+    # ---- OutcomeV1 / EventV1: the live path, stamped -------------------------
+    #
+    # Everything below exists to stop the harness handing the kernel numbers
+    # whose origin it has forgotten. The route still comes from
+    # _reconstruct_journey's phone-digit rule and the per-node waits still come
+    # from _extract_wait_times' fixed 0.1/0.5/0.4 split -- this does not fix
+    # either one, and is not pretending to. What changes is that both now
+    # travel as ESTIMATED with the derivation named, so a reader of the ledger
+    # can tell at a glance which parts of a call were measured and which were
+    # inferred. That distinction did not previously survive past ingest.
+
+    # Named once, here, so the label in the ledger and the code that produces
+    # the estimate cannot drift apart.
+    _ROUTE_METHOD = ("twilio_log_ingestion._reconstruct_journey: route inferred "
+                     "from the last digit of the caller number")
+    _WAIT_METHOD = ("twilio_log_ingestion._extract_wait_times: fixed 0.1/0.5/0.4 "
+                    "split of total call duration across intent_menu/queue/agent")
+    _EMOTION_METHOD = "observe_perceive_core.get_emotional_state: inferred from friction"
+    _ORIGIN_METHOD = ("call start derived as (ingest time - total duration); Twilio "
+                      "log ingest carries no absolute start timestamp")
+
+    def _assemble_live_episode(self, journey, first_queue, friction_count,
+                               friction_events, emotion, measured_waits,
+                               call_sid, twilio_record):
+        """Build a validated Episode from stamped events for one live call.
+
+        This is the seam that makes the governance kernel real. Until now every
+        production caller of make_episode/judge_episode was a test; the live
+        path scored calls through a parallel route and the kernel judged
+        nothing that had happened.
+        """
+        observed_at = time.time()
+        # The pipeline speaks EmotionalState objects, cassettes speak dicts.
+        # SentinelCore already owns that boundary conversion; calling it rather
+        # than writing a second one keeps this from becoming the two-places-
+        # that-can-quietly-disagree problem the cassette system exists to end.
+        emotion_dict = self.sentinel._emotion_as_dict(emotion)
+        duration = float(journey.total_duration or 0.0)
+        started_at = max(observed_at - duration, 1.0)
+        base = f"{call_sid or journey.caller_id}"
+
+        events = [
+            make_event(
+                event_id=f"{base}:route", episode_id=base, domain="ivr",
+                kind="route_selected", occurred_at=started_at,
+                observed_at=observed_at, source="twilio_log_ingestion",
+                provenance=PROVENANCE_ESTIMATED, method=self._ROUTE_METHOD,
+                fields={"route": first_queue},
+                detail={"journey": list(journey.journey),
+                        "origin_note": self._ORIGIN_METHOD}),
+        ]
+        for node, wait in sorted((measured_waits or {}).items()):
+            events.append(make_event(
+                event_id=f"{base}:wait:{node}", episode_id=base, domain="ivr",
+                kind="wait_observed",
+                occurred_at=min(started_at + float(wait), observed_at),
+                observed_at=observed_at, source="twilio_log_ingestion",
+                provenance=PROVENANCE_ESTIMATED, method=self._WAIT_METHOD,
+                fields={f"wait_{node}": float(wait)}, detail={"node": node}))
+        events.append(make_event(
+            event_id=f"{base}:emotion", episode_id=base, domain="ivr",
+            kind="emotion_inferred", occurred_at=observed_at,
+            observed_at=observed_at, source="observe_perceive_core",
+            provenance=PROVENANCE_ESTIMATED, method=self._EMOTION_METHOD,
+            fields={"emotion_frustration": emotion_dict.get("frustration")},
+            detail={"emotion": emotion_dict}))
+        # The only two facts here that Twilio actually reports rather than
+        # something inferring: the call's final status and its duration.
+        events.append(make_event(
+            event_id=f"{base}:ended", episode_id=base, domain="ivr",
+            kind="call_ended", occurred_at=observed_at, observed_at=observed_at,
+            source="twilio:call_log", provenance=PROVENANCE_VERIFIED,
+            fields={"resolved": bool(journey.resolved), "duration": duration},
+            detail={"status": twilio_record.get("status")}))
+
+        reasons = ()
+        if not journey.resolved:
+            reasons = (f"call ended unresolved (twilio status="
+                       f"{twilio_record.get('status')!r}, friction_count="
+                       f"{friction_count})",)
+        return assemble_episode(
+            episode_id=base, domain="ivr",
+            requested={"resolved": True},
+            events=events,
+            outcome_reasons=reasons,
+            attributes={
+                "duration": duration,
+                "friction_count": int(friction_count),
+                "emotion": emotion_dict,
+                "journey": list(journey.journey),
+                "friction_events": list(friction_events or []),
+            })
+
+    def _outcome_obligation_declaration(self):
+        """The maturation rule this cassette declares, or None.
+
+        None is the honest answer for IVR and every other domain whose outcome
+        is settled when the interaction ends -- see cassette_capabilities'
+        anti-placeholder rule. A domain that does not enable the capability is
+        not asked to invent a horizon."""
+        try:
+            if CAPABILITY_OUTCOME_OBLIGATION not in self.cassette.capabilities():
+                return None
+            return self.cassette.get_maturation_rule().declaration()
+        except Exception as exc:
+            logger.warning("cassette declares outcome_obligation but its maturation "
+                           "rule could not be read; no obligation recorded",
+                           extra={"extra_data": {"error": str(exc)}})
+            return None
+
     def process_call(self, twilio_record: Dict) -> Dict:
         """Process one call through complete pipeline"""
 
@@ -263,6 +379,7 @@ class IcebergProductionHarness:
             params = self._params()
             long_wait = params.float_value("long_wait_threshold")
             governance_trigger = params.int_value("governance_trigger")
+            obligation_declaration = self._outcome_obligation_declaration()
 
             # 1. Parse Twilio record
             with tracer.start_as_current_span("twilio_parse") as parse_span:
@@ -305,6 +422,62 @@ class IcebergProductionHarness:
                 journey.resolved, journey.total_duration,
                 friction_count, emotion
             )
+
+            # 4b. Kernel: judge the episode. THE governance path, live.
+            #
+            # Additive on purpose. quality_score above stays the value this
+            # harness acts on, and the kernel's verdict is recorded ALONGSIDE
+            # it rather than replacing it -- swapping the live scoring path in
+            # the same change that introduces the episode would make any
+            # difference in behaviour impossible to attribute. Instead the two
+            # are cross-checked, and a disagreement becomes an observable
+            # ledger fact rather than an assumption nobody tested. The IVR
+            # cassette's judge() and score_outcome_quality() are documented as
+            # arithmetically identical; this is what continuously proves it.
+            kernel = {"judged": False}
+            with tracer.start_as_current_span("kernel_judgment") as kernel_span:
+                try:
+                    assembly = self._assemble_live_episode(
+                        journey, first_queue, friction_count, friction_events,
+                        emotion, measured_waits, call_sid, twilio_record)
+                    kernel_result = judge_episode(self.cassette, assembly.episode)
+                    legacy_tier = quality_score.quality_tier.value
+                    agrees = str(kernel_result.tier).lower() == str(legacy_tier).lower()
+                    kernel = {
+                        "judged": True,
+                        "tier": kernel_result.tier,
+                        "score": round(float(kernel_result.score), 6),
+                        "agrees_with_legacy_scoring": agrees,
+                        "estimated_fields": list(estimated_fields(assembly.episode)),
+                        "field_provenance": assembly.provenance,
+                        "source_events": list(assembly.source_events),
+                    }
+                    kernel_span.set_attribute("kernel.tier", str(kernel_result.tier))
+                    kernel_span.set_attribute("kernel.agrees", agrees)
+                    if not agrees:
+                        # Not swallowed and not fatal: the harness keeps acting
+                        # on the legacy score, and the divergence is on the
+                        # record for someone to go look at.
+                        logger.warning(
+                            "kernel judgment disagrees with legacy scoring",
+                            extra={"extra_data": {
+                                "call_sid": call_sid,
+                                "kernel_tier": kernel_result.tier,
+                                "legacy_tier": legacy_tier}})
+                except (EpisodeIntegrityError, EventIntegrityError, KeyError) as e:
+                    # A malformed episode is a real finding -- it means the
+                    # ingest path produced something the kernel cannot accept.
+                    # It does not take the call down, because the harness has a
+                    # working scoring path that does not depend on it; but it
+                    # is recorded, never silently dropped.
+                    kernel = {"judged": False, "error": type(e).__name__,
+                              "detail": str(e)[:400]}
+                    kernel_span.set_attribute("kernel.judged", False)
+                    mark_error(kernel_span, f"Kernel judgment unavailable: {e}")
+                    logger.warning(
+                        "kernel could not judge this call; legacy scoring stands",
+                        extra={"extra_data": {"call_sid": call_sid,
+                                              "error": str(e)[:400]}})
 
             # 5. Record metrics
             self.metrics.record_call(
@@ -429,6 +602,11 @@ class IcebergProductionHarness:
                                     "intent_classification": intent_signal.classification,
                                     "intent_confidence": intent_signal.confidence,
                                     "intent_reasoning": intent_signal.reasoning,
+                                    # EventV1: which of the numbers above were
+                                    # measured and which were derived. This is
+                                    # what an auditor asks for when they want
+                                    # to know how much of a record is real.
+                                    "kernel": kernel,
                                 },
                                 policy_parameters=params.snapshot(),
                                 reasoning=claude_decision.get("reasoning", ""),
@@ -458,6 +636,12 @@ class IcebergProductionHarness:
                                 # override via config for distinct deployments.
                                 authorized_by=self.config.get(
                                     "authorized_by", "harness:production"),
+                                # OutcomeV1: the maturation rule in force at
+                                # decision time, hashed in now and never
+                                # edited. The obligation record points back at
+                                # this row; this row points at nothing, which
+                                # is what lets it close permanently.
+                                outcome_obligation=obligation_declaration,
                             ),
                             governance_params=params,
                         )
