@@ -18,6 +18,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from cassette_capabilities import (
+    CAPABILITY_OUTCOME_OBLIGATION,
     CAPABILITIES,
     CAPABILITY_RL,
     CAPABILITY_ROUTING_TOPOLOGY,
@@ -70,7 +71,8 @@ def test_required_set_is_kernel_plus_enabled_union():
                              "twilio_medium_duration_threshold",
                              "twilio_short_duration_threshold"}
     everything = required_parameters_for(tuple(CAPABILITIES))
-    assert set(everything) == set(with_tel) | {"expected_wait_bounds"}
+    assert set(everything) == set(with_tel) | {"expected_wait_bounds",
+                                               "outcome_horizon_days"}
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +179,22 @@ def test_twilio_ingest_refuses_non_telephony_cassette():
 
 
 def test_require_capabilities_passes_the_full_manifest():
-    require_capabilities(IvrCassette(), tuple(CAPABILITIES), consumer="test")
+    # The cassette's OWN manifest, not the global capability universe. IVR
+    # deliberately does not enable every capability that exists -- it does not
+    # enable outcome_obligation, because an IVR call's outcome is settled at
+    # hangup and a domain that owes nothing later must be able to say so. A
+    # test asserting "IVR enables everything" would quietly make that honest
+    # declaration impossible to add.
+    cassette = IvrCassette()
+    require_capabilities(cassette, cassette.capabilities(), consumer="test")
+
+
+def test_require_capabilities_refuses_a_capability_the_cassette_lacks():
+    with pytest.raises(CapabilityError) as exc:
+        require_capabilities(IvrCassette(), (CAPABILITY_OUTCOME_OBLIGATION,),
+                             consumer="outcome_tracker")
+    assert CAPABILITY_OUTCOME_OBLIGATION in str(exc.value)
+    assert "outcome_tracker" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------

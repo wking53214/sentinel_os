@@ -38,6 +38,15 @@ _GOVERNANCE_CODE_MODULES = (
     "cassette_schema",         # parameter bounds/validation that constrain decisions
     "cassette_capabilities",   # capability contracts: which surfaces exist and what they require
     "episode",                 # the ground-truth record + its integrity invariants
+    # EventV1/OutcomeV1. Same class of code as episode.py exactly: these
+    # define what the system will ACCEPT as a fact and what it will accept
+    # as a resolution. An edit to the method rule, the provenance stamps,
+    # or the bounded unresolved-reason vocabulary changes what a decision
+    # record means, so it must move every cassette's code hash -- the same
+    # boundary the regulatory modules above were added under, applied at
+    # the moment these modules were born rather than a session later.
+    "event_v1",
+    "outcome_v1",
     # Regulatory-cassette framework: the lens contract, the shared
     # regulation-parameterized checkers, and the deck that enforces
     # insertion binding + disclosure-first live action. Governance code

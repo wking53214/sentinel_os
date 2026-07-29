@@ -19,6 +19,15 @@ cassette explicitly enables in its manifest (Cassette.CAPABILITIES):
   self_healing -- this domain lets the governor adjust its own
       parameters inside declared bounds. Owns get_healing_bounds and
       the expected_wait_bounds clamp band.
+  outcome_obligation -- this domain's outcomes are NOT known at
+      decision time and mature later on a declared schedule (a loan's
+      performance, a claim's ultimate cost). Owns the maturation
+      horizon and the domain call on whether a matured outcome was
+      favorable. Opt-in for the same reason every capability is: an
+      IVR call's quality is settled at hangup, so IVR owes nothing
+      later, and forcing it to declare a horizon would produce exactly
+      the fake declaration the anti-placeholder rule below exists to
+      stop.
 
 Load-time validation (cassette_schema.validate_cassette) checks the
 kernel contract plus the UNION of the enabled capabilities' contracts:
@@ -48,6 +57,7 @@ CAPABILITY_TELEPHONY_INGEST = "telephony_ingest"
 CAPABILITY_ROUTING_TOPOLOGY = "routing_topology"
 CAPABILITY_RL = "rl"
 CAPABILITY_SELF_HEALING = "self_healing"
+CAPABILITY_OUTCOME_OBLIGATION = "outcome_obligation"
 
 
 class CapabilityError(Exception):
@@ -151,11 +161,58 @@ class SelfHealing(ABC):
         """Domain-specific parameter bounds for self-healing."""
 
 
+class OutcomeObligations(ABC):
+    """Contract for domains whose outcomes mature AFTER the decision.
+
+    The split this capability draws is the one that keeps the decision
+    record closeable: a domain either knows its outcome at decision
+    time or it does not, and a domain that does not owes a separate,
+    durable obligation record instead of a decision row that reopens.
+    See outcome_v1 for the record and the Provenance Rule governing it.
+
+    The horizon is a governance PARAMETER, not a constant in code, so
+    it lands in the hashed policy snapshot with the rest of the
+    declaration -- "how long we said we would watch this" is exactly
+    the kind of commitment an auditor checks against what actually
+    happened.
+    """
+
+    NAME = CAPABILITY_OUTCOME_OBLIGATION
+    REQUIRED_PARAMETERS: Dict[str, str] = {
+        # Days from decision until an outcome obligation of this
+        # domain's kind matures ("loan decisions carry a 24-month
+        # performance obligation" -> 730).
+        "outcome_horizon_days": "int",
+    }
+    REQUIRED_METHODS: Tuple[str, ...] = (
+        "get_maturation_rule",
+        "classify_outcome",
+    )
+
+    @abstractmethod
+    def get_maturation_rule(self):
+        """Return this domain's outcome_v1.MaturationRule: what kind of
+        obligation a decision carries, and how long until it matures.
+        The rule's declaration string is what hashes into the decision
+        row and what the twin re-parses to derive the open set."""
+
+    @abstractmethod
+    def classify_outcome(self, evidence: Dict) -> "bool | None":
+        """The domain's call on whether a matured outcome was
+        favorable: True, False, or None for genuinely ambiguous.
+
+        None is a first-class answer, not a failure. An outcome forced
+        to a bool it does not support becomes a fabricated input to a
+        fairness statistic, so the schema keeps the obligation OPEN on
+        REASON_GENUINELY_AMBIGUOUS instead."""
+
+
 # The registry load-time validation walks. An unknown name in a
 # cassette's manifest is a violation, not a shrug.
 CAPABILITIES: Dict[str, type] = {
     cap.NAME: cap
-    for cap in (TelephonyIngest, RoutingTopology, ReinforcementLearning, SelfHealing)
+    for cap in (TelephonyIngest, RoutingTopology, ReinforcementLearning,
+                SelfHealing, OutcomeObligations)
 }
 
 # Reverse map: which capability OWNS a given governance parameter.

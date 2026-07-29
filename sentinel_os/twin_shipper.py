@@ -126,6 +126,19 @@ def ship_available(queue: TransmissionQueue, r: redis.Redis,
                     "previous_hash": row["previous_hash"],
                     "current_hash": row["current_hash"],
                     "envelope": envelope,
+                    # OutcomeV1 clear metadata. The maturation declaration
+                    # ("loan_performance@24mo") and the decision time travel
+                    # OUTSIDE the sealed payload on purpose: the twin must be
+                    # able to derive what is OWED without decryption authority,
+                    # or independent derivation only works in custody model A.
+                    # Neither value says anything about the subject -- one is a
+                    # policy string, the other a clock reading. decided_at is
+                    # shipped rather than inferred from arrival because a
+                    # horizon measured from receipt would quietly stretch every
+                    # deadline by however long the shipper was behind.
+                    "outcome_obligation": row.get("outcome_obligation"),
+                    "decided_at": (row["timestamp"].timestamp()
+                                   if row.get("timestamp") is not None else None),
                 }
                 queue.enqueue(payload, job_id=f"{rid}|{row['id']}")
                 count += 1

@@ -210,6 +210,11 @@ SHIPPED_COLUMNS = [
     # carry NULL here and recompute exactly as before.
     "cassette_code_hash", "model_identity", "authorized_by",
     "supersedes_id", "supersedes_hash",
+    # OutcomeV1: the maturation rule the decision declared. Shipped so the
+    # twin can derive the open-obligation set from the decision feed ITSELF
+    # (outcome_v1.derive_open_obligations) rather than being told what is
+    # owed by the party the obligation is owed by.
+    "outcome_obligation",
 ]
 
 
@@ -286,6 +291,24 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
             "check": d.get("check"),
             "action": d.get("action"),
             "subject": d.get("subject"),
+            "finding": row["decision_output"],
+            "previous_hash": row["previous_hash"],
+        }
+        apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") == "outcome_harm_event":
+        # Mirrors ledger_postgres.record_outcome_harm_event(). OutcomeV1's
+        # governance exception: the finding body was stored in decision_output,
+        # the pointer + kind + subject + discovery time in data. Like a
+        # disclosure row, cassette_code_hash is never set here, so the shared
+        # contract stays byte-identical to the writer.
+        d = row.get("data") or {}
+        canonical = {
+            "record_kind": "outcome_harm_event",
+            "cassette_version": row["cassette_version"],
+            "harmed_decision": d.get("harmed_decision"),
+            "harm_kind": d.get("harm_kind"),
+            "subject": d.get("subject"),
+            "discovered_at": d.get("discovered_at"),
             "finding": row["decision_output"],
             "previous_hash": row["previous_hash"],
         }

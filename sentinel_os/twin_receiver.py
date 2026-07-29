@@ -71,6 +71,34 @@ CREATE TABLE IF NOT EXISTS replica_entries (
     UNIQUE (replica_id, primary_id)
 );
 CREATE INDEX IF NOT EXISTS idx_replica_entries_sid ON replica_entries (replica_id, call_sid);
+ALTER TABLE replica_entries ADD COLUMN IF NOT EXISTS outcome_obligation TEXT;
+ALTER TABLE replica_entries ADD COLUMN IF NOT EXISTS decided_at DOUBLE PRECISION;
+CREATE INDEX IF NOT EXISTS idx_replica_entries_obligation
+    ON replica_entries (replica_id, outcome_obligation)
+    WHERE outcome_obligation IS NOT NULL;
+CREATE TABLE IF NOT EXISTS obligation_ledger (
+    id            BIGSERIAL PRIMARY KEY,
+    replica_id    TEXT NOT NULL REFERENCES replica_meta(replica_id),
+    seq           INTEGER NOT NULL,
+    obligation_id TEXT NOT NULL,
+    primary_id    BIGINT,
+    decision_hash TEXT NOT NULL,
+    declaration   TEXT NOT NULL,
+    obligation_kind TEXT NOT NULL,
+    opened_at     DOUBLE PRECISION NOT NULL,
+    expected_by   DOUBLE PRECISION NOT NULL,
+    state         TEXT NOT NULL,
+    reason_code   TEXT,
+    detail        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    prev_hash     TEXT NOT NULL,
+    curr_hash     TEXT NOT NULL,
+    signature     TEXT,
+    signer_pub    TEXT,
+    at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (replica_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_obligation_ledger_oid
+    ON obligation_ledger (replica_id, obligation_id, seq DESC);
 CREATE TABLE IF NOT EXISTS custody_log (
     id          BIGSERIAL PRIMARY KEY,
     replica_id  TEXT NOT NULL REFERENCES replica_meta(replica_id),
@@ -191,7 +219,8 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 raise HTTPException(status_code=422, detail=err)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
-                    """SELECT primary_id, call_sid, previous_hash, current_hash, envelope
+                    """SELECT primary_id, call_sid, previous_hash, current_hash,
+                              envelope, outcome_obligation, decided_at
                        FROM replica_entries WHERE replica_id=%s AND primary_id=%s""",
                     (replica_id, int(body["primary_id"])))
                 existing = cur.fetchone()
@@ -200,6 +229,7 @@ def build_app(dsn: str, site: str) -> FastAPI:
                         existing["previous_hash"] == body["previous_hash"]
                         and existing["current_hash"] == body["current_hash"]
                         and existing["call_sid"] == body.get("call_sid")
+                        and existing["outcome_obligation"] == body.get("outcome_obligation")
                         and canonical_json(existing["envelope"]) == canonical_json(body["envelope"])
                     )
                     if same:
@@ -212,11 +242,13 @@ def build_app(dsn: str, site: str) -> FastAPI:
                         detail="entry already stored with different content; replica is append-only")
                 cur.execute(
                     """INSERT INTO replica_entries
-                         (replica_id, primary_id, call_sid, previous_hash, current_hash, envelope)
-                       VALUES (%s,%s,%s,%s,%s,%s)""",
+                         (replica_id, primary_id, call_sid, previous_hash,
+                          current_hash, envelope, outcome_obligation, decided_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (replica_id, int(body["primary_id"]), body.get("call_sid"),
                      body["previous_hash"], body["current_hash"],
-                     json.dumps(body["envelope"])))
+                     json.dumps(body["envelope"]),
+                     body.get("outcome_obligation"), body.get("decided_at")))
         return {"status": "stored", "primary_id": int(body["primary_id"])}
 
     @app.get("/replica/{replica_id}/head")
@@ -301,6 +333,233 @@ def build_app(dsn: str, site: str) -> FastAPI:
         for r in rows:
             r["at"] = str(r["at"])
         return {"replica_id": replica_id, "events": rows}
+
+    # ---------------- OutcomeV1: independently derived obligations -------------
+    #
+    # Decision 5's whole point lives here. The twin does NOT wait to be told
+    # what is owed; it computes the open set from the decision feed it already
+    # holds, using the maturation declaration each decision carried in the
+    # clear. An operator who wants an obligation gone has to make the DECISION
+    # gone, and a missing decision is already a MISSING verdict on the primary
+    # cross-check. Independence without asking the primary to sign an
+    # obligation-open event for every decision it makes.
+    #
+    # Own table, own vocabulary (OPEN/RESOLVED/ABANDONED), deliberately not
+    # replica_entries and deliberately not the twin's transport verdicts:
+    # twin_detector's PENDING means "inside the transport SLA" and its EXTRA
+    # means "wiped from the primary". Outcome lag is unbounded and is neither
+    # of those things; reusing either word would make a regulator read two
+    # unrelated conditions as one.
+
+    def _append_obligation(conn, replica_id: str, obligation, *,
+                           primary_id=None, declaration: str,
+                           signature=None, signer_pub=None):
+        """Append one obligation state to the per-replica hash chain.
+
+        Same shape as custody_log: seq + prev_hash + curr_hash computed by the
+        receiver, signature optional and verified by whoever reads the chain.
+        Append-only -- a transition never updates a prior row, so the history
+        of what was owed and when is itself evidence.
+        """
+        from outcome_v1 import validate_obligation
+        validate_obligation(obligation)
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext('obligation_ledger_' || %s))",
+                        (replica_id,))
+            cur.execute("""SELECT seq, curr_hash FROM obligation_ledger
+                           WHERE replica_id=%s ORDER BY seq DESC LIMIT 1""",
+                        (replica_id,))
+            row = cur.fetchone()
+            seq = (row[0] + 1) if row else 1
+            prev_hash = row[1] if row else "genesis"
+            payload = {"replica_id": replica_id, "seq": seq,
+                       "obligation_id": obligation.obligation_id,
+                       "decision_hash": obligation.decision_hash,
+                       "declaration": declaration,
+                       "obligation_kind": obligation.obligation_kind,
+                       "opened_at": obligation.opened_at,
+                       "expected_by": obligation.expected_by,
+                       "state": obligation.state,
+                       "reason_code": obligation.reason_code,
+                       "prev_hash": prev_hash}
+            curr_hash = hashlib.sha256(canonical_json(payload)).hexdigest()
+            cur.execute(
+                """INSERT INTO obligation_ledger
+                     (replica_id, seq, obligation_id, primary_id, decision_hash,
+                      declaration, obligation_kind, opened_at, expected_by,
+                      state, reason_code, detail, prev_hash, curr_hash,
+                      signature, signer_pub)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (replica_id, seq, obligation.obligation_id, primary_id,
+                 obligation.decision_hash, declaration, obligation.obligation_kind,
+                 obligation.opened_at, obligation.expected_by, obligation.state,
+                 obligation.reason_code, json.dumps(obligation.detail),
+                 prev_hash, curr_hash, signature, signer_pub))
+        return seq, curr_hash
+
+    def _latest_states(conn, replica_id: str) -> Dict[str, Dict[str, Any]]:
+        """Current state per obligation: the highest-seq row for each id.
+        The chain keeps every transition; this is the read view over it."""
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (obligation_id)
+                       obligation_id, primary_id, decision_hash, declaration,
+                       obligation_kind, opened_at, expected_by, state,
+                       reason_code, detail, seq, curr_hash
+                FROM obligation_ledger WHERE replica_id=%s
+                ORDER BY obligation_id, seq DESC""", (replica_id,))
+            return {row["obligation_id"]: dict(row) for row in cur.fetchall()}
+
+    @app.post("/replica/{replica_id}/obligations/derive")
+    def derive_obligations(replica_id: str):
+        """Recompute the open-obligation set from the decision feed itself.
+
+        Idempotent: an obligation already on the chain is not re-appended.
+        Rows whose declaration will not parse are REPORTED, never skipped
+        silently -- an unreadable declaration is a hole in the derivation, and
+        a silent skip is how a hole becomes invisible.
+        """
+        from outcome_v1 import MaturationRule, open_obligation
+
+        with db() as conn:
+            _meta(conn, replica_id)
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT primary_id, current_hash, outcome_obligation, decided_at
+                    FROM replica_entries
+                    WHERE replica_id=%s AND outcome_obligation IS NOT NULL
+                    ORDER BY primary_id ASC""", (replica_id,))
+                rows = [dict(x) for x in cur.fetchall()]
+
+            known = set(_latest_states(conn, replica_id))
+            derived, skipped, unreadable = 0, 0, []
+            for row in rows:
+                declaration = row["outcome_obligation"]
+                try:
+                    rule = MaturationRule.parse(declaration)
+                except ValueError as exc:
+                    unreadable.append({"primary_id": row["primary_id"],
+                                       "declaration": declaration,
+                                       "error": str(exc)})
+                    continue
+                if row["decided_at"] is None:
+                    unreadable.append({"primary_id": row["primary_id"],
+                                       "declaration": declaration,
+                                       "error": "no decided_at shipped; a horizon "
+                                                "cannot be derived without the time "
+                                                "the clock started"})
+                    continue
+                obligation_id = f"{row['current_hash']}:{rule.kind}"
+                if obligation_id in known:
+                    skipped += 1
+                    continue
+                obligation = open_obligation(
+                    obligation_id=obligation_id,
+                    decision_hash=row["current_hash"],
+                    domain=rule.kind,
+                    rule=rule,
+                    opened_at=float(row["decided_at"]),
+                )
+                _append_obligation(conn, replica_id, obligation,
+                                   primary_id=row["primary_id"],
+                                   declaration=declaration)
+                known.add(obligation_id)
+                derived += 1
+        return {"status": "derived", "opened": derived, "already_known": skipped,
+                "unreadable": unreadable, "decisions_declaring": len(rows)}
+
+    @app.post("/replica/{replica_id}/obligations/{obligation_id}/transition")
+    def transition_obligation(replica_id: str, obligation_id: str,
+                              body: Dict[str, Any]):
+        """Record a resolution, a restated open reason, or an abandonment.
+
+        Signed by the customer in the same posture as custody_event: the
+        receiver builds the chain, the signer attests to the content, and a
+        regulator can verify both independently of Sentinel.
+        """
+        from outcome_v1 import (OutcomeObligation, abandon, resolve, stay_open,
+                                OUTCOME_ABANDONED, OUTCOME_OPEN, OUTCOME_RESOLVED,
+                                OutcomeIntegrityError)
+
+        target_state = body.get("state")
+        if target_state not in (OUTCOME_OPEN, OUTCOME_RESOLVED, OUTCOME_ABANDONED):
+            raise HTTPException(status_code=422,
+                                detail=f"state must be one of "
+                                       f"{[OUTCOME_OPEN, OUTCOME_RESOLVED, OUTCOME_ABANDONED]}")
+        with db() as conn:
+            _meta(conn, replica_id)
+            current = _latest_states(conn, replica_id).get(obligation_id)
+            if not current:
+                raise HTTPException(status_code=404,
+                                    detail="no such obligation on this replica; "
+                                           "derive the open set first")
+            if current["state"] != OUTCOME_OPEN:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"obligation is {current['state']}; a closed obligation is "
+                           f"not reopened -- record a new one if a new fact arrived")
+            existing = OutcomeObligation(
+                obligation_id=current["obligation_id"],
+                decision_hash=current["decision_hash"],
+                domain=current["obligation_kind"],
+                obligation_kind=current["obligation_kind"],
+                opened_at=float(current["opened_at"]),
+                expected_by=float(current["expected_by"]),
+                state=OUTCOME_OPEN,
+                reason_code=current["reason_code"],
+                detail=dict(current["detail"] or {}),
+            )
+            try:
+                if target_state == OUTCOME_RESOLVED:
+                    updated = resolve(
+                        existing,
+                        resolved_at=float(body.get("resolved_at") or 0.0),
+                        resolved_value=body.get("resolved_value") or {},
+                        provenance=body.get("provenance") or "",
+                        favorable=body.get("favorable"),
+                        method=body.get("method"))
+                elif target_state == OUTCOME_ABANDONED:
+                    updated = abandon(existing, str(body.get("reason_code") or ""),
+                                      at=float(body.get("at") or 0.0))
+                else:
+                    updated = stay_open(existing, str(body.get("reason_code") or ""))
+            except OutcomeIntegrityError as exc:
+                raise HTTPException(status_code=422,
+                                    detail={"violations": exc.violations})
+            seq, curr_hash = _append_obligation(
+                conn, replica_id, updated,
+                primary_id=current["primary_id"],
+                declaration=current["declaration"],
+                signature=body.get("signature"), signer_pub=body.get("signer_pub"))
+        return {"status": "recorded", "seq": seq, "curr_hash": curr_hash,
+                "state": updated.state, "reason_code": updated.reason_code}
+
+    @app.get("/replica/{replica_id}/obligations")
+    def list_obligations(replica_id: str, now: Optional[float] = None):
+        """The examiner query: what is owed, what closed, what is late.
+
+        `overdue` is COMPUTED here from opened_at/expected_by against the
+        clock, never read from a column. A stored overdue flag is a number
+        somebody can set to False; two timestamps and a comparison are not.
+        """
+        from outcome_v1 import OUTCOME_OPEN
+
+        clock = float(now) if now is not None else __import__("time").time()
+        with db() as conn:
+            _meta(conn, replica_id)
+            states = _latest_states(conn, replica_id)
+        obligations, summary = [], {}
+        for row in sorted(states.values(), key=lambda x: x["opened_at"]):
+            overdue = row["state"] == OUTCOME_OPEN and clock > float(row["expected_by"])
+            obligations.append({**row, "overdue": overdue})
+            summary[row["state"]] = summary.get(row["state"], 0) + 1
+            if overdue:
+                summary["overdue"] = summary.get("overdue", 0) + 1
+            if row["state"] == OUTCOME_OPEN and row["reason_code"]:
+                key = f"open:{row['reason_code']}"
+                summary[key] = summary.get(key, 0) + 1
+        return {"replica_id": replica_id, "as_of": clock,
+                "summary": summary, "obligations": obligations}
 
     @app.exception_handler(Exception)
     def unhandled(_req: Request, exc: Exception):
