@@ -68,6 +68,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import re
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -220,8 +221,40 @@ class SurnameTable:
         return self._national
 
 
+# The literal postal ZIP, parsed straight from the formatted address
+# string -- no geocoding call needed. This is a HARD FACT already
+# present in the text (see the ZIP/county regional-equity check's
+# module docstring in regulatory_checks.py: "race is subjective,
+# address is not"), unlike a Census ZCTA (Zip Code Tabulation Area),
+# which is a Census-drawn *approximation* of ZIP delivery areas and
+# would not be the literal ZIP on the loan file. Deliberately not
+# pulled from the geocoder's response for that reason.
+_ZIP_PATTERN = re.compile(r"\b(\d{5})(?:-\d{4})?\s*$")
+
+
+def extract_zip(address: str) -> Optional[str]:
+    """Parse the trailing 5-digit ZIP from a formatted address string
+    ("123 Main St, Springfield, IL 62704" -> "62704"). None if the
+    address is empty or does not end in a recognizable ZIP -- never a
+    guessed value."""
+    if not address:
+        return None
+    match = _ZIP_PATTERN.search(address.strip())
+    return match.group(1) if match else None
+
+
 class CensusGeocoder:
     """Real, live, key-free geocoding (address -> Census tract FIPS)."""
+
+    def geocode_county_fips(self, address: str) -> Optional[str]:
+        """5-digit state+county FIPS (e.g. "24033"), from the SAME
+        geocode_to_tract call the BISG race estimate already makes for
+        this address -- reuses the pipeline, not a new data source.
+        None if the address doesn't resolve (never a guessed county)."""
+        tract = self.geocode_to_tract(address)
+        if tract is None:
+            return None
+        return f"{tract['state']}{tract['county']}"
 
     def geocode_to_tract(self, address: str) -> Optional[Dict[str, str]]:
         """Returns {"state": "24", "county": "033", "tract": "800102"}

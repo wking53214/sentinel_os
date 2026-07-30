@@ -209,7 +209,7 @@ SHIPPED_COLUMNS = [
     # cassette_code_hash / model_identity / authorizing identity. Legacy rows
     # carry NULL here and recompute exactly as before.
     "cassette_code_hash", "model_identity", "authorized_by",
-    "supersedes_id", "supersedes_hash",
+    "supersedes_id", "supersedes_hash", "replaces_hash",
     # OutcomeV1: the maturation rule the decision declared. Shipped so the
     # twin can derive the open-obligation set from the decision feed ITSELF
     # (outcome_v1.derive_open_obligations) rather than being told what is

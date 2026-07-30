@@ -46,6 +46,28 @@ Two RESOLVED paths, one ABANDONED path, one non-event:
                           asked to call it favorable/unfavorable --
                           there is no outcome to classify, only a
                           decision to supersede.
+
+                          MECHANISM (locked 2026-07-29): the new
+                          decision declares which old one it replaces
+                          by setting GovernanceDecisionRecord.
+                          replaces_hash to the old decision's
+                          current_hash -- an explicit fact the loan
+                          origination system states, never inferred by
+                          matching address/loan-number/date.
+                          append_decision refuses the write outright if
+                          that hash isn't a real prior decision
+                          (fail-closed). obligation_supersession.py
+                          reads every declared replaces_hash off the
+                          primary ledger and abandons the matching old
+                          obligation via the twin's existing
+                          transition endpoint. See that module's
+                          docstring for the full mechanism, and
+                          canonical_fields.OPTIONAL_HASHED_FIELDS for
+                          why replaces_hash is a distinct field from
+                          Item 6's supersedes_hash (a human correcting
+                          an existing decision's own verdict -- a
+                          different concept from a brand-new decision
+                          making an old obligation moot).
   forbearance          -- does NOT resolve the obligation. Loan stays
                           OPEN under the SAME loan number; the horizon
                           keeps counting. A servicing detail, not a

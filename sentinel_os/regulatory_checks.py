@@ -148,7 +148,7 @@ from __future__ import annotations
 import re
 import statistics
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from regulatory_cassette_interface import (
     ACTION_FLAG,
@@ -1286,6 +1286,182 @@ def check_correlation_based_proxy_detection(
 
 
 # ---------------------------------------------------------------------------
+# Check 8: geographic (ZIP/county) outcome-equity screen (dimension 6)
+#
+# Redlining-style regional-equity check, COHORT-level like check 5 --
+# same reason: a rate is a property of many decisions, not one.
+# Reuses check 5's four-fifths threshold and overall shape, but the
+# comparison itself is HARD-ASSIGNED rather than probability-weighted.
+# check 5's BISG estimate is a genuine posterior across race categories
+# (Elliott et al.) because race/ethnicity is never directly observed
+# from a surname+tract alone -- weighting by probability is the honest
+# way to use an estimate. A property's ZIP code and county are not
+# estimates: a mortgage secures exactly one physical address, known
+# with certainty from the loan file itself (locked 2026-07-29, Wm:
+# "race is subjective, address is not"). Weighting a known fact by a
+# fabricated probability would be less honest than the plain count it
+# already is, not more.
+#
+# Reuses the EXISTING BISG geocoder pipeline (bisg_estimator.
+# CensusGeocoder), not a new data source: the same geocode_to_tract
+# call already made for the race estimate also yields county FIPS
+# (CensusGeocoder.geocode_county_fips); ZIP is parsed directly from
+# the address text (bisg_estimator.extract_zip) since it needs no
+# geocoding call at all. See obligation_sweep.fetch_property_geography
+# for where these are actually called.
+# ---------------------------------------------------------------------------
+
+# Hard-assigned data needs a real per-group sample, unlike check 5's
+# probability-weighted >= 1.0 effective-weight floor (where even ONE
+# decision spreads partial weight across every race category, so 1.0
+# genuinely means "about one decision's worth of signal, pooled from
+# many"). A single ZIP code with exactly one loan in it produces a
+# hard rate of 0% or 100% off that one data point -- not a thin
+# signal, just noise dressed as a number. Set higher for that reason;
+# adjust if 5 proves too strict or too loose in practice.
+MIN_OBSERVATIONS_PER_GEOGRAPHY_GROUP = 5
+
+GEOGRAPHY_TIER_ZIP = "zip"
+GEOGRAPHY_TIER_COUNTY = "county"
+GEOGRAPHY_TIERS = (GEOGRAPHY_TIER_ZIP, GEOGRAPHY_TIER_COUNTY)
+
+
+@dataclass(frozen=True)
+class GeographicCohortDecision:
+    """One RESOLVED decision's outcome plus its property location --
+    HARD-ASSIGNED, not a probability distribution (see module docstring
+    above for why this differs from CohortDecision's BISG posterior).
+
+    zip_code / county_fips -- either may be None INDEPENDENTLY of the
+    other: a ZIP is parsed from the address text and a county comes
+    from a separate geocoding call, so one can resolve while the other
+    doesn't. A decision missing BOTH never reaches this cohort at all
+    (see obligation_sweep.assemble_cohort's skip handling) -- partial
+    geography here just excludes this record from ONE tier's rate, not
+    the whole check.
+    """
+
+    subject_id: str
+    favorable_outcome: bool
+    zip_code: Optional[str]
+    county_fips: Optional[str]
+
+
+def check_geographic_outcome_equity(
+        cohort: "List[GeographicCohortDecision]", profile: RegulationCheckProfile,
+        check_name: str = "geographic_outcome_equity_four_fifths",
+        ) -> List[RegulatoryFinding]:
+    """Four-fifths disparate-impact screen by property location, run at
+    BOTH geography tiers (ZIP -- fine-grained -- and county -- coarse)
+    against the same cohort; findings from both tiers come back in one
+    list, each tagged with which tier fired in its evidence. Same
+    overall shape and threshold as check_statistical_outcome_equity
+    (dimension 4); see this module's docstring above for why the
+    comparison itself is hard-assigned counts, not weighted rates.
+
+    A record with no value for a given tier (zip_code or county_fips is
+    None) simply does not count toward THAT tier's rate -- it still
+    counts toward the other tier if it has a value there. This mirrors
+    dimension 4/5's per-obligation independence in obligation_sweep.py:
+    a partial record is used everywhere it can be, not discarded
+    wholesale.
+    """
+    if len(cohort) < MIN_COHORT_SIZE_FOR_STATISTICAL_TEST:
+        return [RegulatoryFinding(
+            check=check_name,
+            subject_id=f"cohort:{len(cohort)}",
+            regulation=profile.regulation,
+            action=ACTION_FLAG,
+            classification="indeterminate_insufficient_cohort",
+            score=0.0,
+            evidence={
+                "cohort_size": len(cohort),
+                "minimum_required": MIN_COHORT_SIZE_FOR_STATISTICAL_TEST,
+                "detail": "cohort is too small for a statistical disparate-impact "
+                          "comparison to mean anything -- reporting indeterminate "
+                          "rather than a spurious pass or flag",
+            },
+        )]
+
+    findings: List[RegulatoryFinding] = []
+    for tier, attr in ((GEOGRAPHY_TIER_ZIP, "zip_code"),
+                       (GEOGRAPHY_TIER_COUNTY, "county_fips")):
+        favorable_count: Dict[str, int] = {}
+        total_count: Dict[str, int] = {}
+        for decision in cohort:
+            group = getattr(decision, attr)
+            if not group:
+                continue
+            total_count[group] = total_count.get(group, 0) + 1
+            if decision.favorable_outcome:
+                favorable_count[group] = favorable_count.get(group, 0) + 1
+
+        rates = {
+            group: favorable_count.get(group, 0) / total
+            for group, total in total_count.items()
+            if total >= MIN_OBSERVATIONS_PER_GEOGRAPHY_GROUP
+        }
+        if len(rates) < 2:
+            findings.append(RegulatoryFinding(
+                check=check_name,
+                subject_id=f"cohort:{len(cohort)}",
+                regulation=profile.regulation,
+                action=ACTION_FLAG,
+                classification="indeterminate_insufficient_group_coverage",
+                score=0.0,
+                evidence={
+                    "tier": tier,
+                    "cohort_size": len(cohort),
+                    "groups_with_sufficient_observations": sorted(rates),
+                    "minimum_observations_per_group": MIN_OBSERVATIONS_PER_GEOGRAPHY_GROUP,
+                    "detail": f"fewer than two {tier} groups have at least "
+                              f"{MIN_OBSERVATIONS_PER_GEOGRAPHY_GROUP} resolved "
+                              f"loans in this cohort to compare -- cannot compute "
+                              f"a four-fifths ratio between groups that don't "
+                              f"both have signal here",
+                },
+            ))
+            continue
+
+        highest_rate = max(rates.values())
+        if highest_rate > 0:
+            for group, rate in sorted(rates.items()):
+                ratio = rate / highest_rate
+                if ratio < FOUR_FIFTHS_THRESHOLD:
+                    findings.append(RegulatoryFinding(
+                        check=check_name,
+                        subject_id=f"cohort:{len(cohort)}",
+                        regulation=profile.regulation,
+                        action=ACTION_FLAG,
+                        classification="four_fifths_adverse_impact",
+                        score=round(1.0 - ratio, 4),
+                        evidence={
+                            "tier": tier,
+                            "group": group,
+                            "group_favorable_rate": round(rate, 4),
+                            "highest_group_favorable_rate": round(highest_rate, 4),
+                            "ratio": round(ratio, 4),
+                            "threshold": FOUR_FIFTHS_THRESHOLD,
+                            "cohort_size": len(cohort),
+                            "group_observations": total_count[group],
+                            "all_group_rates": {g: round(v, 4) for g, v in sorted(rates.items())},
+                            "detail": f"favorable-outcome rate for {tier} "
+                                      f"'{group}' is {ratio:.1%} of the "
+                                      f"highest-rate {tier} group's, below the "
+                                      f"{FOUR_FIFTHS_THRESHOLD:.0%} four-fifths "
+                                      f"threshold -- a screening signal for "
+                                      f"human review, not a legal determination "
+                                      f"of redlining or disparate impact",
+                            "score_meaning": "0.0-1.0, how far below the "
+                                            "four-fifths threshold this group's "
+                                            "rate falls (1.0 - ratio); never a "
+                                            "compliance probability",
+                        },
+                    ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Build item 3: C2 rollup
 # ---------------------------------------------------------------------------
 
@@ -1294,6 +1470,7 @@ DIMENSION_INPUT_AUTHORIZATION_TIER = "input_authorization_tier"
 DIMENSION_NARRATIVE_LEGITIMACY = "narrative_legitimacy"
 DIMENSION_STATISTICAL_OUTCOME_EQUITY = "statistical_outcome_equity"
 DIMENSION_CORRELATION_PROXY_SIGNAL = "correlation_proxy_signal"
+DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY = "geographic_outcome_equity"
 
 C2_DIMENSIONS = (
     DIMENSION_KNOWN_BAD_VARIABLE_NAMES,

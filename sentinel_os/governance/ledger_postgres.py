@@ -71,6 +71,18 @@ class GovernanceDecisionRecord:
     #   supersedes -- proving the reviewer saw the actual decision. NULL on
     #   ordinary governance_decision rows.
     supersedes_hash: Optional[str] = None
+    # Replacement link: the current_hash of an EARLIER governance_decision
+    #   this new, independently-judged decision replaces -- e.g. a mortgage
+    #   permanent modification's new-loan-number decision, which makes the
+    #   original loan's outcome obligation moot (see cassettes.mortgage_
+    #   cassette's module docstring and obligation_supersession.py). NOT the
+    #   same concept as supersedes_hash (a human correcting an existing
+    #   decision's own verdict) -- kept as its own field so the two can never
+    #   be confused reading the ledger. NULL on every decision that isn't a
+    #   declared replacement. Fail-closed: append_decision refuses a
+    #   replaces_hash that does not name a real governance_decision row
+    #   already on the chain.
+    replaces_hash: Optional[str] = None
     # OutcomeV1: the maturation rule in force when this decision was made,
     #   as a declaration string ("loan_performance@24mo"). Knowable AT
     #   decision time, so it hashes in immediately and never changes -- the
@@ -356,6 +368,21 @@ class PostgreSQLLedger:
                         ON ledger_entries(call_sid)
                         WHERE call_sid IS NOT NULL;
                 """)
+            # Replacement link (distinct from Item 6's supersedes_id/hash --
+            # see GovernanceDecisionRecord.replaces_hash docstring). Same
+            # migration guarantee: nullable, no backfill, legacy rows hash
+            # byte-identically since the field is omitted from the canonical
+            # form when absent. Partial index -- the vast majority of
+            # decisions will never set this, same posture as call_sid's
+            # unique partial index above.
+            if "replaces_hash" not in existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS replaces_hash VARCHAR(64);
+                    CREATE INDEX IF NOT EXISTS idx_replaces_hash
+                        ON ledger_entries(replaces_hash)
+                        WHERE replaces_hash IS NOT NULL;
+                """)
             conn.commit()
         finally:
             self.pool.putconn(conn)
@@ -547,7 +574,7 @@ class PostgreSQLLedger:
         # NEW: Capture cassette snapshot for forensic reconstruction
         cassette_snapshot = None
         cassette_hash = None
-        
+
         if governance_params is not None:
             if serialize_cassette_for_ledger is None:
                 raise RuntimeError(
@@ -557,13 +584,37 @@ class PostgreSQLLedger:
             cassette_snapshot = serialize_cassette_for_ledger(governance_params)
             cassette_hash = compute_cassette_hash(cassette_snapshot)
         else:
-            # Warnings only if governance_params explicitly None; 
+            # Warnings only if governance_params explicitly None;
             # migration allows pre-snapshot decisions to coexist
             pass
 
         conn = self.pool.getconn()
         try:
             cursor = conn.cursor()
+
+            # Fail-closed, same posture as supersede_decision's existence
+            # check: a replaces_hash naming a decision that isn't actually on
+            # the chain is refused BEFORE this row is appended, never
+            # recorded as if the claim were verified. Checked inside the
+            # same transaction/connection as the insert below so there is no
+            # window for the referenced row to vanish between the check and
+            # the write (this table is append-only, so it can't be edited
+            # out from under us, but a consistent read is still the honest
+            # thing to do here).
+            if record.replaces_hash:
+                cursor.execute("""
+                    SELECT 1 FROM ledger_entries
+                    WHERE current_hash = %s AND record_kind = 'governance_decision'
+                """, (record.replaces_hash,))
+                if cursor.fetchone() is None:
+                    conn.rollback()
+                    raise ValueError(
+                        f"Governance decision rejected: replaces_hash "
+                        f"{record.replaces_hash!r} does not match any "
+                        f"governance_decision on the chain -- a replacement "
+                        f"link must reference a real prior decision, never "
+                        f"an unverifiable claim"
+                    )
 
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
 
@@ -607,6 +658,7 @@ class PostgreSQLLedger:
                 "authorized_by": record.authorized_by,
                 "supersedes_hash": record.supersedes_hash,
                 "outcome_obligation": record.outcome_obligation,
+                "replaces_hash": record.replaces_hash,
             }
             apply_optional_hashed_fields(canonical_entry, optional_source)
 
@@ -621,9 +673,9 @@ class PostgreSQLLedger:
                  record_kind, cassette_version, input_data, policy_parameters,
                  decision_output, cassette_snapshot, cassette_hash, call_sid,
                  cassette_code_hash, model_identity, authorized_by,
-                 supersedes_id, supersedes_hash, outcome_obligation)
+                 supersedes_id, supersedes_hash, outcome_obligation, replaces_hash)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s)
+                        %s, %s, %s, %s, %s, %s, %s)
             """, (record.action_type, record.node, record.previous_value,
                   record.applied_value, record.reasoning,
                   previous_hash, current_hash, json.dumps(data),
@@ -637,7 +689,7 @@ class PostgreSQLLedger:
                   record.cassette_code_hash, record.model_identity,
                   record.authorized_by,
                   getattr(record, "supersedes_id", None), record.supersedes_hash,
-                  record.outcome_obligation))
+                  record.outcome_obligation, record.replaces_hash))
             conn.commit()
             return True
         except Exception:
@@ -1527,7 +1579,8 @@ class PostgreSQLLedger:
                        data, cassette_version, input_data, policy_parameters,
                        decision_output, cassette_hash,
                        cassette_code_hash, model_identity, authorized_by,
-                       supersedes_id, supersedes_hash, outcome_obligation
+                       supersedes_id, supersedes_hash, outcome_obligation,
+                       replaces_hash
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -1546,7 +1599,8 @@ class PostgreSQLLedger:
                  data, cassette_version, input_data, policy_parameters,
                  decision_output, cassette_hash,
                  cassette_code_hash, model_identity, authorized_by,
-                 supersedes_id, supersedes_hash, outcome_obligation) = row
+                 supersedes_id, supersedes_hash, outcome_obligation,
+                 replaces_hash) = row
                 
                 # Check chain link integrity
                 if stored_prev != prev_hash:
@@ -1581,6 +1635,7 @@ class PostgreSQLLedger:
                             "authorized_by": authorized_by,
                             "supersedes_hash": supersedes_hash,
                             "outcome_obligation": outcome_obligation,
+                            "replaces_hash": replaces_hash,
                         })
                     elif record_kind == "cassette_binding":
                         # Item 2 -- mirrors bind_cassette_version()

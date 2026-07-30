@@ -139,3 +139,50 @@ def test_indeterminate_estimate_never_carries_a_distribution():
 def test_determinate_estimate_reports_true():
     est = BISGEstimate(distribution={"white": 1.0}, precision="tract")
     assert est.is_determinate is True
+
+
+# ==========================================================================
+# extract_zip / CensusGeocoder.geocode_county_fips -- the ZIP/county
+# regional-equity check's property-location primitives (see
+# regulatory_checks.check_geographic_outcome_equity). No network here:
+# geocode_to_tract itself is exercised live in test_bisg_estimator_live.py;
+# this only proves geocode_county_fips correctly reshapes whatever
+# geocode_to_tract returns, and extract_zip's own pure text parsing.
+# ==========================================================================
+
+def test_extract_zip_parses_trailing_five_digit_zip():
+    from bisg_estimator import extract_zip
+    assert extract_zip("123 Main St, Springfield, IL 62704") == "62704"
+
+
+def test_extract_zip_handles_zip_plus_four():
+    from bisg_estimator import extract_zip
+    assert extract_zip("123 Main St, Springfield, IL 62704-1234") == "62704"
+
+
+def test_extract_zip_returns_none_for_no_recognizable_zip():
+    from bisg_estimator import extract_zip
+    assert extract_zip("123 Main St, Springfield, IL") is None
+
+
+def test_extract_zip_returns_none_for_empty_address():
+    from bisg_estimator import extract_zip
+    assert extract_zip("") is None
+    assert extract_zip(None) is None
+
+
+def test_geocode_county_fips_combines_state_and_county_from_tract_lookup():
+    from bisg_estimator import CensusGeocoder
+
+    geocoder = CensusGeocoder()
+    geocoder.geocode_to_tract = lambda address: {
+        "state": "17", "county": "167", "tract": "800102"}
+    assert geocoder.geocode_county_fips("any address") == "17167"
+
+
+def test_geocode_county_fips_returns_none_when_address_does_not_resolve():
+    from bisg_estimator import CensusGeocoder
+
+    geocoder = CensusGeocoder()
+    geocoder.geocode_to_tract = lambda address: None
+    assert geocoder.geocode_county_fips("unresolvable address") is None

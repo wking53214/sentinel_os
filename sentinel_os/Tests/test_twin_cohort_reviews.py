@@ -47,12 +47,14 @@ def _review(domain="lending", obligation_kind="loan_performance",
         "domain": domain, "obligation_kind": obligation_kind,
         "total_resolved": 1, "dimension_4_cohort_size": 1,
         "dimension_5_cohort_size": 0,
+        "dimension_6_cohort_size": 0,
         "dimension_4_findings": dimension_4_findings or [
             {"check": "statistical_outcome_equity", "subject_id": "cohort:1",
              "regulation": "reg_b", "action": "flag",
              "classification": "indeterminate_insufficient_cohort",
              "score": 0.0, "evidence": {}}],
         "dimension_5_findings": [],
+        "dimension_6_findings": [],
         "skipped": [], "swept_at": swept_at,
     }
 
@@ -153,10 +155,13 @@ def test_record_reviews_wires_obligation_sweep_output_into_the_twin(twin):
     review = CohortEquityReview(
         domain="lending", obligation_kind="loan_performance", total_resolved=5,
         dimension_4_cohort_size=5, dimension_5_cohort_size=3,
-        dimension_4_findings=[], dimension_5_findings=[], skipped=[])
+        dimension_6_cohort_size=2,
+        dimension_4_findings=[], dimension_5_findings=[], dimension_6_findings=[],
+        skipped=[])
     results = record_reviews(twin, twin.replica_id, [review], swept_at=1_700_000_000.0)
     assert len(results) == 1
     assert results[0]["seq"] == 1
     listed = twin.get(f"/replica/{twin.replica_id}/cohort-reviews").json()["reviews"]
     assert listed[0]["total_resolved"] == 5
     assert listed[0]["dimension_5_cohort_size"] == 3
+    assert listed[0]["dimension_6_cohort_size"] == 2

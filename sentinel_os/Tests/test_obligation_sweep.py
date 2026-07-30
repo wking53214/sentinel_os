@@ -30,7 +30,9 @@ from obligation_sweep import (
     cohort_key,
     fetch_decision_materials,
     fetch_group_distributions,
+    fetch_latest_cohort_review,
     fetch_resolved_obligations,
+    record_reviews,
     review_cohort,
     subject_of,
     sweep,
@@ -117,7 +119,7 @@ def test_subject_of_falls_back_to_decision_hash():
 # handed in directly.
 # ---------------------------------------------------------------------------
 
-def test_assemble_cohort_builds_both_dimension_cohorts_when_everything_is_on_file():
+def test_assemble_cohort_builds_all_three_dimension_cohorts_when_everything_is_on_file():
     from regulatory_cassette_interface import DecisionMaterial
 
     obligations = [_resolved("o1", "lending", "loan_performance", "h1")]
@@ -125,10 +127,14 @@ def test_assemble_cohort_builds_both_dimension_cohorts_when_everything_is_on_fil
     materials = {"h1": DecisionMaterial(
         subject_id="h1", domain="lending", reasons=(), input_fields={"income": 50000},
         mismatched_fields=(), outcome={"approved": True}, source="ledger")}
+    geography = {"h1": {"zip": "62704", "county_fips": "17167"}}
     assembled = assemble_cohort("lending", "loan_performance", obligations,
-                                distributions, materials)
+                                distributions, materials, geography)
     assert len(assembled.dimension_4_cohort) == 1
     assert len(assembled.dimension_5_cohort) == 1
+    assert len(assembled.dimension_6_cohort) == 1
+    assert assembled.dimension_6_cohort[0].zip_code == "62704"
+    assert assembled.dimension_6_cohort[0].county_fips == "17167"
     assert assembled.skipped == []
     assert assembled.total_resolved == 1
 
@@ -165,15 +171,20 @@ def test_assemble_cohort_skips_a_genuinely_ambiguous_resolution_for_dimension_4_
 def test_assemble_cohort_admits_dimension_4_without_dimension_5():
     """The reverse of the above: a real favorable call with a
     distribution, but no decision material -- dimension 4 gets it,
-    dimension 5 reports why it doesn't."""
+    dimension 5 reports why it doesn't. Dimension 6 also can't run:
+    with no decision material there's no address to geocode either,
+    so it reports its own skip for the same underlying reason."""
     obligations = [_resolved("o1", "lending", "loan_performance", "h1")]
     distributions = {"h1": {"white": 0.6, "black": 0.4}}
     assembled = assemble_cohort("lending", "loan_performance", obligations,
                                 distributions, {})
     assert len(assembled.dimension_4_cohort) == 1
     assert assembled.dimension_5_cohort == []
-    assert len(assembled.skipped) == 1
-    assert "dimension 5" in assembled.skipped[0].reason
+    assert assembled.dimension_6_cohort == []
+    assert len(assembled.skipped) == 2
+    reasons = [s.reason for s in assembled.skipped]
+    assert any("dimension 5" in r for r in reasons)
+    assert any("dimension 6" in r for r in reasons)
 
 
 def test_assemble_cohort_uses_subject_id_to_look_up_distribution_when_present():
@@ -349,4 +360,116 @@ def test_sweep_end_to_end_produces_one_review_per_cohort(twin, channel, test_led
         assert review.total_resolved == 1
         assert review.dimension_4_cohort_size == 1
         assert review.dimension_5_cohort_size == 1
-        assert review.skipped == []
+        # dimension 6 (ZIP/county) needs a property address in
+        # input_fields; these fixtures don't declare one (income/claims
+        # only), so it's expected to skip, not an error -- see
+        # test_sweep_geocodes_property_address_into_dimension_6 below
+        # for the address-present path.
+        assert review.dimension_6_cohort_size == 0
+        assert len(review.skipped) == 1
+        assert "dimension 6" in review.skipped[0].reason
+
+
+def test_sweep_geocodes_property_address_into_dimension_6(twin, channel, test_ledger):
+    """Same wiring as above, but the decision DOES declare a property
+    address -- proving sweep() actually calls the geocoder (a stub
+    here, real bisg_estimator.CensusGeocoder in production) and feeds
+    the result into dimension 6, rather than only proving the skip
+    path."""
+    class _StubGeocoder:
+        def geocode_county_fips(self, address: str):
+            return "17167" if "Springfield" in address else None
+
+    test_ledger.append_decision(GovernanceDecisionRecord(
+        action_type="decision", node="test", cassette_version="lending:test_cassette:1.0.0",
+        input_data={"income": 60000, "loan_property_address":
+                   "123 Main St, Springfield, IL 62704"},
+        policy_parameters={"min_income": 40000}, reasoning="qualifies",
+        output={"approved": True}, outcome_obligation="loan_performance@24mo",
+    ))
+    lending_hash = test_ledger.get_entries(limit=1)[0]["current_hash"]
+    _ship_and_resolve(twin, 1, "lending", lending_hash, favorable=True)
+    channel.record_estimate(lending_hash, SOURCE_BISG_ESTIMATED, {"white": 0.7, "black": 0.3})
+
+    conn = test_ledger.pool.getconn()
+    try:
+        reviews = sweep(twin, twin.replica_id, conn, channel, CFPB_REG_B_PROFILE,
+                        geocoder=_StubGeocoder())
+    finally:
+        test_ledger.pool.putconn(conn)
+
+    assert len(reviews) == 1
+    review = reviews[0]
+    assert review.dimension_6_cohort_size == 1
+    assert review.skipped == []
+
+
+# ---------------------------------------------------------------------------
+# fetch_latest_cohort_review -- read-side lookup for a future per-decision
+# consumer (not wired into the live judgment path yet -- see the function's
+# own docstring for why).
+# ---------------------------------------------------------------------------
+
+def test_fetch_latest_cohort_review_returns_none_when_nothing_swept_yet(twin):
+    result = fetch_latest_cohort_review(twin, twin.replica_id, "lending",
+                                        "loan_performance")
+    assert result is None
+
+
+def test_fetch_latest_cohort_review_returns_the_most_recent_recorded_review(
+        twin, channel, test_ledger):
+    test_ledger.append_decision(GovernanceDecisionRecord(
+        action_type="decision", node="test", cassette_version="lending:test_cassette:1.0.0",
+        input_data={"income": 60000}, policy_parameters={"min_income": 40000},
+        reasoning="qualifies", output={"approved": True},
+        outcome_obligation="loan_performance@24mo",
+    ))
+    lending_hash = test_ledger.get_entries(limit=1)[0]["current_hash"]
+    _ship_and_resolve(twin, 1, "lending", lending_hash, favorable=True)
+    channel.record_estimate(lending_hash, SOURCE_BISG_ESTIMATED, {"white": 0.7, "black": 0.3})
+
+    conn = test_ledger.pool.getconn()
+    try:
+        reviews = sweep(twin, twin.replica_id, conn, channel, CFPB_REG_B_PROFILE)
+    finally:
+        test_ledger.pool.putconn(conn)
+    record_reviews(twin, twin.replica_id, reviews, swept_at=1_700_000_000.0)
+
+    latest = fetch_latest_cohort_review(twin, twin.replica_id, "lending",
+                                        "loan_performance")
+    assert latest is not None
+    assert latest["domain"] == "lending"
+    assert latest["total_resolved"] == 1
+
+
+def test_fetch_latest_cohort_review_returns_the_newest_of_several_sweeps(
+        twin, channel, test_ledger):
+    """Two sweeps of the SAME cohort, one after another -- confirms the
+    lookup returns the newer one, not the first."""
+    test_ledger.append_decision(GovernanceDecisionRecord(
+        action_type="decision", node="test", cassette_version="lending:test_cassette:1.0.0",
+        input_data={"income": 60000}, policy_parameters={"min_income": 40000},
+        reasoning="qualifies", output={"approved": True},
+        outcome_obligation="loan_performance@24mo",
+    ))
+    lending_hash = test_ledger.get_entries(limit=1)[0]["current_hash"]
+    _ship_and_resolve(twin, 1, "lending", lending_hash, favorable=True)
+    channel.record_estimate(lending_hash, SOURCE_BISG_ESTIMATED, {"white": 0.7, "black": 0.3})
+
+    conn = test_ledger.pool.getconn()
+    try:
+        first = sweep(twin, twin.replica_id, conn, channel, CFPB_REG_B_PROFILE)
+    finally:
+        test_ledger.pool.putconn(conn)
+    record_reviews(twin, twin.replica_id, first, swept_at=1_700_000_000.0)
+
+    conn = test_ledger.pool.getconn()
+    try:
+        second = sweep(twin, twin.replica_id, conn, channel, CFPB_REG_B_PROFILE)
+    finally:
+        test_ledger.pool.putconn(conn)
+    record_reviews(twin, twin.replica_id, second, swept_at=1_700_999_999.0)
+
+    latest = fetch_latest_cohort_review(twin, twin.replica_id, "lending",
+                                        "loan_performance")
+    assert latest["swept_at"] == 1_700_999_999.0
