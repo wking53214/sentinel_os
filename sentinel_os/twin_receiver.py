@@ -331,7 +331,8 @@ def build_app(dsn: str, site: str) -> FastAPI:
         return {"replica_id": replica_id, "entries": rows}
 
     @app.post("/replica/{replica_id}/custody-event")
-    def custody_event(replica_id: str, body: Dict[str, Any]):
+    def custody_event(replica_id: str, body: Dict[str, Any],
+                      authorization: Optional[str] = Header(default=None)):
         """Append a signed custody event (creation/rotation/migration/designation).
 
         The caller (customer tooling) supplies event, detail, actor, signer_pub and
@@ -343,7 +344,10 @@ def build_app(dsn: str, site: str) -> FastAPI:
             if f not in body:
                 raise HTTPException(status_code=422, detail=f"missing field '{f}'")
         with db() as conn:
-            _meta(conn, replica_id)
+            m = _meta(conn, replica_id)
+            token = (authorization or "").removeprefix("Bearer ").strip()
+            if token != m["ship_token"]:
+                raise HTTPException(status_code=401, detail="bad ship token")
             with conn.cursor() as cur:
                 cur.execute("SELECT pg_advisory_xact_lock(hashtext('custody_log_' || %s))",
                             (replica_id,))
@@ -537,7 +541,8 @@ def build_app(dsn: str, site: str) -> FastAPI:
             return {row["obligation_id"]: dict(row) for row in cur.fetchall()}
 
     @app.post("/replica/{replica_id}/obligations/derive")
-    def derive_obligations(replica_id: str):
+    def derive_obligations(replica_id: str,
+                           authorization: Optional[str] = Header(default=None)):
         """Recompute the open-obligation set from the decision feed itself.
 
         Idempotent: an obligation already on the chain is not re-appended.
@@ -548,7 +553,10 @@ def build_app(dsn: str, site: str) -> FastAPI:
         from outcome_v1 import MaturationRule, open_obligation
 
         with db() as conn:
-            _meta(conn, replica_id)
+            m = _meta(conn, replica_id)
+            token = (authorization or "").removeprefix("Bearer ").strip()
+            if token != m["ship_token"]:
+                raise HTTPException(status_code=401, detail="bad ship token")
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("""
                     SELECT primary_id, current_hash, outcome_obligation, decided_at, domain
@@ -596,7 +604,8 @@ def build_app(dsn: str, site: str) -> FastAPI:
 
     @app.post("/replica/{replica_id}/obligations/{obligation_id}/transition")
     def transition_obligation(replica_id: str, obligation_id: str,
-                              body: Dict[str, Any]):
+                              body: Dict[str, Any],
+                              authorization: Optional[str] = Header(default=None)):
         """Record a resolution, a restated open reason, or an abandonment.
 
         Signed by the customer in the same posture as custody_event: the
@@ -613,7 +622,10 @@ def build_app(dsn: str, site: str) -> FastAPI:
                                 detail=f"state must be one of "
                                        f"{[OUTCOME_OPEN, OUTCOME_RESOLVED, OUTCOME_ABANDONED]}")
         with db() as conn:
-            _meta(conn, replica_id)
+            m = _meta(conn, replica_id)
+            token = (authorization or "").removeprefix("Bearer ").strip()
+            if token != m["ship_token"]:
+                raise HTTPException(status_code=401, detail="bad ship token")
             current = _latest_states(conn, replica_id).get(obligation_id)
             if not current:
                 raise HTTPException(status_code=404,
@@ -661,7 +673,8 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 "state": updated.state, "reason_code": updated.reason_code}
 
     @app.get("/replica/{replica_id}/obligations")
-    def list_obligations(replica_id: str, now: Optional[float] = None):
+    def list_obligations(replica_id: str, now: Optional[float] = None,
+                         authorization: Optional[str] = Header(default=None)):
         """The examiner query: what is owed, what closed, what is late.
 
         `overdue` is COMPUTED here from opened_at/expected_by against the
@@ -672,7 +685,10 @@ def build_app(dsn: str, site: str) -> FastAPI:
 
         clock = float(now) if now is not None else __import__("time").time()
         with db() as conn:
-            _meta(conn, replica_id)
+            m = _meta(conn, replica_id)
+            token = (authorization or "").removeprefix("Bearer ").strip()
+            if token != m["ship_token"]:
+                raise HTTPException(status_code=401, detail="bad ship token")
             states = _latest_states(conn, replica_id)
         obligations, summary = [], {}
         for row in sorted(states.values(), key=lambda x: x["opened_at"]):
@@ -688,7 +704,8 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 "summary": summary, "obligations": obligations}
 
     @app.post("/replica/{replica_id}/cohort-reviews")
-    def store_cohort_review(replica_id: str, body: Dict[str, Any]):
+    def store_cohort_review(replica_id: str, body: Dict[str, Any],
+                            authorization: Optional[str] = Header(default=None)):
         """Append one cohort_equity_review record -- the output of one
         run of obligation_sweep.py over one (domain, obligation_kind)
         cohort. The twin does not recompute the findings; it stores
@@ -704,19 +721,26 @@ def build_app(dsn: str, site: str) -> FastAPI:
             raise HTTPException(status_code=422,
                                detail=f"missing fields: {missing}")
         with db() as conn:
-            _meta(conn, replica_id)
+            m = _meta(conn, replica_id)
+            token = (authorization or "").removeprefix("Bearer ").strip()
+            if token != m["ship_token"]:
+                raise HTTPException(status_code=401, detail="bad ship token")
             seq, curr_hash = _append_cohort_review(conn, replica_id, body)
         return {"seq": seq, "curr_hash": curr_hash}
 
     @app.get("/replica/{replica_id}/cohort-reviews")
     def list_cohort_reviews(replica_id: str, domain: Optional[str] = None,
-                            obligation_kind: Optional[str] = None):
+                            obligation_kind: Optional[str] = None,
+                            authorization: Optional[str] = Header(default=None)):
         """Every recorded review, oldest first, optionally filtered to
         one cohort's history over time -- an auditor asking 'has
         lending's loan_performance cohort ever flagged' wants the whole
         history for that bucket, not just its latest sweep."""
         with db() as conn:
-            _meta(conn, replica_id)
+            m = _meta(conn, replica_id)
+            token = (authorization or "").removeprefix("Bearer ").strip()
+            if token != m["ship_token"]:
+                raise HTTPException(status_code=401, detail="bad ship token")
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 query = """SELECT seq, domain, obligation_kind, total_resolved,
                                   dimension_4_cohort_size, dimension_5_cohort_size,

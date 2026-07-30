@@ -246,6 +246,10 @@ def twin():
     assert resp.status_code == 200, resp.text
     client.replica_id = rid
     client.ship = {"Authorization": "Bearer tok"}
+    # derive/transition/obligations now check the ship token (AC-13 fix);
+    # set it as a client default so existing calls that predate the fix
+    # keep working without touching each call site individually.
+    client.headers.update(client.ship)
     return client
 
 
