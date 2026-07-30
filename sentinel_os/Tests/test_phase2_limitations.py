@@ -296,6 +296,74 @@ def test_supersession_missing_target_refused():
 
 
 # --------------------------------------------------------------------------
+# Replacement link (replaces_hash) -- ABANDON-on-modification orchestration.
+# Distinct field from Item 6's supersedes_hash above: a replacement is a
+# brand-new, independently-judged decision (mortgage loan modification, new
+# loan number), not a human correcting an existing decision's own verdict.
+# See obligation_supersession.py and cassettes/mortgage_cassette.py's
+# module docstring.
+# --------------------------------------------------------------------------
+
+def test_replaces_hash_in_hash_and_twin():
+    """A decision's replaces_hash enters the canonical hash and the twin
+    recomputes it byte-identically -- same contract as every other
+    optional hashed field."""
+    conn = psycopg2.connect(**DSN)
+    L = _ledger()
+    L.append_decision(_fresh_decision(output={"approved": True}))
+    original = _rows(conn)[-1]
+    L.append_decision(_fresh_decision(replaces_hash=original["current_hash"]))
+    row = _rows(conn)[-1]
+    assert row["replaces_hash"] == original["current_hash"]
+    assert recompute_current_hash(row) == row["current_hash"]
+
+
+def test_replaces_hash_altered_breaks_recompute():
+    """If replaces_hash is altered in a shipped row, recompute no longer
+    matches the stored hash -- i.e. the field is genuinely in the hash."""
+    conn = psycopg2.connect(**DSN)
+    L = _ledger()
+    L.append_decision(_fresh_decision(output={"approved": True}))
+    original = _rows(conn)[-1]
+    L.append_decision(_fresh_decision(replaces_hash=original["current_hash"]))
+    row = _rows(conn)[-1]
+    tampered = dict(row)
+    tampered["replaces_hash"] = "0" * 64
+    assert recompute_current_hash(tampered) != row["current_hash"]
+
+
+def test_replaces_hash_missing_target_refused():
+    """Fail-closed, same posture as supersede_decision's existence check:
+    a replaces_hash naming a decision that isn't on the chain is refused
+    BEFORE the row is appended, never recorded as an unverified claim."""
+    L = _ledger()
+    with pytest.raises(ValueError, match="does not match any governance_decision"):
+        L.append_decision(_fresh_decision(replaces_hash="f" * 64))
+
+
+def test_replaces_hash_refuses_a_non_governance_decision_target():
+    """A replaces_hash pointing at a real row that ISN'T a governance_decision
+    (e.g. a cassette_binding) is refused, same as it would be for an
+    entirely nonexistent hash -- the existence check is scoped to
+    record_kind='governance_decision', matching supersede_decision's own
+    'it is a X, not a governance_decision' guard."""
+    L = _ledger()
+    binding = L.bind_cassette_version(f"ivr:iceberg:{uuid.uuid4().hex[:6]}", "hh", "cc")
+    with pytest.raises(ValueError, match="does not match any governance_decision"):
+        L.append_decision(_fresh_decision(replaces_hash=binding["current_hash"]))
+
+
+def test_replaces_hash_absent_by_default():
+    """Ordinary decisions never set replaces_hash -- confirms the field
+    truly defaults to NULL/omitted rather than something silently derived."""
+    conn = psycopg2.connect(**DSN)
+    L = _ledger()
+    L.append_decision(_fresh_decision(output={"approved": True}))
+    row = _rows(conn)[-1]
+    assert row.get("replaces_hash") is None
+
+
+# --------------------------------------------------------------------------
 # Whole-chain invariant after all record kinds
 # --------------------------------------------------------------------------
 

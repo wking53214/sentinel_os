@@ -145,6 +145,16 @@ CREATE TABLE IF NOT EXISTS cohort_review_ledger (
     at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (replica_id, seq)
 );
+-- dimension_6 (ZIP/county regional-equity, see obligation_sweep.py and
+-- regulatory_checks.check_geographic_outcome_equity): added after the
+-- table's initial release, same backward-compatible ADD COLUMN IF NOT
+-- EXISTS posture as obligation_ledger's domain column above. Existing
+-- rows keep their original (unhashed-for-dim-6) curr_hash; only NEW
+-- appends include dimension_6 in the hashed payload -- an append-only
+-- chain's hash is a property of the row it was computed for, not
+-- retroactively recomputed when the schema gains a field.
+ALTER TABLE cohort_review_ledger ADD COLUMN IF NOT EXISTS dimension_6_cohort_size INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cohort_review_ledger ADD COLUMN IF NOT EXISTS dimension_6_findings JSONB NOT NULL DEFAULT '[]'::jsonb;
 CREATE INDEX IF NOT EXISTS idx_cohort_review_ledger_key
     ON cohort_review_ledger (replica_id, domain, obligation_kind, seq DESC);
 CREATE TABLE IF NOT EXISTS custody_log (
@@ -498,8 +508,10 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 "total_resolved": review["total_resolved"],
                 "dimension_4_cohort_size": review["dimension_4_cohort_size"],
                 "dimension_5_cohort_size": review["dimension_5_cohort_size"],
+                "dimension_6_cohort_size": review["dimension_6_cohort_size"],
                 "dimension_4_findings": review["dimension_4_findings"],
                 "dimension_5_findings": review["dimension_5_findings"],
+                "dimension_6_findings": review["dimension_6_findings"],
                 "skipped": review["skipped"],
                 "swept_at": review["swept_at"],
                 "prev_hash": prev_hash,
@@ -509,14 +521,17 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 """INSERT INTO cohort_review_ledger
                      (replica_id, seq, domain, obligation_kind, total_resolved,
                       dimension_4_cohort_size, dimension_5_cohort_size,
-                      dimension_4_findings, dimension_5_findings, skipped,
+                      dimension_6_cohort_size,
+                      dimension_4_findings, dimension_5_findings,
+                      dimension_6_findings, skipped,
                       swept_at, prev_hash, curr_hash)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (replica_id, seq, review["domain"], review["obligation_kind"],
                  review["total_resolved"], review["dimension_4_cohort_size"],
-                 review["dimension_5_cohort_size"],
+                 review["dimension_5_cohort_size"], review["dimension_6_cohort_size"],
                  json.dumps(review["dimension_4_findings"]),
                  json.dumps(review["dimension_5_findings"]),
+                 json.dumps(review["dimension_6_findings"]),
                  json.dumps(review["skipped"]), review["swept_at"],
                  prev_hash, curr_hash))
         return seq, curr_hash
@@ -697,7 +712,9 @@ def build_app(dsn: str, site: str) -> FastAPI:
         not independent judge)."""
         required = ("domain", "obligation_kind", "total_resolved",
                    "dimension_4_cohort_size", "dimension_5_cohort_size",
+                   "dimension_6_cohort_size",
                    "dimension_4_findings", "dimension_5_findings",
+                   "dimension_6_findings",
                    "skipped", "swept_at")
         missing = [k for k in required if k not in body]
         if missing:
@@ -720,7 +737,9 @@ def build_app(dsn: str, site: str) -> FastAPI:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 query = """SELECT seq, domain, obligation_kind, total_resolved,
                                   dimension_4_cohort_size, dimension_5_cohort_size,
+                                  dimension_6_cohort_size,
                                   dimension_4_findings, dimension_5_findings,
+                                  dimension_6_findings,
                                   skipped, swept_at, prev_hash, curr_hash
                            FROM cohort_review_ledger WHERE replica_id=%s"""
                 params = [replica_id]

@@ -49,6 +49,18 @@ OPTIONAL_HASHED_FIELDS = (
     "authorized_by",       # Item 7: resolved authorizing identity (role/key name)
     "supersedes_hash",     # Item 6: link from a supersession row to the row it supersedes
     "outcome_obligation",  # OutcomeV1: the maturation rule in force at decision time
+    # Distinct from supersedes_hash on purpose: supersedes_hash is Item 6's
+    # human-authored correction of an EXISTING decision's own verdict ("this
+    # row's outcome was wrong; the corrected one is W"). replaces_hash is a
+    # brand-new, independently-judged governance_decision that makes an
+    # earlier decision's OUTCOME OBLIGATION moot (mortgage permanent
+    # modification: a new loan number, a new decision, the old obligation
+    # abandoned via outcome_v1.REASON_DECISION_SUPERSEDED -- never a
+    # decision_supersession row). Conflating the two under one column would
+    # make an examiner unable to tell "corrected" from "replaced" apart from
+    # context. See cassettes/mortgage_cassette.py's module docstring and
+    # obligation_supersession.py for where this is actually used.
+    "replaces_hash",
 )
 
 
