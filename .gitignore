@@ -9,3 +9,4 @@ sentinel_os.zip
 !.env.example
 secret.yaml.local
 k8s/secret.yaml.local
+sentinel_os/ledger_data/
