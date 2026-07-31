@@ -266,3 +266,98 @@ def test_multiple_workers_share_one_queue_no_dup_no_loss(harness, redis_url):
             if d["input_data"].get("call_sid") in sids]
     assert len(rows) == n, "no duplicate ledger rows across concurrent workers"
     assert q.stats()["counters"]["completed"] == n
+
+
+# ------------------------------------------------------------- heartbeat --
+# 2026-07-31: queue_schema.py's heartbeat() (lease renewal, grafted in from
+# the rebuild) existed but was never called from this file -- see module
+# docstring's HEARTBEAT section. These tests prove the fix both ways: the
+# danger is real without it, and the reaper-driven heartbeat closes it.
+
+def test_without_heartbeat_a_slow_call_would_get_reclaimed(harness, redis_url):
+    """Documents the bug this session fixed, not the fix itself: claim a
+    job with a short lease, run something slow (simulating a real
+    process_call) WITHOUT ever heartbeating, and confirm a concurrent
+    reap sweep -- exactly what start_reaper()'s timer does on every other
+    worker -- really does reclaim it out from under the still-working
+    claim. If this test ever starts failing, something upstream (Redis
+    lease semantics, reap_expired's own logic) changed, not this file."""
+    q = TransmissionQueue(name="hb-danger-" + uuid.uuid4().hex[:8], redis_url=redis_url)
+    q.enqueue(good_record("HBDANGER1"), job_id="HBDANGER1")
+    job = q.claim("slow-worker", lease_ms=300, wait_timeout_s=2.0)
+    assert job is not None
+
+    time.sleep(0.5)                       # no heartbeat sent -- lease lapses
+    report = q.reap_expired()
+    assert report["requeued"] == ["HBDANGER1"], (
+        "a lease with nothing renewing it must be reclaimed -- this is "
+        "the exact failure mode heartbeat wiring exists to prevent")
+
+
+def test_reaper_heartbeats_this_workers_in_flight_job(harness, redis_url):
+    """The fix: a slow process_call's lease survives, via the SAME reaper
+    timer, even though the lease alone is far too short to cover it."""
+    q = TransmissionQueue(name="hb-fix-" + uuid.uuid4().hex[:8], redis_url=redis_url)
+    w = SentinelWorker(harness, q, worker_id="hb-worker", reap_interval_s=0.1)
+
+    real_process_call = harness.process_call
+
+    def slow_process_call(payload):
+        time.sleep(0.8)                   # several times the 250ms lease
+        return real_process_call(payload)
+
+    harness.process_call = slow_process_call
+    try:
+        q.enqueue(good_record("HBFIX1"), job_id="HBFIX1")
+        job = q.claim(w.worker_id, lease_ms=250, wait_timeout_s=2.0)
+        w.start_reaper()
+        try:
+            outcome = w.handle_one(job)
+        finally:
+            w.stop()
+    finally:
+        harness.process_call = real_process_call
+
+    assert outcome is Outcome.OK
+    assert w.acked == 1
+    assert w.failed == 0
+    rows = [d for d in harness.ledger.get_decisions(limit=50)
+            if d["input_data"].get("call_sid") == "HBFIX1"]
+    assert len(rows) == 1, (
+        "exactly one ledger row -- if the lease had lapsed and the job "
+        "got redelivered to a second worker, either this worker's own "
+        "ack would come back non-OK, or there would be a second row"
+    )
+
+
+def test_current_job_is_cleared_after_handling_so_the_reaper_stops_touching_it(
+    harness, redis_url,
+):
+    """A completed job must not keep getting heartbeated forever -- once
+    handle_one returns, _current_job goes back to None."""
+    q = TransmissionQueue(name="hb-clear-" + uuid.uuid4().hex[:8], redis_url=redis_url)
+    w = SentinelWorker(harness, q, worker_id="hb-clear-worker")
+    q.enqueue(good_record("HBCLEAR1"), job_id="HBCLEAR1")
+    job = q.claim(w.worker_id, wait_timeout_s=2.0)
+
+    assert w._current_job is None          # nothing in flight yet
+    w.handle_one(job)
+    assert w._current_job is None          # cleared after handling
+
+
+def test_reaper_tolerates_no_in_flight_job(harness, redis_url):
+    """The common case: reaper ticks happen constantly while a worker is
+    idle between claims. Must not error just because there's nothing to
+    heartbeat."""
+    q = TransmissionQueue(name="hb-idle-" + uuid.uuid4().hex[:8], redis_url=redis_url)
+    w = SentinelWorker(harness, q, worker_id="hb-idle-worker", reap_interval_s=0.1)
+    w.start_reaper()
+    time.sleep(0.35)                       # several idle reaper ticks
+    w.stop()
+    # No exception escaping the background thread is the assertion --
+    # nothing here would raise visibly in the test process if the reaper
+    # thread itself died, so this is really just "the worker is still
+    # usable afterward":
+    q.enqueue(good_record("HBIDLE1"), job_id="HBIDLE1")
+    job = q.claim(w.worker_id, wait_timeout_s=2.0)
+    assert w.handle_one(job) is Outcome.OK
