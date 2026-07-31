@@ -61,6 +61,16 @@ OPTIONAL_HASHED_FIELDS = (
     # context. See cassettes/mortgage_cassette.py's module docstring and
     # obligation_supersession.py for where this is actually used.
     "replaces_hash",
+    # AI cost tracking (2026-07-31): real token counts + computed dollar
+    # cost from ai_cost_tracking.py, for whichever governance decision
+    # actually called the Claude API (currently only safety_check, via
+    # claude_governance_api.py -- see that module's docstring). A dict,
+    # same as `output`, not a scalar -- everything about one call's cost
+    # was computed together and belongs together. NULL/absent on every
+    # decision that never called the API (nothing to disclose) and on
+    # every row written before this field existed, same migration
+    # guarantee every other optional field here already has.
+    "ai_cost",
 )
 
 

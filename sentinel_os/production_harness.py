@@ -674,6 +674,12 @@ class IcebergProductionHarness:
                                 # this row; this row points at nothing, which
                                 # is what lets it close permanently.
                                 outcome_obligation=obligation_declaration,
+                                # Item 8 (2026-07-31): real usage-derived cost
+                                # of this safety_check call, passed through
+                                # from claude_governance_api unchanged -- see
+                                # ai_cost_tracking.py. None on any fail-closed
+                                # governor path (no API call, nothing to cost).
+                                ai_cost=claude_decision.get("cost"),
                             ),
                             governance_params=params,
                         )

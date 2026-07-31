@@ -2,6 +2,13 @@
 Claude Governance API - Real LLM decisions for Iceberg
 
 Routes critical governance decisions to Claude instead of simulation
+
+COST (2026-07-31): every method that reaches the API returns a `cost` key
+(real usage-derived token counts + dollar amount, see ai_cost_tracking.py)
+alongside its decision -- computing the cost is this module's job, since
+only it ever sees the raw API response; DISCLOSING it to the ledger is the
+caller's, since only the caller (production_harness.py) holds a ledger
+reference. See governance/ledger_postgres.py's record_ai_governance_cost.
 """
 
 import anthropic
@@ -9,6 +16,25 @@ from typing import Dict, Optional
 import json
 
 from governor_injection_defense import build_governance_call
+from ai_cost_tracking import cost_of_call
+
+
+def _cost_or_none(model_identity: Optional[str], usage) -> Optional[Dict]:
+    """Build the cost dict for one call, or None if no usage data exists.
+
+    No usage data happens when the API call itself never completed (a
+    genuine transport/auth error raised before `message` was assigned) or
+    when a test stub's fake response has no `usage` attribute at all --
+    both are "we don't know what this cost" and get the same None, never
+    a guessed or zeroed cost.
+    """
+    if model_identity is None or usage is None:
+        return None
+    input_tokens = getattr(usage, "input_tokens", None)
+    output_tokens = getattr(usage, "output_tokens", None)
+    if input_tokens is None or output_tokens is None:
+        return None
+    return cost_of_call(model_identity, input_tokens, output_tokens).as_dict()
 
 class ClaudeGovernanceDecider:
     """Uses real Claude API for governance decisions"""
@@ -40,6 +66,7 @@ class ClaudeGovernanceDecider:
                 "target_wait": None,
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": None,
             }
 
         system, messages = build_governance_call(
@@ -61,6 +88,12 @@ class ClaudeGovernanceDecider:
             ),
         )
 
+        # Set before the try so a genuine transport error (raised by
+        # messages.create itself, before either name would otherwise be
+        # bound) still leaves both names defined for the except blocks --
+        # None correctly means "no usage data exists" either way.
+        usage = None
+        model_identity = None
         try:
             message = self.client.messages.create(
                 model=self.model,
@@ -68,10 +101,11 @@ class ClaudeGovernanceDecider:
                 system=system,
                 messages=messages,
             )
+            usage = getattr(message, "usage", None)
+            model_identity = getattr(message, "model", None) or self.model
             if not message.content or len(message.content) == 0:
                 raise ValueError("Empty response")
             response_text = message.content[0].text
-            model_identity = getattr(message, "model", None) or self.model
             decision = json.loads(response_text)
             if not isinstance(decision.get("should_heal"), bool):
                 raise ValueError("should_heal not bool")
@@ -86,6 +120,7 @@ class ClaudeGovernanceDecider:
                 "target_wait": None,
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": _cost_or_none(model_identity, usage),
             }
         except Exception as e:
             return {
@@ -98,10 +133,12 @@ class ClaudeGovernanceDecider:
                 "target_wait": None,
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": _cost_or_none(model_identity, usage),
             }
         
         decision["parse_failed"] = False
         decision["model_identity"] = model_identity
+        decision["cost"] = _cost_or_none(model_identity, usage)
         self.decisions.append(decision)
         return decision
 
@@ -127,6 +164,7 @@ class ClaudeGovernanceDecider:
                 "expected_wait": None,
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": None,
             }
 
         system, messages = build_governance_call(
@@ -149,6 +187,8 @@ class ClaudeGovernanceDecider:
             ),
         )
 
+        usage = None
+        model_identity = None
         try:
             message = self.client.messages.create(
                 model=self.model,
@@ -156,10 +196,11 @@ class ClaudeGovernanceDecider:
                 system=system,
                 messages=messages,
             )
+            usage = getattr(message, "usage", None)
+            model_identity = getattr(message, "model", None) or self.model
             if not message.content or len(message.content) == 0:
                 raise ValueError("Empty response")
             response_text = message.content[0].text
-            model_identity = getattr(message, "model", None) or self.model
             decision = json.loads(response_text)
         except json.JSONDecodeError:
             return {
@@ -171,6 +212,7 @@ class ClaudeGovernanceDecider:
                 "expected_wait": None,
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": _cost_or_none(model_identity, usage),
             }
         except Exception as e:
             return {
@@ -182,11 +224,13 @@ class ClaudeGovernanceDecider:
                 "expected_wait": None,
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": _cost_or_none(model_identity, usage),
             }
 
         decision["queue"] = queue_name
         decision["parse_failed"] = False
         decision["model_identity"] = model_identity
+        decision["cost"] = _cost_or_none(model_identity, usage)
         self.decisions.append(decision)
         return decision
     
@@ -211,6 +255,7 @@ class ClaudeGovernanceDecider:
                 "expected_impact": 0.0,
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": None,
             }
 
         system, messages = build_governance_call(
@@ -231,6 +276,8 @@ class ClaudeGovernanceDecider:
             ),
         )
 
+        usage = None
+        model_identity = None
         try:
             message = self.client.messages.create(
                 model=self.model,
@@ -238,10 +285,11 @@ class ClaudeGovernanceDecider:
                 system=system,
                 messages=messages,
             )
+            usage = getattr(message, "usage", None)
+            model_identity = getattr(message, "model", None) or self.model
             if not message.content or len(message.content) == 0:
                 raise ValueError("Empty response")
             response_text = message.content[0].text
-            model_identity = getattr(message, "model", None) or self.model
             decision = json.loads(response_text)
         except json.JSONDecodeError:
             return {
@@ -252,6 +300,7 @@ class ClaudeGovernanceDecider:
                 "expected_impact": 0.0,
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": _cost_or_none(model_identity, usage),
             }
         except Exception as e:
             return {
@@ -262,10 +311,12 @@ class ClaudeGovernanceDecider:
                 "expected_impact": 0.0,
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": _cost_or_none(model_identity, usage),
             }
 
         decision["parse_failed"] = False
         decision["model_identity"] = model_identity
+        decision["cost"] = _cost_or_none(model_identity, usage)
         self.decisions.append(decision)
         return decision
     
@@ -282,6 +333,13 @@ class ClaudeGovernanceDecider:
         row and thus in the hash. On every fail-closed path model_identity is
         None -- a decision that didn't come from a model has no model identity,
         and inventing one would be a forged fact in a tamper-evident record.
+
+        Item 6 (2026-07-31): every path that actually reached the API --
+        including a parsed-but-invalid response -- also returns `cost`, real
+        token counts plus a computed dollar amount from ai_cost_tracking (None
+        if the model isn't in that module's pricing table; never guessed).
+        `cost` is None only when no API call ever completed, same posture as
+        `model_identity`.
         """
 
         if self.client is None:
@@ -294,6 +352,7 @@ class ClaudeGovernanceDecider:
                 "recommendations": ["Configure API key"],
                 "confidence": 1.0,
                 "model_identity": None,
+                "cost": None,
             }
 
         system, messages = build_governance_call(
@@ -309,6 +368,8 @@ class ClaudeGovernanceDecider:
             ),
         )
 
+        usage = None
+        model_identity = None
         try:
             message = self.client.messages.create(
                 model=self.model,
@@ -316,6 +377,7 @@ class ClaudeGovernanceDecider:
                 system=system,
                 messages=messages,
             )
+            usage = getattr(message, "usage", None)
             if not message.content or len(message.content) == 0:
                 raise ValueError("Empty response")
             response_text = message.content[0].text
@@ -335,6 +397,7 @@ class ClaudeGovernanceDecider:
                 "recommendations": ["Check governor output"],
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": _cost_or_none(model_identity, usage),
             }
         except ValueError as e:
             return {
@@ -346,6 +409,7 @@ class ClaudeGovernanceDecider:
                 "recommendations": ["Check governor"],
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": _cost_or_none(model_identity, usage),
             }
         except Exception as e:
             return {
@@ -357,11 +421,13 @@ class ClaudeGovernanceDecider:
                 "recommendations": ["Check API connectivity"],
                 "confidence": 0.0,
                 "model_identity": None,
+                "cost": _cost_or_none(model_identity, usage),
             }
 
         decision["governed"] = decision.get("safe", False)
         decision["parse_failed"] = False
         decision["model_identity"] = model_identity
+        decision["cost"] = _cost_or_none(model_identity, usage)
         self.decisions.append(decision)
         return decision
 
