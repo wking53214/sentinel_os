@@ -3,16 +3,15 @@ test_c2_geographic_outcome_equity -- proof suite for C2 dimension 6
 (regulatory_checks.check_geographic_outcome_equity): the ZIP/county
 redlining-style regional-equity screen.
 
-Pure logic only -- no ledger, no sealed channel, no geocoder (that's
-obligation_sweep's job to wire together; see Tests/test_obligation_sweep.py
-for the end-to-end geocoding path). This file tests the STATISTICAL
-check itself against already-assembled GeographicCohortDecision records,
-same posture as test_c2_statistical_outcome_equity.py for dimension 4.
-
-Not wired into CFPBRegBLens.c2_rollup() yet (deliberately left as a
-follow-up decision, same posture dimension 5/correlation had between
-being built and being wired in) -- so there is no rollup-wiring section
-here yet, unlike test_c2_statistical_outcome_equity.py's.
+Pure logic + one lens-wiring section -- no ledger, no sealed channel,
+no geocoder (that's obligation_sweep's job to wire together; see
+Tests/test_obligation_sweep.py for the end-to-end geocoding path).
+This file tests the STATISTICAL check itself against already-assembled
+GeographicCohortDecision records, same posture as
+test_c2_statistical_outcome_equity.py for dimension 4, plus a
+rollup-wiring section proving CFPBRegBLens.c2_rollup()'s optional
+geographic_outcome_equity_findings parameter (wired 2026-07-31, same
+pattern dimension 4/5 already established).
 """
 
 import os
@@ -22,7 +21,13 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from regulatory_cassette_interface import DecisionMaterial
+from regulatory_cassettes.cfpb_reg_b import CFPBRegBLens
 from regulatory_checks import (
+    C2_FLAG,
+    C2_INDETERMINATE,
+    C2_PASS,
+    DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY,
     FOUR_FIFTHS_THRESHOLD,
     GEOGRAPHY_TIER_COUNTY,
     GEOGRAPHY_TIER_ZIP,
@@ -34,6 +39,13 @@ from regulatory_checks import (
 )
 
 _PROFILE = RegulationCheckProfile(regulation="test-dimension-6")
+
+
+def _material(inputs=None):
+    return DecisionMaterial(
+        subject_id="D-1", domain="mortgage", reasons=(),
+        input_fields=dict(inputs or {}), mismatched_fields=(), outcome={}, source="ledger",
+    )
 
 
 def _cohort_for_tier(n_per_group: int, rate_a: float, rate_b: float,
@@ -193,3 +205,87 @@ def test_record_with_only_zip_contributes_to_zip_tier_only():
     county_findings = [f for f in findings if f.evidence.get("tier") == GEOGRAPHY_TIER_COUNTY]
     assert len(county_findings) == 1
     assert county_findings[0].classification == "indeterminate_insufficient_group_coverage"
+
+
+# ==========================================================================
+# CFPBRegBLens.c2_rollup() -- optional dimension-6 passthrough
+# (wired 2026-07-31, same pattern dimension 4 already established)
+# ==========================================================================
+
+def test_c2_rollup_default_still_indeterminate_when_no_result_passed():
+    """Unchanged behavior: a caller that doesn't pass a dimension-6
+    result gets exactly the same INDETERMINATE-forcing None as before
+    dimension 6 was wired in."""
+    lens = CFPBRegBLens(version="1.0.0-d6-a")
+    rollup = lens.c2_rollup(_material())
+    assert rollup.status == C2_INDETERMINATE
+    assert DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY in rollup.not_evaluated_dimensions
+
+
+def test_c2_rollup_accepts_clean_precomputed_dimension_6_result():
+    lens = CFPBRegBLens(version="1.0.0-d6-b")
+    rollup = lens.c2_rollup(_material(), geographic_outcome_equity_findings=[])
+    assert DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY in rollup.evaluated_dimensions
+    assert DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY not in rollup.not_evaluated_dimensions
+
+
+def test_c2_rollup_flags_when_precomputed_dimension_6_result_flagged():
+    lens = CFPBRegBLens(version="1.0.0-d6-c")
+    cohort = _cohort_for_tier(20, rate_a=0.9, rate_b=0.5, tier=GEOGRAPHY_TIER_ZIP)
+    d6_findings = check_geographic_outcome_equity(cohort, _PROFILE)
+    rollup = lens.c2_rollup(_material(),
+                            statistical_outcome_equity_findings=[],
+                            correlation_proxy_findings=[],
+                            geographic_outcome_equity_findings=d6_findings)
+    assert rollup.status == C2_FLAG
+    assert DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY in rollup.flagged_dimensions
+
+
+def test_c2_rollup_can_reach_pass_only_when_dimension_6_actually_clean():
+    """The scenario that could not happen before this session: a
+    non-INDETERMINATE PASS when dimension 6 genuinely ran clean at
+    BOTH tiers (equal rates across ZIP groups AND across county
+    groups) and no other dimension flagged. Needs both tiers populated
+    with >=2 groups each -- a cohort with only ZIP data still produces
+    a non-empty findings list (the county tier's own
+    indeterminate_insufficient_group_coverage finding), which is a
+    real finding, not a clean pass; see
+    test_record_with_only_zip_contributes_to_zip_tier_only above."""
+    lens = CFPBRegBLens(version="1.0.0-d6-d")
+    material = _material(inputs={"income": 90000})  # nothing proxy-shaped
+    cohort = []
+    for i in range(20):
+        cohort.append(GeographicCohortDecision(
+            f"a{i}", favorable_outcome=(i < 15),
+            zip_code="62701", county_fips="17167"))
+    for i in range(20):
+        cohort.append(GeographicCohortDecision(
+            f"b{i}", favorable_outcome=(i < 15),
+            zip_code="62704", county_fips="17201"))
+    d6_findings = check_geographic_outcome_equity(cohort, _PROFILE)
+    assert d6_findings == []  # equal 75% rate at both tiers -- genuinely clean
+    rollup = lens.c2_rollup(material,
+                            statistical_outcome_equity_findings=[],
+                            correlation_proxy_findings=[],
+                            geographic_outcome_equity_findings=d6_findings)
+    assert rollup.status == C2_PASS
+
+
+def test_c2_rollup_geographic_findings_omitted_when_cohort_has_no_geography():
+    """A cassette whose cohort genuinely has no property-address data
+    (dimension 6 is not meaningful there) should pass an empty list --
+    same 'evaluated and clean' choice dimensions 4/5 already require --
+    proving this doesn't manufacture a false flag from an empty cohort
+    passed through the real check function."""
+    lens = CFPBRegBLens(version="1.0.0-d6-e")
+    d6_findings = check_geographic_outcome_equity([], _PROFILE)
+    rollup = lens.c2_rollup(_material(),
+                            statistical_outcome_equity_findings=[],
+                            correlation_proxy_findings=[],
+                            geographic_outcome_equity_findings=d6_findings)
+    # An empty cohort is itself indeterminate (insufficient cohort size,
+    # see check_geographic_outcome_equity) -- correctly non-clean, not a
+    # silent pass.
+    assert DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY in rollup.evaluated_dimensions
+    assert d6_findings  # the "indeterminate_insufficient_cohort" finding itself
+    assert DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY in rollup.flagged_dimensions

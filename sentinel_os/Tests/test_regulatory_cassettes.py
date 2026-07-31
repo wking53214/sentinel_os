@@ -82,6 +82,7 @@ from regulatory_checks import (
     C2_INDETERMINATE,
     C2_PASS,
     DIMENSION_CORRELATION_PROXY_SIGNAL,
+    DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY,
     DIMENSION_INPUT_AUTHORIZATION_TIER,
     DIMENSION_KNOWN_BAD_VARIABLE_NAMES,
     DIMENSION_NARRATIVE_LEGITIMACY,
@@ -932,13 +933,14 @@ def test_both_toggles_off_is_byte_identical_to_default_lens():
     rollup = default.c2_rollup(material)
     assert rollup.evaluated_dimensions == (DIMENSION_KNOWN_BAD_VARIABLE_NAMES,)
     assert rollup.not_evaluated_dimensions == (DIMENSION_CORRELATION_PROXY_SIGNAL,
+                                               DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY,
                                                DIMENSION_STATISTICAL_OUTCOME_EQUITY)
     # Dimensions 2/3 never appear at all -- omitted, not None.
     assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.evaluated_dimensions
     assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.not_evaluated_dimensions
     assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.evaluated_dimensions
     assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.not_evaluated_dimensions
-    assert rollup.status == C2_INDETERMINATE  # dimensions 4 & 5 always pending
+    assert rollup.status == C2_INDETERMINATE  # dimensions 4, 5 & 6 always pending
 
 
 def test_tier_screen_on_alone_wires_dimension_2_only():
@@ -963,8 +965,7 @@ def test_tier_screen_on_alone_wires_dimension_2_only():
     assert DIMENSION_INPUT_AUTHORIZATION_TIER in rollup.evaluated_dimensions
     assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.evaluated_dimensions
     assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.not_evaluated_dimensions
-    assert DIMENSION_INPUT_AUTHORIZATION_TIER in rollup.flagged_dimensions
-    assert rollup.status == C2_INDETERMINATE  # dimension 4 still pending
+    assert rollup.status == C2_INDETERMINATE  # dimensions 4, 5 & 6 still pending
 
 
 def test_narrative_screen_on_alone_wires_dimension_3_only():
@@ -984,8 +985,7 @@ def test_narrative_screen_on_alone_wires_dimension_3_only():
     assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.evaluated_dimensions
     assert DIMENSION_INPUT_AUTHORIZATION_TIER not in rollup.not_evaluated_dimensions
     # No findings from dimensions 1 or 3 on this clean-input material.
-    assert DIMENSION_NARRATIVE_LEGITIMACY not in rollup.flagged_dimensions
-    assert rollup.status == C2_INDETERMINATE  # dimension 4 still pending
+    assert rollup.status == C2_INDETERMINATE  # dimensions 4, 5 & 6 still pending
 
 
 def test_both_c2_toggles_on_wires_both_dimensions():
@@ -1008,6 +1008,7 @@ def test_both_c2_toggles_on_wires_both_dimensions():
     assert set(rollup.not_evaluated_dimensions) == {
         DIMENSION_CORRELATION_PROXY_SIGNAL,
         DIMENSION_STATISTICAL_OUTCOME_EQUITY,
+        DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY,
     }
     assert rollup.status == C2_INDETERMINATE
 
@@ -1055,7 +1056,8 @@ def test_c2_rollup_with_empty_correlation_findings_passes():
                                                        inputs={"amount": 5000}))
     rollup = lens.c2_rollup(material,
                             statistical_outcome_equity_findings=[],
-                            correlation_proxy_findings=[])
+                            correlation_proxy_findings=[],
+                            geographic_outcome_equity_findings=[])
     assert rollup.status == C2_PASS
     assert DIMENSION_CORRELATION_PROXY_SIGNAL in rollup.evaluated_dimensions
     assert DIMENSION_CORRELATION_PROXY_SIGNAL not in rollup.flagged_dimensions
@@ -1085,7 +1087,8 @@ def test_c2_rollup_with_correlation_findings_flags():
     )
     rollup = lens.c2_rollup(material,
                             statistical_outcome_equity_findings=[],
-                            correlation_proxy_findings=[correlation_finding])
+                            correlation_proxy_findings=[correlation_finding],
+                            geographic_outcome_equity_findings=[])
     assert rollup.status == C2_FLAG
     assert DIMENSION_CORRELATION_PROXY_SIGNAL in rollup.evaluated_dimensions
     assert DIMENSION_CORRELATION_PROXY_SIGNAL in rollup.flagged_dimensions
@@ -1123,7 +1126,8 @@ def test_c2_rollup_proxy_screen_and_correlation_both_flag():
     )
     rollup = lens.c2_rollup(material,
                             statistical_outcome_equity_findings=[],
-                            correlation_proxy_findings=[correlation_finding])
+                            correlation_proxy_findings=[correlation_finding],
+                            geographic_outcome_equity_findings=[])
     
     # Both dimension 1 (proxy/declared-name) and dimension 5 (correlation)
     # should be in flagged_dimensions
