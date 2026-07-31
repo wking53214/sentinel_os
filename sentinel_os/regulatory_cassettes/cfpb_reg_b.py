@@ -66,6 +66,20 @@ decision OPT-IN, one cohort-level):
    string/categorical values are NOT screened this session, a real
    remaining gap.
 
+6. Geographic (ZIP/county) outcome equity (C2 dimension 6, COHORT-LEVEL,
+   wired 2026-07-31): the redlining-style regional analog of dimension 4
+   -- same four-fifths comparison, run at two geography tiers (ZIP and
+   county) instead of demographic groups. Same posture as dimensions 4
+   and 5: cohort-level, not per-decision, c2_rollup accepts it as an
+   optional parameter only. See
+   regulatory_checks.check_geographic_outcome_equity and
+   obligation_sweep.py for how the cohort itself gets assembled from
+   property addresses. Only meaningful for decisions that carry a
+   property address in the first place (e.g. the mortgage cassette) --
+   a caller with no geography data for its cohort should pass an empty
+   list (evaluated, clean) rather than omit the parameter, the same
+   choice dimensions 4/5 already require.
+
 The two per-decision C2 opt-in screens (dimensions 2 & 3) are wired the
 same way block_on_placeholder
 already is: independent booleans that live in get_profile()'s
@@ -130,6 +144,7 @@ from regulatory_cassette_interface import (
 )
 from regulatory_checks import (
     DIMENSION_CORRELATION_PROXY_SIGNAL,
+    DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY,
     DIMENSION_INPUT_AUTHORIZATION_TIER,
     DIMENSION_KNOWN_BAD_VARIABLE_NAMES,
     DIMENSION_NARRATIVE_LEGITIMACY,
@@ -254,10 +269,11 @@ class CFPBRegBLens(RegulatoryCassette):
     reasons optionally are (see the module docstring's "FUTURE BLOCKING
     VARIANTS" note for the pattern to follow if that's ever wanted).
 
-    See c2_rollup() for how findings from all four C2 dimensions
-    (this lens supplies at most three; dimension 4, statistical
-    outcome-equity, is unbuilt) combine into one PASS/FLAG/INDETERMINATE
-    status via regulatory_checks.rollup_c2_bias_identification.
+    See c2_rollup() for how findings from all six C2 dimensions (this
+    lens supplies at most three per-decision -- dimensions 4-6 are
+    cohort-level, supplied by the caller) combine into one
+    PASS/FLAG/INDETERMINATE status via
+    regulatory_checks.rollup_c2_bias_identification.
     """
 
     MODES = (MODE_OBSERVER, MODE_LIVE)
@@ -336,6 +352,7 @@ class CFPBRegBLens(RegulatoryCassette):
     def c2_rollup(self, material: DecisionMaterial,
                   statistical_outcome_equity_findings: Optional[List[RegulatoryFinding]] = None,
                   correlation_proxy_findings: Optional[List[RegulatoryFinding]] = None,
+                  geographic_outcome_equity_findings: Optional[List[RegulatoryFinding]] = None,
                   ) -> C2Rollup:
         """Combine this lens's findings into one C2 bias-identification
         status via rollup_c2_bias_identification.
@@ -352,20 +369,27 @@ class CFPBRegBLens(RegulatoryCassette):
         the silent default-behavior change this lens's opt-in design
         avoids (see the class and module docstrings).
 
-        Dimension 4 (statistical_outcome_equity) and Dimension 5
-        (correlation_proxy_signal) are both COHORT-level, not per-decision
-        (see regulatory_checks.check_statistical_outcome_equity and
-        check_correlation_based_proxy_detection docstrings for why) --
-        this single-`material` method has no cohort of its own to compute
-        either from. Both default None: exactly the same "unbuilt/no data"
-        posture as before these dimensions existed, so a caller who does
-        nothing differently sees identical behavior. A caller that HAS
-        already run either check against the relevant cohort may pass its
-        findings list here (empty list for clean result, non-empty for
-        flagged) to have it included for real. Passing None still means
-        "not yet evaluated" and keeps the rollup INDETERMINATE -- this
-        method never runs cohort checks itself, so it cannot silently
-        fabricate a result the caller didn't actually compute.
+        Dimension 4 (statistical_outcome_equity), Dimension 5
+        (correlation_proxy_signal), and Dimension 6
+        (geographic_outcome_equity) are all COHORT-level, not
+        per-decision (see regulatory_checks.check_statistical_outcome_equity,
+        check_correlation_based_proxy_detection, and
+        check_geographic_outcome_equity docstrings for why) -- this
+        single-`material` method has no cohort of its own to compute any
+        of them from. All three default None: exactly the same
+        "unbuilt/no data" posture as before each dimension existed, so a
+        caller who does nothing differently sees identical behavior. A
+        caller that HAS already run any of the three checks against the
+        relevant cohort may pass its findings list here (empty list for
+        clean result, non-empty for flagged) to have it included for
+        real. Passing None still means "not yet evaluated" and keeps the
+        rollup INDETERMINATE -- this method never runs cohort checks
+        itself, so it cannot silently fabricate a result the caller
+        didn't actually compute. Dimension 6 specifically is only
+        meaningful for decisions with property-geography data (e.g.
+        mortgage) -- a caller whose cohort has none should still pass an
+        empty list (evaluated, clean), not omit the parameter, same
+        choice already required for 4 and 5.
         """
         dimension_findings: Dict[str, Any] = {
             DIMENSION_KNOWN_BAD_VARIABLE_NAMES: check_proxy_variables(
@@ -391,6 +415,9 @@ class CFPBRegBLens(RegulatoryCassette):
         )
         dimension_findings[DIMENSION_CORRELATION_PROXY_SIGNAL] = (
             correlation_proxy_findings
+        )
+        dimension_findings[DIMENSION_GEOGRAPHIC_OUTCOME_EQUITY] = (
+            geographic_outcome_equity_findings
         )
         return rollup_c2_bias_identification(dimension_findings)
 

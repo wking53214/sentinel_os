@@ -476,6 +476,8 @@ class RegulatoryDeck:
                 for f in review.get("dimension_4_findings", [])]
         dim5 = [RegulatoryFinding(**f)
                 for f in review.get("dimension_5_findings", [])]
+        dim6 = [RegulatoryFinding(**f)
+                for f in review.get("dimension_6_findings", [])]
         escalations: List[Tuple[InsertedLens, RegulatoryFinding]] = []
         for entry in self._live_entries():
             rollup_fn = getattr(entry.lens, "c2_rollup", None)
@@ -483,7 +485,8 @@ class RegulatoryDeck:
                 continue
             rollup = rollup_fn(
                 material, statistical_outcome_equity_findings=dim4,
-                correlation_proxy_findings=dim5)
+                correlation_proxy_findings=dim5,
+                geographic_outcome_equity_findings=dim6)
             if rollup.status != C2_FLAG:
                 continue
             escalations.append((entry, RegulatoryFinding(

@@ -192,7 +192,8 @@ def test_c2_rollup_flags_when_precomputed_dimension_4_result_flagged():
     d4_findings = check_statistical_outcome_equity(cohort, _PROFILE)
     rollup = lens.c2_rollup(_material(),
                             statistical_outcome_equity_findings=d4_findings,
-                            correlation_proxy_findings=[])
+                            correlation_proxy_findings=[],
+                            geographic_outcome_equity_findings=[])
     assert rollup.status == C2_FLAG
     assert DIMENSION_STATISTICAL_OUTCOME_EQUITY in rollup.flagged_dimensions
 
@@ -205,6 +206,7 @@ def test_c2_rollup_can_reach_pass_only_when_dimension_4_actually_clean():
     material = _material(inputs={"income": 90000})  # nothing proxy-shaped
     rollup = lens.c2_rollup(material,
                             statistical_outcome_equity_findings=[],
-                            correlation_proxy_findings=[])
+                            correlation_proxy_findings=[],
+                            geographic_outcome_equity_findings=[])
     from regulatory_checks import C2_PASS
     assert rollup.status == C2_PASS
