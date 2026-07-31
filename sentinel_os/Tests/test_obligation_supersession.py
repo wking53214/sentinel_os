@@ -156,6 +156,12 @@ def twin():
     assert resp.status_code == 200, resp.text
     client.replica_id = rid
     client.ship = {"Authorization": "Bearer tok"}
+    # obligations (GET/derive) and cohort-reviews now check the ship
+    # token (AC-13 fix); set it as a client default so this file's
+    # existing calls, written before that fix, keep working without
+    # touching every call site (same fix test_twin_cohort_reviews.py
+    # already applied for the same reason).
+    client.headers.update(client.ship)
     return client
 
 
