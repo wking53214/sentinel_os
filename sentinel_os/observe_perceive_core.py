@@ -6,8 +6,10 @@ PERCEIVE: Infers outcomes, predicts next states, tracks world dynamics
 """
 
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import Dict, List, Optional
 from enum import Enum
+
+from twilio_log_ingestion import NODE_ROLE_AGENT, NODE_ROLE_ESCALATION
 
 class CallOutcome(Enum):
     RESOLVED = "resolved"
@@ -120,24 +122,40 @@ class PerceiveCore:
     ESCALATION_NODES = frozenset({"human_escalation"})
     
     def infer_outcome(self, journey: List[str], emotional_state: EmotionalState,
-                     final_node: str) -> CallOutcome:
-        """Determine call outcome from journey and state"""
-        
+                     final_node: str, node_roles: Optional[Dict[str, str]] = None,
+                     ) -> CallOutcome:
+        """Determine call outcome from journey and state.
+
+        node_roles (node -> role, same shape IcebergJourney.node_roles
+        produces) is optional and defaults to None -- when a node is
+        tagged NODE_ROLE_AGENT or NODE_ROLE_ESCALATION, that tag is
+        trusted over RESOLUTION_NODES/ESCALATION_NODES' literal-name
+        membership test. A journey with no tags (node_roles=None or {})
+        falls back to exactly the old literal-name check for every node.
+        """
+        node_roles = node_roles or {}
+
+        def _is_resolution(node: str) -> bool:
+            return node_roles.get(node) == NODE_ROLE_AGENT or node in self.RESOLUTION_NODES
+
+        def _is_escalation(node: str) -> bool:
+            return node_roles.get(node) == NODE_ROLE_ESCALATION or node in self.ESCALATION_NODES
+
         # Terminal outcome
         if final_node == "exit":
             if emotional_state.frustration > 0.7:
                 return CallOutcome.ABANDONED
-            elif final_node in self.ESCALATION_NODES:
+            elif _is_escalation(final_node):
                 return CallOutcome.ESCALATED
             else:
                 return CallOutcome.IN_PROGRESS
         
         # Check if resolved
-        if any(node in self.RESOLUTION_NODES for node in journey):
+        if any(_is_resolution(node) for node in journey):
             return CallOutcome.RESOLVED
         
         # Check if escalated
-        if any(node in self.ESCALATION_NODES for node in journey):
+        if any(_is_escalation(node) for node in journey):
             return CallOutcome.ESCALATED
         
         return CallOutcome.IN_PROGRESS

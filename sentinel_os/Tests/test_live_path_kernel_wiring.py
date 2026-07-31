@@ -240,3 +240,22 @@ def test_the_kernel_still_judges_a_call_with_real_events(harness):
     assembly = _assembly(harness, CALL_WITH_REAL_EVENTS)
     result = judge_episode(harness.cassette, assembly.episode)
     assert result.tier in ("excellent", "good", "poor", "failed")
+
+
+# ---------------------------------------------------------------------------
+# NODE ROLES (2026-07-31): a real event source can say what a stop IS
+# instead of the live path guessing from its name.
+# ---------------------------------------------------------------------------
+
+def test_a_role_tagged_queue_is_recognized_even_with_an_unconventional_name(harness):
+    """Before this session, a node whose name didn't contain "queue" was
+    invisible to the live path's queue detection -- intent always fell
+    back to "general_queue" no matter what a real event source called its
+    stops. A role tag fixes that without requiring the name to change."""
+    call = dict(CALL, ivr_events=[
+        {"node": "BillingTransfer", "wait_seconds": 15.0, "source": "studio_flow",
+         "role": "queue"},
+        {"node": "agent_a", "wait_seconds": 90.0, "source": "studio_flow"},
+    ])
+    result = harness.process_call(call)
+    assert result["intent"] == "BillingTransfer"

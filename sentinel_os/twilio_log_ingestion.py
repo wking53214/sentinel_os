@@ -31,27 +31,41 @@ source label the caller supplied (so the ledger shows which real system
 produced it, not just that it was "real"). If ivr_events is absent, nothing
 about existing behavior changes: the phone-digit / ratio-split fallback runs
 exactly as before, stamped ESTIMATED. If ivr_events is PRESENT but malformed
-(missing node/wait_seconds/source, negative wait, empty list), parsing fails
-loud rather than silently falling back -- a broken real-data integration
-that quietly downgraded to guesses would be a worse failure mode than an
-exception, the same fail-loud posture _count_friction already takes on
-missing cassette thresholds.
+(missing node/wait_seconds/source, negative wait, empty list, an unrecognized
+role), parsing fails loud rather than silently falling back -- a broken
+real-data integration that quietly downgraded to guesses would be a worse
+failure mode than an exception, the same fail-loud posture _count_friction
+already takes on missing cassette thresholds.
 
-DISCLOSED LIMITATION: the rest of the pipeline (SentinelCore.infer_intent,
-IVRCassette's friction counting, ObservePerceiveCore's resolution detection)
-still identifies queue/agent stops by name convention -- a node counts as a
-queue stop only if "queue" is a substring of its name, and only literal
-names in {agent_a, agent_b, agent_c, agent_d, ...} count as agent/resolution
-nodes (see observe_perceive_core.RESOLUTION_NODES). A real event source must
-emit node names that follow that same convention for the rest of the system
-to recognize them correctly. This module does not rename or reinterpret
-node names supplied via ivr_events -- closing that separate coupling is out
-of scope here.
+NODE ROLES (2026-07-31): each event may optionally declare a `role` --
+one of NODE_ROLE_QUEUE, NODE_ROLE_AGENT, NODE_ROLE_ESCALATION -- naming
+what kind of stop this is, instead of requiring downstream code to guess
+from the node's NAME (see the disclosed limitation this replaces, below).
+Partial tagging is fine: an integration can tag only the stops it's sure
+about and leave `role` unset on the rest -- each stop is judged on its own,
+there is no all-or-nothing requirement across one call's events. A stop
+with no role tag falls back to the existing name-convention guess for
+THAT stop only. This module never invents a role for an event that didn't
+declare one; it also never renames a node to match its role.
+
+DISCLOSED LIMITATION, NOW PARTIALLY CLOSED (2026-07-31): the rest of the
+pipeline (SentinelCore.infer_intent/prescribe_queue_reordering, the
+production harness's queue detection, ObservePerceiveCore's resolution
+detection) used to identify queue/agent stops ONLY by name convention --
+a node counted as a queue stop only if "queue" was a substring of its
+name, and only literal names in {agent_a, agent_b, agent_c, agent_d, ...}
+counted as agent/resolution nodes (see observe_perceive_core.RESOLUTION_NODES).
+Those checks now look for a role tag FIRST and fall back to the name
+convention only when no tag is present, so a real event source no longer
+has to rename its stops to match Sentinel's convention -- it can just
+declare `role` on the events it's sure about. What's still true: a stop
+with NO role tag is still only recognized by name, so a real source that
+tags nothing gets the exact behavior this module always had.
 """
 
 import json
 from typing import List, Dict, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from cassette_schema import validate_cassette
 from event_v1 import PROVENANCE_VERIFIED, PROVENANCE_ESTIMATED
 
@@ -64,23 +78,39 @@ FALLBACK_ROUTE_METHOD = ("twilio_log_ingestion._reconstruct_journey: route infer
 FALLBACK_WAIT_METHOD = ("twilio_log_ingestion._extract_wait_times: fixed 0.1/0.5/0.4 "
                          "split of total call duration across intent_menu/queue/agent")
 
+# NODE ROLES -- see module docstring "NODE ROLES" section. A real event
+# source declares one of these on an IVRNodeEvent instead of relying on
+# downstream code to guess a stop's kind from its name.
+NODE_ROLE_QUEUE = "queue"
+NODE_ROLE_AGENT = "agent"
+NODE_ROLE_ESCALATION = "escalation"
+NODE_ROLES = frozenset({NODE_ROLE_QUEUE, NODE_ROLE_AGENT, NODE_ROLE_ESCALATION})
+
 
 @dataclass
 class IVRNodeEvent:
     """One real, observed stop in a caller's actual path.
 
-    node: the stop's name -- must follow the existing "*queue*" / literal
-        agent_a/b/c/d naming convention for downstream intent-inference and
-        resolution-detection to recognize it (see module docstring).
+    node: the stop's name. If `role` is not also supplied, this name must
+        follow the legacy "*queue*" / literal agent_a/b/c/d naming
+        convention for downstream intent-inference and resolution-detection
+        to recognize it (see module docstring) -- `role` exists precisely
+        so a real event source does NOT have to do that anymore.
     wait_seconds: how long the caller spent at this stop. Must be >= 0.
     source: freeform label naming the real system this event came from
         (e.g. "twilio_studio_flow", "taskrouter", "custom_webhook"). Required
         -- an event that will not name its source is the same problem
         EventV1 already refuses for an ESTIMATED value with no method.
+    role: OPTIONAL -- one of NODE_ROLES (queue/agent/escalation), naming
+        what KIND of stop this is. When present, downstream code trusts
+        it over the node's name. When absent, that one stop falls back to
+        the name-convention guess -- tagging is per-stop, not all-or-nothing
+        for the call.
     """
     node: str
     wait_seconds: float
     source: str
+    role: Optional[str] = None
 
 
 def _validate_ivr_events(raw_events: List[Dict]) -> List[IVRNodeEvent]:
@@ -98,6 +128,7 @@ def _validate_ivr_events(raw_events: List[Dict]) -> List[IVRNodeEvent]:
         node = raw.get("node")
         wait_seconds = raw.get("wait_seconds")
         source = raw.get("source")
+        role = raw.get("role")
         if not node or not isinstance(node, str):
             raise ValueError(f"ivr_events[{i}] missing a non-empty string 'node'")
         if wait_seconds is None or not isinstance(wait_seconds, (int, float)):
@@ -108,7 +139,24 @@ def _validate_ivr_events(raw_events: List[Dict]) -> List[IVRNodeEvent]:
             raise ValueError(f"ivr_events[{i}] ({node!r}) missing a non-empty string "
                               "'source' -- an event that will not name where it came "
                               "from cannot be stamped VERIFIED")
-        events.append(IVRNodeEvent(node=node, wait_seconds=float(wait_seconds), source=source))
+        if role is not None and role not in NODE_ROLES:
+            raise ValueError(f"ivr_events[{i}] ({node!r}) has an unrecognized role "
+                              f"{role!r}; must be one of {sorted(NODE_ROLES)} or "
+                              "omitted entirely to fall back to name-convention "
+                              "detection for this stop")
+        events.append(IVRNodeEvent(node=node, wait_seconds=float(wait_seconds),
+                                   source=source, role=role))
+    seen_roles: Dict[str, str] = {}
+    for e in events:
+        if e.role is None:
+            continue
+        prior = seen_roles.get(e.node)
+        if prior is not None and prior != e.role:
+            raise ValueError(
+                f"ivr_events declares conflicting roles for node {e.node!r}: "
+                f"{prior!r} and {e.role!r} -- a real event source should not "
+                "call the same stop two different things")
+        seen_roles[e.node] = e.role
     return events
 
 @dataclass
@@ -146,6 +194,13 @@ class IcebergJourney:
     route_method: str = FALLBACK_ROUTE_METHOD
     wait_provenance: str = PROVENANCE_ESTIMATED
     wait_method: str = FALLBACK_WAIT_METHOD
+    # node -> role (NODE_ROLE_QUEUE/AGENT/ESCALATION), for whichever nodes
+    # a real ivr_events source tagged (see NODE ROLES in module docstring).
+    # Empty on the fallback heuristic path -- the heuristic doesn't know
+    # roles, only the name convention it already generates by construction.
+    # A node absent from this dict simply wasn't tagged; downstream code
+    # falls back to the name convention for that node only.
+    node_roles: Dict[str, str] = field(default_factory=dict)
 
 class TwilioLogParser:
     """Parse Twilio call records into Iceberg journeys"""
@@ -190,6 +245,7 @@ class TwilioLogParser:
             events = _validate_ivr_events(raw_ivr_events)
             journey = self._reconstruct_journey_from_events(events)
             wait_times = self._wait_times_from_events(events)
+            node_roles = self._node_roles_from_events(events)
             sources = ", ".join(sorted({e.source for e in events}))
             route_provenance = wait_provenance = PROVENANCE_VERIFIED
             route_method = f"twilio_log_ingestion: real per-node events from {sources}"
@@ -199,6 +255,7 @@ class TwilioLogParser:
             # In real system, would parse IVR logs/recordings
             journey = self._reconstruct_journey(twilio_record)
             wait_times = self._extract_wait_times(twilio_record, journey)
+            node_roles = {}  # heuristic path knows no roles -- see module docstring
             route_provenance = wait_provenance = PROVENANCE_ESTIMATED
             route_method = FALLBACK_ROUTE_METHOD
             wait_method = FALLBACK_WAIT_METHOD
@@ -224,6 +281,7 @@ class TwilioLogParser:
             route_method=route_method,
             wait_provenance=wait_provenance,
             wait_method=wait_method,
+            node_roles=node_roles,
         )
 
     def _reconstruct_journey_from_events(self, events: List[IVRNodeEvent]) -> List[str]:
@@ -248,6 +306,20 @@ class TwilioLogParser:
         for e in events:
             waits[e.node] = waits.get(e.node, 0.0) + e.wait_seconds
         return waits
+
+    def _node_roles_from_events(self, events: List[IVRNodeEvent]) -> Dict[str, str]:
+        """node -> role, for whichever events declared one.
+
+        Conflicting roles for a repeated node are already refused by
+        _validate_ivr_events -- by the time events reach here every
+        node's role (if any) is unambiguous, so a plain last-write-wins
+        merge is safe.
+        """
+        roles: Dict[str, str] = {}
+        for e in events:
+            if e.role is not None:
+                roles[e.node] = e.role
+        return roles
     
     def _reconstruct_journey(self, record: Dict) -> List[str]:
         """Reconstruct call path from Twilio metadata"""

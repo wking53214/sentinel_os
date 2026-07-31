@@ -12,6 +12,7 @@ from typing import Dict
 from twilio_log_ingestion import (
     TwilioLogParser, TwilioStreamAdapter,
     FALLBACK_ROUTE_METHOD, FALLBACK_WAIT_METHOD,
+    NODE_ROLE_QUEUE,
 )
 from metrics_prometheus import PrometheusMetrics
 from governance.ledger_postgres import PostgreSQLLedger
@@ -438,7 +439,16 @@ class IcebergProductionHarness:
             )
 
             # 4. Sentinel: Infer intent & quality
-            first_queue = next((n for n in journey.journey if "queue" in n), "general_queue")
+            # Role-tagged first (a real event source's own say-so), name
+            # convention only as the fallback when nothing was tagged --
+            # see twilio_log_ingestion's NODE ROLES section.
+            node_roles = getattr(journey, "node_roles", {}) or {}
+            first_queue = next(
+                (n for n in journey.journey if node_roles.get(n) == NODE_ROLE_QUEUE),
+                None)
+            if first_queue is None:
+                first_queue = next((n for n in journey.journey if "queue" in n),
+                                   "general_queue")
             intent_signal = self.sentinel.infer_intent(journey.journey, first_queue)
             quality_score = self.sentinel.score_outcome_quality(
                 journey.resolved, journey.total_duration,
