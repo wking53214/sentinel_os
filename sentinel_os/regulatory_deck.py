@@ -62,6 +62,31 @@ other lens's claim is superseded on the record, never silently
 dropped. Always ACTION_FLAG: a conflict between two lenses' own
 claims is a fact for a human to resolve, not grounds for this deck to
 unilaterally block judgment on either lens's behalf.
+
+COHORT EQUITY ESCALATION (live mode only, opt-in): when this deck is
+constructed with both twin_client and replica_id, judge()/explain()
+check whether the domain cassette being judged declares
+CAPABILITY_OUTCOME_OBLIGATION (cassette_capabilities) and, if so,
+fetch the most recently recorded cohort_equity_review for that
+episode's (domain, obligation_kind) from the twin. A FLAGGED review
+produces one c2_cohort_equity_rollup finding per live lens that
+exposes c2_rollup -- always ACTION_FLAG, never ACTION_BLOCK (Wm,
+2026-07-31: escalate for human review, never touch the automated
+score -- the deck's existing "findings ride NEXT TO the judgment"
+guarantee, see GovernedJudgment, already enforces this). Today this
+only fires for the mortgage cassette: it is the only cassette
+declaring CAPABILITY_OUTCOME_OBLIGATION, so it is the only one with
+any cohort data to flag. The mechanism itself stays domain-agnostic --
+any future cassette that enables outcome_obligation gets this for
+free, no new code here. When twin_client/replica_id are not supplied
+(the default), this step never runs and judge()/explain() make no
+network call, exactly as before this was added -- reaching the twin
+on every live decision is the real latency/reliability trade
+obligation_sweep.fetch_latest_cohort_review's own docstring already
+flagged, so it stays opt-in rather than always-on. A fetch failure
+(twin unreachable, etc.) is caught and treated the same as "no review
+recorded yet" -- fails OPEN, so a twin outage degrades this one
+optional signal, never live judgment itself.
 """
 
 from __future__ import annotations
@@ -69,8 +94,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from cassette_capabilities import CAPABILITY_OUTCOME_OBLIGATION
 from cassette_forensics import compute_cassette_code_hash, compute_cassette_hash
 from episode import Episode, explain_episode, judge_episode
+from obligation_sweep import fetch_latest_cohort_review
 from regulatory_cassette_interface import (
     ACTION_BLOCK,
     ACTION_FLAG,
@@ -86,7 +113,7 @@ from regulatory_cassette_interface import (
     regulatory_cassette_version_of,
     validate_regulatory_cassette,
 )
-from regulatory_checks import resolve_tier_conflict
+from regulatory_checks import C2_FLAG, resolve_tier_conflict
 
 
 @dataclass(frozen=True)
@@ -128,7 +155,8 @@ class RegulatoryDeck:
     PostgreSQLLedger.)
     """
 
-    def __init__(self, ledger, default_authorized_by: Optional[str] = None):
+    def __init__(self, ledger, default_authorized_by: Optional[str] = None,
+                 twin_client=None, replica_id: Optional[str] = None):
         if ledger is None:
             raise ValueError(
                 "RegulatoryDeck requires a ledger: lens insertion events and "
@@ -138,6 +166,11 @@ class RegulatoryDeck:
             )
         self.ledger = ledger
         self.default_authorized_by = default_authorized_by
+        # Both required together, opt-in, default off -- see module
+        # docstring's COHORT EQUITY ESCALATION section. Neither alone is
+        # enough to make a real fetch_latest_cohort_review call.
+        self._twin_client = twin_client
+        self._replica_id = replica_id
         self._active: Dict[str, InsertedLens] = {}
 
     # ------------------------------------------------------------------
@@ -407,6 +440,75 @@ class RegulatoryDeck:
             )))
         return conflicts
 
+    def _cohort_equity_escalations(
+            self, domain_cassette, material,
+            ) -> List[Tuple[InsertedLens, RegulatoryFinding]]:
+        """Cohort-level equity escalation for one live decision -- see
+        the module docstring's COHORT EQUITY ESCALATION section for
+        the design (Wm, 2026-07-31): always ACTION_FLAG, never
+        ACTION_BLOCK, and a complete no-op unless this deck was built
+        with both twin_client and replica_id. Returns one
+        (entry, finding) pair per live lens that exposes c2_rollup,
+        and only when the fetched review's status is C2_FLAG -- a
+        PASS or INDETERMINATE review is not escalation-worthy.
+        """
+        if self._twin_client is None or self._replica_id is None:
+            return []
+        if CAPABILITY_OUTCOME_OBLIGATION not in getattr(
+                domain_cassette, "CAPABILITIES", ()):
+            return []
+        get_rule = getattr(domain_cassette, "get_maturation_rule", None)
+        if get_rule is None:
+            return []
+        obligation_kind = get_rule().kind
+        try:
+            review = fetch_latest_cohort_review(
+                self._twin_client, self._replica_id, material.domain,
+                obligation_kind)
+        except Exception:
+            # Fail OPEN -- see module docstring: a twin-reachability
+            # problem degrades this one optional signal, never live
+            # judgment itself. Same posture as "no review recorded yet".
+            return []
+        if review is None:
+            return []
+        dim4 = [RegulatoryFinding(**f)
+                for f in review.get("dimension_4_findings", [])]
+        dim5 = [RegulatoryFinding(**f)
+                for f in review.get("dimension_5_findings", [])]
+        escalations: List[Tuple[InsertedLens, RegulatoryFinding]] = []
+        for entry in self._live_entries():
+            rollup_fn = getattr(entry.lens, "c2_rollup", None)
+            if rollup_fn is None:
+                continue
+            rollup = rollup_fn(
+                material, statistical_outcome_equity_findings=dim4,
+                correlation_proxy_findings=dim5)
+            if rollup.status != C2_FLAG:
+                continue
+            escalations.append((entry, RegulatoryFinding(
+                check="c2_cohort_equity_rollup",
+                subject_id=material.subject_id,
+                regulation=entry.regulation,
+                action=ACTION_FLAG,
+                classification="cohort_equity_flag",
+                score=1.0,
+                evidence={
+                    "domain": material.domain,
+                    "obligation_kind": obligation_kind,
+                    "flagged_dimensions": list(rollup.flagged_dimensions),
+                    "detail": f"this decision's cohort ({material.domain}, "
+                              f"{obligation_kind}) carries a FLAGGED C2 "
+                              "equity finding from the most recent sweep; "
+                              "routed for human review, the automated "
+                              "judgment score is unaffected",
+                    "score_meaning": "1.0 = a flagged cohort review was "
+                                     "found for this decision's cohort; "
+                                     "not a measure of severity",
+                },
+            )))
+        return escalations
+
     def judge(self, domain_cassette, episode: Episode) -> GovernedJudgment:
         """The live-governed judgment entry point.
 
@@ -416,11 +518,15 @@ class RegulatoryDeck:
         reviews the episode; EVERY finding is disclosed to the ledger
         as it is raised. Cross-lens tier conflicts (see module
         docstring) are detected and disclosed next, once every lens's
-        own findings are already on the record. Only after ALL of
-        that -- lens findings and any conflict findings alike -- is on
-        the chain does a block take effect (RegulatoryBlock), so the
-        chain always holds the complete picture of what the lenses
-        saw, not just the first thing that stopped the music.
+        own findings are already on the record. Cohort equity
+        escalation (see module docstring) runs after that, opt-in and
+        a no-op unless this deck was built with twin_client/replica_id.
+        Only after ALL of that -- lens findings, any conflict findings,
+        and any cohort escalation alike -- is on the chain does a block
+        take effect (RegulatoryBlock); note that cohort escalation
+        findings are always ACTION_FLAG, so they never themselves
+        trigger a block. The chain always holds the complete picture of
+        what was seen, not just the first thing that stopped the music.
         """
         quality = judge_episode(domain_cassette, episode)
         all_findings: List[RegulatoryFinding] = []
@@ -439,6 +545,10 @@ class RegulatoryDeck:
         for entry, conflict in self._cross_lens_tier_conflicts(entries_and_findings):
             self._disclose(entry, conflict)  # fail-closed, same as any other finding
             all_findings.append(conflict)
+        for entry, escalation in self._cohort_equity_escalations(
+                domain_cassette, material_from_episode(episode)):
+            self._disclose(entry, escalation)  # fail-closed, same as any other finding
+            all_findings.append(escalation)
         if blocking:
             raise RegulatoryBlock(
                 lens_identity=blocking_entry.identity,
@@ -451,18 +561,22 @@ class RegulatoryDeck:
         """Kernel explanation plus regulatory findings as factors.
 
         Read-only, like the kernel's own explain: findings (including
-        any cross-lens tier-conflict finding) appear as
-        "regulatory_finding" factor entries but are NOT disclosed to
-        the ledger here, because explanation is a reporting surface --
-        nothing about the episode's handling changes when it is
-        explained. judge() is the decision path, and the decision path
-        is where disclosure is owed. (Explaining an episode twice must
-        not write two more ledger rows.)
+        any cross-lens tier-conflict finding and any cohort equity
+        escalation) appear as "regulatory_finding" factor entries but
+        are NOT disclosed to the ledger here, because explanation is a
+        reporting surface -- nothing about the episode's handling
+        changes when it is explained. judge() is the decision path, and
+        the decision path is where disclosure is owed. (Explaining an
+        episode twice must not write two more ledger rows -- and, for
+        cohort equity escalation specifically, must not make two more
+        twin fetches disclose anything either; explain() never calls
+        _disclose at all, so this falls out for free.)
         """
         factors = explain_episode(domain_cassette, episode)
+        material = material_from_episode(episode)
         entries_and_findings: List[Tuple[InsertedLens, RegulatoryFinding]] = []
         for entry in self._live_entries():
-            for finding in entry.lens.review(material_from_episode(episode)):
+            for finding in entry.lens.review(material):
                 factors.append({
                     "factor": "regulatory_finding",
                     "lens": entry.identity,
@@ -474,5 +588,12 @@ class RegulatoryDeck:
                 "factor": "regulatory_finding",
                 "lens": entry.identity,
                 **conflict.as_dict(),
+            })
+        for entry, escalation in self._cohort_equity_escalations(
+                domain_cassette, material):
+            factors.append({
+                "factor": "regulatory_finding",
+                "lens": entry.identity,
+                **escalation.as_dict(),
             })
         return factors

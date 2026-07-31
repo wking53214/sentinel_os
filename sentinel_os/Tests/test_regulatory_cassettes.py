@@ -35,6 +35,7 @@ import uuid
 
 import psycopg2
 import pytest
+from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -47,6 +48,7 @@ from cassette_forensics import (
 from cassette_interface import CassetteRegistry
 from cassette_schema import CassetteValidationError
 from cassettes.banking_cassette import BankingCassette
+from cassettes.mortgage_cassette import MortgageCassette
 from episode import judge_episode, make_episode
 from governance.ledger_postgres import GovernanceDecisionRecord, PostgreSQLLedger
 from regulatory_cassette_interface import (
@@ -1128,3 +1130,209 @@ def test_c2_rollup_proxy_screen_and_correlation_both_flag():
     assert DIMENSION_KNOWN_BAD_VARIABLE_NAMES in rollup.flagged_dimensions
     assert DIMENSION_CORRELATION_PROXY_SIGNAL in rollup.flagged_dimensions
     assert rollup.status == C2_FLAG
+
+
+# ==========================================================================
+# 8. Cohort equity escalation -- live judgment wiring (Wm, 2026-07-31)
+# ==========================================================================
+#
+# Only mortgage exercises this today: it is the only cassette declaring
+# CAPABILITY_OUTCOME_OBLIGATION. See regulatory_deck's module docstring
+# (COHORT EQUITY ESCALATION) for the full design. Always ACTION_FLAG,
+# never ACTION_BLOCK -- escalates for human review, never touches the
+# domain judgment's score.
+
+_TWIN_DSN = "host=localhost dbname=iceberg user=iceberg password=iceberg"
+
+
+def _mortgage_episode(episode_id=None):
+    """A clean, MATCHED mortgage episode -- no outcome mismatch, so
+    CFPBRegBLens's ordinary per-decision checks (reason specificity,
+    proxy variables) produce nothing. Isolates the cohort-equity
+    escalation finding from this suite's usual per-decision findings."""
+    return make_episode(
+        episode_id or f"M-{uuid.uuid4().hex[:8]}", "mortgage",
+        requested={"outcome": "approved", "amount": 300000.0},
+        actual={"outcome": "approved", "amount": 300000.0},
+    )
+
+
+@pytest.fixture
+def cohort_twin():
+    from twin_receiver import build_app
+    client = TestClient(build_app(_TWIN_DSN, site="test"))
+    rid = f"c2wire-{uuid.uuid4().hex[:10]}"
+    resp = client.post(f"/replica/{rid}/register", json={
+        "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
+        "customer_sign_pub": "y", "ship_token": "tok"})
+    assert resp.status_code == 200, resp.text
+    client.replica_id = rid
+    client.headers.update({"Authorization": "Bearer tok"})
+    return client
+
+
+def _post_review(twin, flagged=False):
+    """Record one cohort_equity_review for (mortgage, loan_performance)
+    -- flagged=True puts a real finding on dimension 4 so the rollup
+    comes back C2_FLAG; flagged=False records a clean sweep (C2_PASS)."""
+    finding = {"check": "statistical_outcome_equity", "subject_id": "cohort:1",
+              "regulation": "reg_b", "action": "flag",
+              "classification": "four_fifths_violation", "score": 1.0,
+              "evidence": {}}
+    body = {
+        "domain": "mortgage", "obligation_kind": "loan_performance",
+        "total_resolved": 40, "dimension_4_cohort_size": 40,
+        "dimension_5_cohort_size": 0, "dimension_6_cohort_size": 0,
+        "dimension_4_findings": [finding] if flagged else [],
+        "dimension_5_findings": [], "dimension_6_findings": [],
+        "skipped": [], "swept_at": 1_700_000_000.0,
+    }
+    resp = twin.post(f"/replica/{twin.replica_id}/cohort-reviews", json=body)
+    assert resp.status_code == 200, resp.text
+
+
+def test_escalation_disabled_by_default_no_twin_configured():
+    """No twin_client/replica_id -- the deck behaves exactly as it did
+    before this feature existed: zero escalation findings, zero change
+    to quality, no crash judging a mortgage episode even though
+    nothing was ever fetched."""
+    L = _ledger()
+    deck = RegulatoryDeck(L)
+    deck.insert(_fresh_lens(), MODE_LIVE, inserted_by="auditor:c2wire")
+    episode = _mortgage_episode()
+    governed = deck.judge(MortgageCassette(), episode)
+    assert governed.quality == judge_episode(MortgageCassette(), episode)
+    assert governed.findings == ()
+
+
+def test_escalation_noop_for_cassette_without_the_capability(cohort_twin):
+    """Even with a twin configured and a flagged review recorded, a
+    cassette that does not declare CAPABILITY_OUTCOME_OBLIGATION (e.g.
+    banking) never triggers an escalation -- there is no cohort
+    concept for it to check."""
+    _post_review(cohort_twin, flagged=True)
+    L = _ledger()
+    deck = RegulatoryDeck(L, twin_client=cohort_twin,
+                          replica_id=cohort_twin.replica_id)
+    deck.insert(_fresh_lens(), MODE_LIVE, inserted_by="auditor:c2wire")
+    governed = deck.judge(
+        BankingCassette(),
+        _lending_episode(SPECIFIC_REASON, inputs={"income": 92000}))
+    assert governed.findings == ()
+
+
+def test_escalation_noop_when_no_review_recorded_yet(cohort_twin):
+    """A twin that has never been swept for this cohort returns None
+    from fetch_latest_cohort_review -- no escalation, no crash."""
+    L = _ledger()
+    deck = RegulatoryDeck(L, twin_client=cohort_twin,
+                          replica_id=cohort_twin.replica_id)
+    deck.insert(_fresh_lens(), MODE_LIVE, inserted_by="auditor:c2wire")
+    episode = _mortgage_episode()
+    governed = deck.judge(MortgageCassette(), episode)
+    assert governed.quality == judge_episode(MortgageCassette(), episode)
+    assert governed.findings == ()
+
+
+def test_escalation_noop_on_a_clean_recorded_review(cohort_twin):
+    """A recorded review with no findings on any cohort dimension
+    rolls up to PASS, not FLAG -- clean cohort data must not itself
+    manufacture an escalation."""
+    _post_review(cohort_twin, flagged=False)
+    L = _ledger()
+    deck = RegulatoryDeck(L, twin_client=cohort_twin,
+                          replica_id=cohort_twin.replica_id)
+    deck.insert(_fresh_lens(), MODE_LIVE, inserted_by="auditor:c2wire")
+    governed = deck.judge(MortgageCassette(), _mortgage_episode())
+    assert governed.findings == ()
+
+
+def test_escalation_flags_on_a_flagged_review_score_untouched(cohort_twin):
+    """The real case: a FLAGGED cohort review for this decision's
+    (domain, obligation_kind) produces exactly one
+    c2_cohort_equity_rollup finding, ACTION_FLAG -- and the domain
+    judgment (score/tier) is byte-identical to the plain kernel path,
+    proving the escalation never moves the score (Wm, 2026-07-31)."""
+    _post_review(cohort_twin, flagged=True)
+    L = _ledger()
+    deck = RegulatoryDeck(L, twin_client=cohort_twin,
+                          replica_id=cohort_twin.replica_id)
+    deck.insert(_fresh_lens(), MODE_LIVE, inserted_by="auditor:c2wire")
+    episode = _mortgage_episode()
+
+    governed = deck.judge(MortgageCassette(), episode)
+    assert governed.quality == judge_episode(MortgageCassette(), episode)
+    assert len(governed.findings) == 1
+    finding = governed.findings[0]
+    assert finding.check == "c2_cohort_equity_rollup"
+    assert finding.action == ACTION_FLAG
+    assert finding.evidence["domain"] == "mortgage"
+    assert finding.evidence["obligation_kind"] == "loan_performance"
+
+
+def test_escalation_never_raises_regulatory_block(cohort_twin):
+    """Always ACTION_FLAG, never ACTION_BLOCK -- a flagged cohort must
+    never itself halt judgment (Wm's explicit choice)."""
+    _post_review(cohort_twin, flagged=True)
+    L = _ledger()
+    deck = RegulatoryDeck(L, twin_client=cohort_twin,
+                          replica_id=cohort_twin.replica_id)
+    deck.insert(_fresh_lens(), MODE_LIVE, inserted_by="auditor:c2wire")
+    deck.judge(MortgageCassette(), _mortgage_episode())  # must not raise
+
+
+def test_escalation_is_disclosed_to_the_ledger(cohort_twin):
+    conn = _conn()
+    _post_review(cohort_twin, flagged=True)
+    L = _ledger()
+    deck = RegulatoryDeck(L, twin_client=cohort_twin,
+                          replica_id=cohort_twin.replica_id)
+    receipt = deck.insert(_fresh_lens(), MODE_LIVE, inserted_by="auditor:c2wire")
+    episode = _mortgage_episode()
+    deck.judge(MortgageCassette(), episode)
+
+    disclosures = [r for r in _rows(conn)
+                   if r["record_kind"] == "regulatory_disclosure"
+                   and r["cassette_version"] == receipt["identity"]
+                   and r["data"]["check"] == "c2_cohort_equity_rollup"]
+    assert len(disclosures) == 1
+    assert disclosures[0]["data"]["subject"] == episode.episode_id
+    assert recompute_current_hash(disclosures[0]) == disclosures[0]["current_hash"]
+
+
+def test_escalation_appears_in_explain_but_writes_nothing(cohort_twin):
+    conn = _conn()
+    _post_review(cohort_twin, flagged=True)
+    L = _ledger()
+    deck = RegulatoryDeck(L, twin_client=cohort_twin,
+                          replica_id=cohort_twin.replica_id)
+    deck.insert(_fresh_lens(), MODE_LIVE, inserted_by="auditor:c2wire")
+    before = _row_count(conn)
+    factors = deck.explain(MortgageCassette(), _mortgage_episode())
+    assert _row_count(conn) == before  # explain() never discloses
+    escalation_factors = [f for f in factors
+                          if f.get("check") == "c2_cohort_equity_rollup"]
+    assert len(escalation_factors) == 1
+
+
+def test_escalation_fails_open_when_twin_call_is_unauthorized():
+    """A twin_client missing (or carrying a bad) ship token gets 401
+    from fetch_latest_cohort_review's GET call -- the escalation step
+    must swallow that and let judgment proceed exactly as if no twin
+    were configured, not take live judgment down with it."""
+    from twin_receiver import build_app
+    client = TestClient(build_app(_TWIN_DSN, site="test"))
+    rid = f"c2wire-{uuid.uuid4().hex[:10]}"
+    resp = client.post(f"/replica/{rid}/register", json={
+        "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
+        "customer_sign_pub": "y", "ship_token": "tok"})
+    assert resp.status_code == 200, resp.text
+    # Deliberately NOT setting the Authorization header -- proves the
+    # fail-open path, not just a happy path with a valid token.
+    L = _ledger()
+    deck = RegulatoryDeck(L, twin_client=client, replica_id=rid)
+    deck.insert(_fresh_lens(), MODE_LIVE, inserted_by="auditor:c2wire")
+    episode = _mortgage_episode()
+    governed = deck.judge(MortgageCassette(), episode)
+    assert governed.quality == judge_episode(MortgageCassette(), episode)
+    assert governed.findings == ()
