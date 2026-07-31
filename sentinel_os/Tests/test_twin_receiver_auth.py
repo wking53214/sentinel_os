@@ -72,8 +72,9 @@ def _custody_event_body():
 def _cohort_review_body():
     return {"domain": "lending", "obligation_kind": "loan_performance",
             "total_resolved": 1, "dimension_4_cohort_size": 1,
-            "dimension_5_cohort_size": 0, "dimension_4_findings": [],
-            "dimension_5_findings": [], "skipped": [], "swept_at": NOW}
+            "dimension_5_cohort_size": 0, "dimension_6_cohort_size": 0,
+            "dimension_4_findings": [], "dimension_5_findings": [],
+            "dimension_6_findings": [], "skipped": [], "swept_at": NOW}
 
 
 def _ship_and_derive(twin):
