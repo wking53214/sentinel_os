@@ -15,3 +15,4 @@ certs/
 *.pem
 *.key
 *.crt
+ledger_data/
