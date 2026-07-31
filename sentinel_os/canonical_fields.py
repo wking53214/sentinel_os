@@ -71,6 +71,16 @@ OPTIONAL_HASHED_FIELDS = (
     # every row written before this field existed, same migration
     # guarantee every other optional field here already has.
     "ai_cost",
+    # Item 9 (2026-07-31): which recommendation_shadow_run a
+    # recommendation_shadow_score row is scoring. Its own field, not a
+    # reuse of replaces_hash -- that field already has a specific,
+    # fail-closed-enforced meaning (a NEW governance_decision replacing
+    # an OLD one, see obligation_supersession.py) that this is not; a
+    # shadow score isn't a decision at all, let alone one replacing
+    # another, and overloading replaces_hash here would have made that
+    # field mean two different things depending on record_kind with
+    # nothing to warn a future reader which one they're looking at.
+    "shadow_run_hash",
 )
 
 

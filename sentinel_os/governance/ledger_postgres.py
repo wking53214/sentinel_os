@@ -401,6 +401,17 @@ class PostgreSQLLedger:
                     ALTER TABLE ledger_entries
                         ADD COLUMN IF NOT EXISTS ai_cost JSONB;
                 """)
+            # Item 9: which shadow run a shadow score is scoring -- its
+            # own field, see canonical_fields.py's comment for why this
+            # is deliberately NOT a reuse of replaces_hash.
+            if "shadow_run_hash" not in existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS shadow_run_hash VARCHAR(64);
+                    CREATE INDEX IF NOT EXISTS idx_shadow_run_hash
+                        ON ledger_entries(shadow_run_hash)
+                        WHERE shadow_run_hash IS NOT NULL;
+                """)
             conn.commit()
         finally:
             self.pool.putconn(conn)
@@ -1065,6 +1076,234 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
 
+    def record_recommendation_shadow_run(
+            self, recommendation_kind: str, subject: str, cassette_version: str,
+            inputs: Dict[str, Any], recommendation: Dict[str, Any],
+            authorized_by: Optional[str] = None) -> Dict[str, Any]:
+        """Record one AI-generated recommendation in SHADOW MODE.
+
+        Wm's 'recommendation impact testing' roadmap item (2026-07-31),
+        scoped to predictive-accuracy measurement: this NEVER causes
+        anything to be acted on -- it exists purely so a later pass
+        (record_recommendation_shadow_score) can compare `recommendation`'s
+        predicted values against what actually happened and score the
+        AI's predictive accuracy. Scoped this way, rather than true A/B
+        impact testing, because none of the three recommendation methods
+        this covers (decide_healing_bounds, decide_queue_reordering;
+        decide_staffing_adjustment deliberately excluded, see
+        recommendation_impact.py's module docstring) are wired into the
+        live decision path today -- only safety_check is.
+
+        `inputs` is the real data the recommendation was computed from
+        (recommendation_impact.py pulls it from get_decisions_by_node_in_window,
+        never simulated). `recommendation` is decide_healing_bounds'/
+        decide_queue_reordering's own return dict, unmodified.
+
+        Scoring is a SEPARATE row (record_recommendation_shadow_score),
+        never an update to this one -- an append-only chain has no other
+        way to attach a fact that wasn't knowable until later.
+        """
+        if not recommendation_kind or not str(recommendation_kind).strip():
+            raise ValueError("record_recommendation_shadow_run requires "
+                             "recommendation_kind")
+        if not subject or not str(subject).strip():
+            raise ValueError("record_recommendation_shadow_run requires subject "
+                             "(the queue/node this recommendation is about)")
+        if not cassette_version or not isinstance(cassette_version, str):
+            raise ValueError("record_recommendation_shadow_run requires "
+                             "cassette_version")
+        if not isinstance(inputs, dict) or not isinstance(recommendation, dict):
+            raise ValueError("record_recommendation_shadow_run requires inputs "
+                             "and recommendation as dicts")
+        inputs = json.loads(json.dumps(inputs, sort_keys=True, default=str))
+        recommendation = json.loads(
+            json.dumps(recommendation, sort_keys=True, default=str))
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry = {
+                "record_kind": "recommendation_shadow_run",
+                "cassette_version": cassette_version,
+                "recommendation_kind": str(recommendation_kind),
+                "subject": str(subject),
+                "inputs": inputs,
+                "recommendation": recommendation,
+                "previous_hash": previous_hash,
+            }
+            apply_optional_hashed_fields(canonical_entry, {
+                "authorized_by": authorized_by,
+            })
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            data = {"record_kind": "recommendation_shadow_run",
+                    "recommendation_kind": str(recommendation_kind),
+                    "subject": str(subject), "parameter_changed": False}
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, previous_value, applied_value, reason,
+                 previous_hash, current_hash, data,
+                 record_kind, cassette_version, input_data, decision_output,
+                 authorized_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, ("recommendation_shadow_run", str(subject)[:100], 0.0, 0.0,
+                  f"shadow recommendation ({recommendation_kind}) for {subject}, "
+                  "never acted on -- predictive-accuracy measurement only",
+                  previous_hash, current_hash, json.dumps(data),
+                  "recommendation_shadow_run", cassette_version,
+                  json.dumps(inputs), json.dumps(recommendation), authorized_by))
+            conn.commit()
+            return {
+                "status": "created",
+                "recommendation_kind": str(recommendation_kind),
+                "subject": str(subject),
+                "current_hash": current_hash,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def record_recommendation_shadow_score(
+            self, shadow_run_hash: str, actual: Dict[str, Any],
+            score: Dict[str, Any], authorized_by: Optional[str] = None,
+            ) -> Dict[str, Any]:
+        """Record what actually happened against one shadow run's
+        prediction, and the computed accuracy/error -- a NEW row that
+        references shadow_run_hash, never a mutation of the original.
+
+        `actual` is the real outcome data pulled from
+        get_decisions_by_node_in_window for the window AFTER the
+        recommendation was made. `score` is recommendation_impact.py's
+        own comparison output (e.g. {"predicted_wait": ..., "actual_wait":
+        ..., "error": ..., "within_confidence": ...}) -- this method
+        stores it, it does not compute it; see
+        recommendation_impact.score_healing_bounds_run /
+        score_queue_reordering_run for the actual comparison logic.
+        """
+        if not shadow_run_hash or not str(shadow_run_hash).strip():
+            raise ValueError("record_recommendation_shadow_score requires "
+                             "shadow_run_hash")
+        if not isinstance(actual, dict) or not isinstance(score, dict):
+            raise ValueError("record_recommendation_shadow_score requires "
+                             "actual and score as dicts")
+        actual = json.loads(json.dumps(actual, sort_keys=True, default=str))
+        score = json.loads(json.dumps(score, sort_keys=True, default=str))
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries
+                WHERE current_hash = %s AND record_kind = 'recommendation_shadow_run'
+            """, (shadow_run_hash,))
+            if cursor.fetchone() is None:
+                raise ValueError(
+                    f"shadow_run_hash {shadow_run_hash!r} does not match any "
+                    "recommendation_shadow_run row -- refusing to score "
+                    "something that was never actually recommended")
+
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry = {
+                "record_kind": "recommendation_shadow_score",
+                "actual": actual,
+                "score": score,
+                "previous_hash": previous_hash,
+            }
+            apply_optional_hashed_fields(canonical_entry, {
+                "authorized_by": authorized_by,
+                "shadow_run_hash": shadow_run_hash,
+            })
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            data = {"record_kind": "recommendation_shadow_score",
+                    "shadow_run_hash": shadow_run_hash, "parameter_changed": False}
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, previous_value, applied_value, reason,
+                 previous_hash, current_hash, data,
+                 record_kind, shadow_run_hash, input_data, decision_output,
+                 authorized_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, ("recommendation_shadow_score", shadow_run_hash[:100], 0.0, 0.0,
+                  f"scored shadow recommendation {shadow_run_hash[:12]}",
+                  previous_hash, current_hash, json.dumps(data),
+                  "recommendation_shadow_score", shadow_run_hash,
+                  json.dumps(actual), json.dumps(score), authorized_by))
+            conn.commit()
+            return {"status": "created", "shadow_run_hash": shadow_run_hash,
+                    "current_hash": current_hash}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def get_unscored_shadow_runs(self, older_than_iso: Optional[str] = None,
+                                 limit: int = 100) -> List[Dict[str, Any]]:
+        """Shadow runs (recommendation_shadow_run rows) that have no
+        matching recommendation_shadow_score row yet -- what the scoring
+        pass (recommendation_impact.py / the CLI) should process next.
+        `older_than_iso`: only shadow runs made before this timestamp --
+        the caller's job to pick a value that guarantees the outcome
+        window has fully elapsed; this method has no opinion on how long
+        that should be.
+        """
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT r.current_hash, r.timestamp, r.cassette_version,
+                       r.data, r.input_data, r.decision_output
+                FROM ledger_entries r
+                WHERE r.record_kind = 'recommendation_shadow_run'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM ledger_entries s
+                      WHERE s.record_kind = 'recommendation_shadow_score'
+                        AND s.shadow_run_hash = r.current_hash
+                  )
+            """
+            params: list = []
+            if older_than_iso is not None:
+                query += " AND r.timestamp < %s"
+                params.append(older_than_iso)
+            query += " ORDER BY r.id ASC LIMIT %s"
+            params.append(limit)
+            cursor.execute(query, tuple(params))
+            out = []
+            for row in cursor.fetchall():
+                data = self._as_json(row[3]) or {}
+                out.append({
+                    "shadow_run_hash": row[0],
+                    "timestamp": row[1].isoformat() if row[1] else None,
+                    "cassette_version": row[2],
+                    "recommendation_kind": data.get("recommendation_kind"),
+                    "subject": data.get("subject"),
+                    "inputs": self._as_json(row[4]),
+                    "recommendation": self._as_json(row[5]),
+                })
+            return out
+        finally:
+            self.pool.putconn(conn)
+
     def record_outcome_harm_event(self, cassette_version: str,
                                  decision_hash: str, harm_kind: str,
                                  subject_id: str, finding: Dict[str, Any],
@@ -1399,6 +1638,44 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
 
+    def get_decisions_by_node_in_window(
+            self, node: str, since_iso: str, until_iso: str,
+            limit: int = 1000) -> List[Dict]:
+        """Real governance_decision rows for one node/queue, timestamp
+        BETWEEN [since_iso, until_iso). Built for recommendation_impact.py
+        (2026-07-31): pulling real recent-window and baseline-window
+        per-queue data to feed decide_healing_bounds/decide_queue_reordering
+        with real numbers instead of simulated ones. Deliberately separate
+        from get_decisions() (which has no time or node filter) rather than
+        overloading that method's existing contract -- this one exists for
+        one purpose, aggregation over the result is the caller's job, not
+        this method's.
+        """
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, timestamp, node, input_data, decision_output
+                FROM ledger_entries
+                WHERE record_kind = 'governance_decision'
+                  AND node = %s
+                  AND timestamp >= %s AND timestamp < %s
+                ORDER BY id ASC
+                LIMIT %s
+            """, (node, since_iso, until_iso, limit))
+            rows = []
+            for row in cursor.fetchall():
+                rows.append({
+                    "id": row[0],
+                    "timestamp": row[1].isoformat() if row[1] else None,
+                    "node": row[2],
+                    "input_data": self._as_json(row[3]),
+                    "output": self._as_json(row[4]),
+                })
+            return rows
+        finally:
+            self.pool.putconn(conn)
+
     def get_entries(self, limit: int = 100) -> List[Dict]:
         """Retrieve recent entries"""
         
@@ -1603,7 +1880,7 @@ class PostgreSQLLedger:
                        decision_output, cassette_hash,
                        cassette_code_hash, model_identity, authorized_by,
                        supersedes_id, supersedes_hash, outcome_obligation,
-                       replaces_hash, ai_cost
+                       replaces_hash, ai_cost, shadow_run_hash
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -1623,7 +1900,7 @@ class PostgreSQLLedger:
                  decision_output, cassette_hash,
                  cassette_code_hash, model_identity, authorized_by,
                  supersedes_id, supersedes_hash, outcome_obligation,
-                 replaces_hash, ai_cost) = row
+                 replaces_hash, ai_cost, shadow_run_hash) = row
                 
                 # Check chain link integrity
                 if stored_prev != prev_hash:
@@ -1747,6 +2024,43 @@ class PostgreSQLLedger:
                         apply_optional_hashed_fields(canonical_entry, {
                             "supersedes_hash": supersedes_hash,
                             "authorized_by": authorized_by,
+                        })
+                    elif record_kind == "recommendation_shadow_run":
+                        # Mirrors record_recommendation_shadow_run().
+                        # recommendation_kind/subject were stored in data;
+                        # inputs in input_data; the recommendation itself
+                        # in decision_output.
+                        d = self._as_json(data)
+                        canonical_entry = {
+                            "record_kind": "recommendation_shadow_run",
+                            "cassette_version": cassette_version,
+                            "recommendation_kind": d.get("recommendation_kind"),
+                            "subject": d.get("subject"),
+                            "inputs": self._as_json(input_data),
+                            "recommendation": self._as_json(decision_output),
+                            "previous_hash": stored_prev,
+                        }
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "authorized_by": authorized_by,
+                        })
+                    elif record_kind == "recommendation_shadow_score":
+                        # Mirrors record_recommendation_shadow_score(). The
+                        # actual outcome was stored in input_data (reusing
+                        # that column's existing "real data this row is
+                        # about" role, same as every other record kind
+                        # here); the computed score in decision_output;
+                        # shadow_run_hash has its own dedicated column,
+                        # deliberately not a reuse of replaces_hash -- see
+                        # canonical_fields.py.
+                        canonical_entry = {
+                            "record_kind": "recommendation_shadow_score",
+                            "actual": self._as_json(input_data),
+                            "score": self._as_json(decision_output),
+                            "previous_hash": stored_prev,
+                        }
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "authorized_by": authorized_by,
+                            "shadow_run_hash": shadow_run_hash,
                         })
                     else:
                         # Legacy path (append)
