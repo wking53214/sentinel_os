@@ -215,6 +215,16 @@ SHIPPED_COLUMNS = [
     # (outcome_v1.derive_open_obligations) rather than being told what is
     # owed by the party the obligation is owed by.
     "outcome_obligation",
+    # AI cost tracking (2026-07-31, Item 8): shipped so the twin's own
+    # recompute_current_hash can verify governance_decision rows that
+    # carry it. Missed in this list when ai_cost was first added --
+    # caught while adding shadow_run_hash below and fixed in the same
+    # pass, rather than left for a future session to rediscover.
+    "ai_cost",
+    # Recommendation shadow-run/score (2026-07-31, Item 9): which shadow
+    # run a shadow-score row is scoring. Its own field, not a reuse of
+    # replaces_hash -- see canonical_fields.py.
+    "shadow_run_hash",
 ]
 
 
@@ -344,6 +354,35 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
             "previous_hash": row["previous_hash"],
         }
         # supersedes_hash + authorized_by enter via the shared contract.
+        apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") == "recommendation_shadow_run":
+        # Mirrors ledger_postgres.record_recommendation_shadow_run().
+        # recommendation_kind + subject rode in data; inputs in
+        # input_data; the recommendation itself in decision_output.
+        d = row.get("data") or {}
+        canonical = {
+            "record_kind": "recommendation_shadow_run",
+            "cassette_version": row["cassette_version"],
+            "recommendation_kind": d.get("recommendation_kind"),
+            "subject": d.get("subject"),
+            "inputs": row["input_data"],
+            "recommendation": row["decision_output"],
+            "previous_hash": row["previous_hash"],
+        }
+        apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") == "recommendation_shadow_score":
+        # Mirrors ledger_postgres.record_recommendation_shadow_score().
+        # The actual outcome rode in input_data, the computed score in
+        # decision_output; shadow_run_hash has its own shipped column,
+        # entering via the shared contract like every other optional
+        # field here (the shipped column name already matches the
+        # canonical key).
+        canonical = {
+            "record_kind": "recommendation_shadow_score",
+            "actual": row["input_data"],
+            "score": row["decision_output"],
+            "previous_hash": row["previous_hash"],
+        }
         apply_optional_hashed_fields(canonical, row)
     else:
         canonical = {
