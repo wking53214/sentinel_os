@@ -91,6 +91,14 @@ class GovernanceDecisionRecord:
     #   way instead, at this row's current_hash. NULL for domains whose
     #   outcomes are settled at decision time (an IVR call at hangup).
     outcome_obligation: Optional[str] = None
+    # Item 8 (2026-07-31): real usage-derived cost of the Claude API call
+    #   that produced this decision, if any -- see ai_cost_tracking.py and
+    #   claude_governance_api.py's module docstring. A dict (model,
+    #   input_tokens, output_tokens, cost_usd, unpriced_reason,
+    #   pricing_source), same shape claude_governance_api already returns
+    #   as `cost` on its decision dicts -- passed straight through, never
+    #   recomputed here. None for a decision that never called the API.
+    ai_cost: Optional[Dict[str, Any]] = None
 
 class PostgreSQLLedger:
     """Production ledger backed by PostgreSQL"""
@@ -383,6 +391,16 @@ class PostgreSQLLedger:
                         ON ledger_entries(replaces_hash)
                         WHERE replaces_hash IS NOT NULL;
                 """)
+            # Item 8: AI cost tracking. JSONB, not a scalar -- the whole
+            # cost dict (model/tokens/cost_usd/unpriced_reason) rides as
+            # one unit, same posture as decision_output. Nullable, no
+            # backfill, legacy rows hash byte-identically -- same
+            # migration guarantee every field above already has.
+            if "ai_cost" not in existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS ai_cost JSONB;
+                """)
             conn.commit()
         finally:
             self.pool.putconn(conn)
@@ -659,6 +677,7 @@ class PostgreSQLLedger:
                 "supersedes_hash": record.supersedes_hash,
                 "outcome_obligation": record.outcome_obligation,
                 "replaces_hash": record.replaces_hash,
+                "ai_cost": record.ai_cost,
             }
             apply_optional_hashed_fields(canonical_entry, optional_source)
 
@@ -673,9 +692,10 @@ class PostgreSQLLedger:
                  record_kind, cassette_version, input_data, policy_parameters,
                  decision_output, cassette_snapshot, cassette_hash, call_sid,
                  cassette_code_hash, model_identity, authorized_by,
-                 supersedes_id, supersedes_hash, outcome_obligation, replaces_hash)
+                 supersedes_id, supersedes_hash, outcome_obligation, replaces_hash,
+                 ai_cost)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s)
+                        %s, %s, %s, %s, %s, %s, %s, %s)
             """, (record.action_type, record.node, record.previous_value,
                   record.applied_value, record.reasoning,
                   previous_hash, current_hash, json.dumps(data),
@@ -689,7 +709,8 @@ class PostgreSQLLedger:
                   record.cassette_code_hash, record.model_identity,
                   record.authorized_by,
                   getattr(record, "supersedes_id", None), record.supersedes_hash,
-                  record.outcome_obligation, record.replaces_hash))
+                  record.outcome_obligation, record.replaces_hash,
+                  json.dumps(record.ai_cost) if record.ai_cost else None))
             conn.commit()
             return True
         except Exception:
@@ -1341,7 +1362,8 @@ class PostgreSQLLedger:
                 SELECT id, timestamp, action_type, node, previous_value,
                        applied_value, reason, previous_hash, current_hash,
                        cassette_version, input_data, policy_parameters,
-                       decision_output, cassette_snapshot, cassette_hash
+                       decision_output, cassette_snapshot, cassette_hash,
+                       ai_cost
                 FROM ledger_entries
                 WHERE record_kind = 'governance_decision'
             """
@@ -1371,6 +1393,7 @@ class PostgreSQLLedger:
                     "output": self._as_json(row[12]),
                     "cassette_snapshot": self._as_json(row[13]),
                     "cassette_hash": row[14],
+                    "ai_cost": self._as_json(row[15]),
                 })
             return decisions
         finally:
@@ -1580,7 +1603,7 @@ class PostgreSQLLedger:
                        decision_output, cassette_hash,
                        cassette_code_hash, model_identity, authorized_by,
                        supersedes_id, supersedes_hash, outcome_obligation,
-                       replaces_hash
+                       replaces_hash, ai_cost
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -1600,7 +1623,7 @@ class PostgreSQLLedger:
                  decision_output, cassette_hash,
                  cassette_code_hash, model_identity, authorized_by,
                  supersedes_id, supersedes_hash, outcome_obligation,
-                 replaces_hash) = row
+                 replaces_hash, ai_cost) = row
                 
                 # Check chain link integrity
                 if stored_prev != prev_hash:
@@ -1636,6 +1659,7 @@ class PostgreSQLLedger:
                             "supersedes_hash": supersedes_hash,
                             "outcome_obligation": outcome_obligation,
                             "replaces_hash": replaces_hash,
+                            "ai_cost": self._as_json(ai_cost),
                         })
                     elif record_kind == "cassette_binding":
                         # Item 2 -- mirrors bind_cassette_version()
