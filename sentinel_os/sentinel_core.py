@@ -16,6 +16,8 @@ from enum import Enum
 import hashlib
 import json
 
+from twilio_log_ingestion import NODE_ROLE_QUEUE
+
 class OutcomeQuality(Enum):
     EXCELLENT = "excellent"  # Resolved quickly
     GOOD = "good"  # Resolved with some friction
@@ -237,12 +239,24 @@ class SentinelCore:
     
     def prescribe_queue_reordering(self, call_outcomes: List[Dict],
                                   current_order: List[str]) -> QueuePrescription:
-        """Recommend queue reordering based on outcomes"""
+        """Recommend queue reordering based on outcomes.
+
+        Each outcome dict may optionally carry "node_roles" (node -> role,
+        same shape IcebergJourney.node_roles produces) -- when a node is
+        tagged NODE_ROLE_QUEUE, that tag wins over the "queue" substring
+        guess. An outcome with no node_roles key (or one that tags nothing)
+        falls back to the substring guess exactly as before.
+        """
         
         # Count successful outcomes by queue
         queue_success = {}
         for outcome in call_outcomes:
-            first_queue = next((q for q in outcome["journey"] if "queue" in q), None)
+            node_roles = outcome.get("node_roles") or {}
+            first_queue = next(
+                (q for q in outcome["journey"] if node_roles.get(q) == NODE_ROLE_QUEUE),
+                None)
+            if first_queue is None:
+                first_queue = next((q for q in outcome["journey"] if "queue" in q), None)
             if first_queue:
                 if first_queue not in queue_success:
                     queue_success[first_queue] = {"success": 0, "total": 0}

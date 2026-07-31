@@ -17,6 +17,9 @@ from event_v1 import PROVENANCE_ESTIMATED, PROVENANCE_VERIFIED
 from twilio_log_ingestion import (
     FALLBACK_ROUTE_METHOD,
     FALLBACK_WAIT_METHOD,
+    NODE_ROLE_AGENT,
+    NODE_ROLE_ESCALATION,
+    NODE_ROLE_QUEUE,
     TwilioLogParser,
     _validate_ivr_events,
 )
@@ -140,6 +143,83 @@ def test_non_numeric_wait_seconds_fails_loud():
     with pytest.raises(ValueError, match="wait_seconds"):
         _validate_ivr_events(
             [{"node": "billing_queue", "wait_seconds": "soon", "source": "taskrouter"}])
+
+
+# ---------------------------------------------------------------------------
+# NODE ROLES: an event can declare what kind of stop it is, instead of
+# requiring the node's NAME to follow the legacy convention.
+# ---------------------------------------------------------------------------
+
+def test_role_tag_produces_a_verified_journey_with_an_unconventional_name(parser):
+    """A node name that would never match the old "*queue*"/agent_a
+    convention still gets recognized, because the role tag says what it
+    is directly."""
+    call = dict(BASE_CALL, ivr_events=[
+        {"node": "BillingTransfer", "wait_seconds": 15.0, "source": "studio_flow",
+         "role": NODE_ROLE_QUEUE},
+        {"node": "SupportRepC", "wait_seconds": 90.0, "source": "studio_flow",
+         "role": NODE_ROLE_AGENT},
+    ])
+    journey = parser.parse_call_log(call)
+    assert journey.node_roles == {"BillingTransfer": NODE_ROLE_QUEUE,
+                                  "SupportRepC": NODE_ROLE_AGENT}
+
+
+def test_role_tagging_is_per_stop_not_all_or_nothing(parser):
+    """One event can be tagged while another in the same call is not --
+    each stop is judged on its own."""
+    call = dict(BASE_CALL, ivr_events=[
+        {"node": "billing_queue", "wait_seconds": 15.0, "source": "studio_flow",
+         "role": NODE_ROLE_QUEUE},
+        {"node": "agent_a", "wait_seconds": 90.0, "source": "studio_flow"},
+    ])
+    journey = parser.parse_call_log(call)
+    assert journey.node_roles == {"billing_queue": NODE_ROLE_QUEUE}
+    assert "agent_a" not in journey.node_roles
+
+
+def test_absent_ivr_events_has_no_node_roles(parser):
+    """The fallback heuristic path knows no roles -- empty dict, not a
+    missing attribute, so callers can always call .get() on it safely."""
+    journey = parser.parse_call_log(dict(BASE_CALL))
+    assert journey.node_roles == {}
+
+
+def test_escalation_role_is_recognized(parser):
+    call = dict(BASE_CALL, ivr_events=[
+        {"node": "billing_queue", "wait_seconds": 15.0, "source": "studio_flow",
+         "role": NODE_ROLE_QUEUE},
+        {"node": "SupervisorEscalation", "wait_seconds": 30.0, "source": "studio_flow",
+         "role": NODE_ROLE_ESCALATION},
+    ])
+    journey = parser.parse_call_log(call)
+    assert journey.node_roles["SupervisorEscalation"] == NODE_ROLE_ESCALATION
+
+
+def test_unrecognized_role_fails_loud():
+    with pytest.raises(ValueError, match="role"):
+        _validate_ivr_events([{"node": "billing_queue", "wait_seconds": 5.0,
+                               "source": "taskrouter", "role": "manager"}])
+
+
+def test_repeated_node_with_conflicting_roles_fails_loud():
+    with pytest.raises(ValueError, match="conflicting"):
+        _validate_ivr_events([
+            {"node": "front_desk", "wait_seconds": 5.0, "source": "taskrouter",
+             "role": NODE_ROLE_QUEUE},
+            {"node": "front_desk", "wait_seconds": 3.0, "source": "taskrouter",
+             "role": NODE_ROLE_AGENT},
+        ])
+
+
+def test_repeated_node_with_the_same_role_twice_is_fine():
+    events = _validate_ivr_events([
+        {"node": "front_desk", "wait_seconds": 5.0, "source": "taskrouter",
+         "role": NODE_ROLE_QUEUE},
+        {"node": "front_desk", "wait_seconds": 3.0, "source": "taskrouter",
+         "role": NODE_ROLE_QUEUE},
+    ])
+    assert len(events) == 2  # no exception -- identical roles don't conflict
 
 
 # ---------------------------------------------------------------------------

@@ -102,6 +102,30 @@ def test_sentinel_queue_prescription():
     print(f"  ✓ PASSED - Prescribed reorder: {rx.proposed_order}")
     return True
 
+def test_sentinel_queue_prescription_uses_role_tag_over_name():
+    print("\n[TEST 4b] Sentinel: Queue reordering trusts a role tag over the node's name")
+    sentinel = SentinelCore(IvrCassette())
+
+    # None of these node names contain "queue" at all -- the old
+    # substring guess would find nothing and every outcome would be
+    # dropped. A real event source that tagged its stops should still
+    # get correct queue attribution.
+    outcomes = [
+        {"journey": ["root", "BillingTransfer", "agent"], "resolved": True,
+         "node_roles": {"BillingTransfer": "queue"}},
+        {"journey": ["root", "BillingTransfer", "agent"], "resolved": True,
+         "node_roles": {"BillingTransfer": "queue"}},
+        {"journey": ["root", "TechSupportHold", "agent"], "resolved": False,
+         "node_roles": {"TechSupportHold": "queue"}},
+    ]
+    current = ["TechSupportHold", "BillingTransfer"]
+    rx = sentinel.prescribe_queue_reordering(outcomes, current)
+    assert rx.proposed_order[0] == "BillingTransfer", \
+        f"Should recognize BillingTransfer via its role tag, got {rx.proposed_order}"
+
+    print(f"  ✓ PASSED - Role-tagged reorder: {rx.proposed_order}")
+    return True
+
 def test_sentinel_structural_hash():
     print("\n[TEST 5] Sentinel: Structural hash determinism")
     sentinel1 = SentinelCore(IvrCassette())

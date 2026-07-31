@@ -11,6 +11,7 @@ from observe_perceive_core import (
     CallOutcome, 
     synthesize_percept
 )
+from twilio_log_ingestion import NODE_ROLE_AGENT
 
 def test_observe_friction_detection():
     print("\n[TEST 1] OBSERVE: Friction detection engine")
@@ -56,6 +57,28 @@ def test_perceive_outcome_inference():
     journey_abandoned = ["root", "intent_menu", "billing_queue"]
     outcome2 = perceive.infer_outcome(journey_abandoned, emotion_bad, "billing_queue")
     assert outcome2 == CallOutcome.IN_PROGRESS, f"Should be in progress, got {outcome2}"
+
+def test_perceive_outcome_inference_uses_role_tag_over_literal_name():
+    print("\n[TEST 3b] PERCEIVE: Outcome inference trusts a role tag over the literal name")
+    perceive = PerceiveCore()
+
+    emotion_good = EmotionalState(frustration=0.2, patience=0.8, trust=0.9)
+    # "SupportRepTransfer" is not in RESOLUTION_NODES and never will be --
+    # the old literal-membership check would miss this call entirely and
+    # call it IN_PROGRESS even though it reached a real agent.
+    journey = ["root", "intent_menu", "billing_queue", "SupportRepTransfer"]
+    outcome = perceive.infer_outcome(
+        journey, emotion_good, "SupportRepTransfer",
+        node_roles={"SupportRepTransfer": NODE_ROLE_AGENT})
+    assert outcome == CallOutcome.RESOLVED, \
+        f"Should recognize the role tag even with an unfamiliar node name, got {outcome}"
+
+    # Same journey, no node_roles -- falls back to the old literal check,
+    # which still finds nothing. Proves the fallback is unchanged, not
+    # that role tags are now mandatory.
+    outcome_untagged = perceive.infer_outcome(journey, emotion_good, "SupportRepTransfer")
+    assert outcome_untagged == CallOutcome.IN_PROGRESS, \
+        f"Untagged unfamiliar name should still fall back to the old behavior, got {outcome_untagged}"
 
 def test_perceive_abandonment_risk():
     print("\n[TEST 4] PERCEIVE: Abandonment risk calculation")
