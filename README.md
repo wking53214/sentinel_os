@@ -1,6 +1,13 @@
 # Sentinel OS
 
-An evidence-based regulatory governance operating framework for automated decisions.
+Governance is fractured. How can I create a governance system that never changes, but adapts?
+
+Sentinel OS decouples governance from business systems so both can evolve independently, yet remain VERIFIABLY connected.
+
+
+
+What Sentinel OS is
+Sentinel OS exists to answer 
 
 ## What Sentinel OS Is
 
