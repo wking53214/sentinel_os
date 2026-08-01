@@ -1,5 +1,3 @@
-whatcha think? this is burnning my remanining few $ I have for Fable 
-
 # Sentinel OS
 
 An evidence-based regulatory governance operating framework for automated decisions.
