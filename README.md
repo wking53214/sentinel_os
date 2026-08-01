@@ -12,7 +12,7 @@ Sentinel OS decouples governance from business systems so each can evolve indepe
 
 Sentinel OS exists to answer one question about an automated decision: why was it made and can that answer be proven? It sits beside a decision making system as a witness and judge. At the moment a decision happens, it records the inputs, the policy in force, the reasoning and the outcome, then binds them into tamper-evident evidence that an engineer, auditor or regulator can verify independently at any time.
 
-The framework is domain-agnostic. Its founding scenario is an auditor asking a regulated company: "Can you tell me why the AI declined this application?" Sentinel OS is designed to be the system that answers that question, in any industry, without being rebuilt for each one.
+The framework is domain-agnostic. Its founding scenario is an auditor asking a regulated company: "Can you tell me why the AI made this decision about xyz at that time?"{+£€%¥¥Sentinel OS is designed to be the system that answers that question, in any industry, without being rebuilt for each one.
 
 
 ## What Sentinel OS is NOT
