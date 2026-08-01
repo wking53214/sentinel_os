@@ -18,6 +18,48 @@ Sentinel OS is not an AI governance checklist. It is not a static compliance doc
 
 The default posture is witness, not actor. Sentinel judges decisions and records evidence; it does not reach into the acting system. The original reference implementation, a contact-center telephony deployment, also operates in an acting mode where Sentinel drives the decision. That is a distinct, optional operating mode, not the core of the architecture.
 
+## Architectural Boundary
+
+Sentinel OS is designed to provide a governance layer, not to replace the systems being governed.
+
+Sentinel OS does not attempt to make AI models more capable, replace agent architectures, or become the application that performs business operations. It does not assume that one model, one framework, or one implementation pattern will define the future of automated systems.
+
+Instead, Sentinel OS focuses on the layer that remains necessary regardless of how those systems change:
+
+**How do we know what happened, why it happened, what governance applied, and whether the result can be independently verified?**
+
+Sentinel OS is not:
+
+- an AI model
+- an agent framework
+- a prompt management system
+- a model guardrail library
+- a policy checklist
+- a compliance document repository
+- a replacement for legal interpretation
+- a business workflow engine
+
+Those systems may change over time. New models will emerge. New agent architectures will replace current ones. New regulations will appear. New industries will develop their own requirements.
+
+Sentinel OS is designed around the assumption that change is inevitable.
+
+The purpose of the architecture is not to prevent change. The purpose is to create a stable governance foundation that remains connected to changing systems without becoming tightly coupled to them.
+
+The separation is intentional:
+
+- Business systems decide and operate.
+- AI systems generate and assist.
+- Governance systems evaluate and provide evidence.
+- Human authorities interpret findings and make final determinations where required.
+
+This boundary allows Sentinel OS to evolve differently from the systems it governs.
+
+The systems underneath may change rapidly.
+
+The governance foundation remains stable.
+
+The connection between them remains verifiable.
+
 ## The Governance Problem
 
 Governance is fractured. Requirements come from many regulators, differ by industry and jurisdiction, and change continuously. A lending rule is amended. A state adds a reporting obligation an adjacent state does not have. An industry that had no AI oversight last year gains it this year.
