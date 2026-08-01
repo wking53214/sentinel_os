@@ -270,7 +270,7 @@ class PostgreSQLLedger:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS ledger_entries (
                     id SERIAL PRIMARY KEY,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                     action_type VARCHAR(50),
                     node VARCHAR(100),
                     previous_value FLOAT,
@@ -413,6 +413,40 @@ class PostgreSQLLedger:
                     CREATE INDEX IF NOT EXISTS idx_shadow_run_hash
                         ON ledger_entries(shadow_run_hash)
                         WHERE shadow_run_hash IS NOT NULL;
+                """)
+            # Item 10: timestamp column made timezone-aware. The original
+            # TIMESTAMP (no zone) column stored CURRENT_TIMESTAMP under
+            # whatever timezone the Postgres session happened to be
+            # configured with. On any server/session not set to UTC, that
+            # meant rows were stamped in local wall-clock time while every
+            # caller (get_decisions_by_node_in_window, get_unscored_shadow_runs,
+            # recommendation_impact.py) builds its since/until window in real
+            # UTC -- a mismatch invisible until the window is narrow enough,
+            # or the offset large enough, that real rows fall outside it.
+            # That's what surfaced as get_decisions_by_node_in_window
+            # returning zero rows for windows that should have matched.
+            # A plain information_schema read (AccessShareLock only, same
+            # lock-avoidance posture as existing_columns above) so a normal
+            # boot against an already-migrated ledger never takes the
+            # ACCESS EXCLUSIVE lock ALTER COLUMN TYPE requires.
+            # USING reinterprets each existing naive value under the
+            # CURRENT session timezone -- the same timezone CURRENT_TIMESTAMP
+            # used to write it -- so already-written rows convert to the
+            # correct absolute instant rather than silently shifting.
+            # timestamp is never part of any hashed canonical_entry (see
+            # append_decision/append), so this migration cannot affect any
+            # decision's hash or break chain verification.
+            cursor.execute("""
+                SELECT data_type FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'ledger_entries'
+                  AND column_name = 'timestamp';
+            """)
+            ts_row = cursor.fetchone()
+            if ts_row and ts_row[0] == "timestamp without time zone":
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ALTER COLUMN timestamp TYPE TIMESTAMPTZ
+                        USING timestamp AT TIME ZONE current_setting('TIMEZONE');
                 """)
             conn.commit()
         finally:
