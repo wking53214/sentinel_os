@@ -272,3 +272,89 @@ def test_explain_includes_kernel_prepended_mismatch_findings():
     kernel_findings = [f for f in factors if f.get("factor") == "outcome_mismatch"]
     assert len(kernel_findings) == 1
     assert kernel_findings[0]["field"] == "amount"
+
+
+# ---------------------------------------------------------------------------
+# judge()/explain() reason-gap fix (2026-08-01) -- two ways an episode
+# could previously score excellent with nothing actually checked.
+# ---------------------------------------------------------------------------
+
+def test_no_requested_fields_cannot_score_excellent():
+    """An episode recording no requested fields has nothing for
+    outcome_mismatches to compare `actual` against -- that used to
+    silently take the SAME "no mismatch" path as a genuinely verified
+    clean match and score 1.0. Now it's a distinct, penalized,
+    unverifiable state that cannot reach the top tier."""
+    cassette = MortgageCassette()
+    episode = make_episode(
+        "M-7", "mortgage",
+        requested={},
+        actual={"outcome": "approved", "amount": 300000.0},
+    )
+    result = judge_episode(cassette, episode)
+    assert result.score == pytest.approx(0.75)
+    assert result.tier == "good"
+    factors = explain_episode(cassette, episode)
+    unverifiable = [f for f in factors
+                    if f.get("factor") == "requested_vs_actual_unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0]["contribution"] == pytest.approx(-0.25)
+
+
+def test_genuinely_clean_match_is_distinct_from_unverifiable():
+    """The unverifiable penalty must not leak onto a real verified
+    match -- requested recorded AND matching actual still scores 1.0
+    and gets the ordinary requested_vs_actual factor, not the
+    unverifiable one."""
+    cassette = MortgageCassette()
+    episode = make_episode(
+        "M-8", "mortgage",
+        requested={"outcome": "approved", "amount": 300000.0},
+        actual={"outcome": "approved", "amount": 300000.0},
+    )
+    result = judge_episode(cassette, episode)
+    assert result.score == 1.0
+    assert result.tier == "excellent"
+    factors = explain_episode(cassette, episode)
+    assert [f["factor"] for f in factors] == ["requested_vs_actual"]
+
+
+def test_reason_substance_is_examined_even_with_no_mismatch():
+    """A thin/placeholder reason attached to a decision that never
+    triggers a mismatch (e.g. the recorded outcome matched what was
+    requested) used to never be examined at all, since the substance
+    check only ran inside the mismatch branch. Now it's checked
+    regardless of mismatch status."""
+    cassette = MortgageCassette()
+    episode = make_episode(
+        "M-9", "mortgage",
+        requested={"outcome": "denied"},
+        actual={"outcome": "denied"},
+        outcome_reasons=["no"],
+    )
+    result = judge_episode(cassette, episode)
+    assert result.score < 1.0
+    factors = explain_episode(cassette, episode)
+    substance = [f for f in factors if f.get("factor") == "reason_substance"]
+    assert len(substance) == 1
+    assert substance[0]["contribution"] < 0
+
+
+def test_reason_substance_examined_with_no_mismatch_stays_clean_if_substantive():
+    """The reverse of the above: a genuinely substantive reason
+    attached with no mismatch is examined and passes -- proves the
+    fix checks substance, it doesn't just penalize presence."""
+    cassette = MortgageCassette()
+    episode = make_episode(
+        "M-10", "mortgage",
+        requested={"outcome": "denied"},
+        actual={"outcome": "denied"},
+        outcome_reasons=["denial confirmed and documented per underwriting policy 4.2"],
+    )
+    result = judge_episode(cassette, episode)
+    assert result.score == 1.0
+    assert result.tier == "excellent"
+    factors = explain_episode(cassette, episode)
+    substance = [f for f in factors if f.get("factor") == "reason_substance"]
+    assert len(substance) == 1
+    assert substance[0]["contribution"] == 0.0
