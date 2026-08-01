@@ -1,9 +1,12 @@
 # Sentinel OS
 
-"Governance is fractured. How can I create a governance system that never changes, but adapts?" -creator
+Problem
 
-Sentinel OS decouples governance from business systems so both can evolve independently, yet remain VERIFIABLY connected.
+Governance is fractured. How can a governance system remain stable while the business systems, regulations, models, and industries it governs continuously change?
 
+Thesis
+
+Sentinel OS decouples governance from business systems so each can evolve independently while remaining verifiably connected.
 
 ## What Sentinel OS is
 
