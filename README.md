@@ -5,11 +5,7 @@ Governance is fractured. How can I create a governance system that never changes
 Sentinel OS decouples governance from business systems so both can evolve independently, yet remain VERIFIABLY connected.
 
 
-
-What Sentinel OS is
-Sentinel OS exists to answer 
-
-## What Sentinel OS Is
+## What Sentinel OS is
 
 Sentinel OS exists to answer one question about an automated decision: why was it made, and can that answer be proven. It sits beside a decision-making system as a witness and judge. At the moment a decision happens, it records the inputs, the policy in force, the reasoning, and the outcome, and binds them into tamper-evident evidence that an engineer, auditor, or regulator can verify independently later.
 
