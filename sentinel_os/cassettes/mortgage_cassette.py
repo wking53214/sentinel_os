@@ -285,22 +285,46 @@ class MortgageCassette(Cassette, OutcomeObligations):
     # thin to be a documented basis for an adverse action.
     _THIN_REASON_WORD_COUNT = 3
 
+    # An episode recording no requested fields at all has nothing for
+    # outcome_mismatches to compare `actual` against -- outcome_mismatches
+    # iterates episode.requested, so an empty requested dict silently
+    # produces the SAME "no mismatch" result as a genuinely verified
+    # clean match. Fixed 2026-08-01: this can no longer reach the top
+    # score -- see the requested_vs_actual_unverifiable factor below.
+    _UNVERIFIABLE_PENALTY = 0.25
+
     def _episode_facts(self, episode: Episode):
         mismatches = outcome_mismatches(episode)
         reasons = list(episode.outcome_reasons)
-        return mismatches, reasons
+        requested_recorded = bool(episode.requested)
+        return mismatches, reasons, requested_recorded
 
-    def _score_components(self, mismatches, reasons):
+    def _score_components(self, mismatches, reasons, requested_recorded):
         factors: List[Dict[str, Any]] = []
         score = 1.0
 
         if not mismatches:
-            factors.append({
-                "factor": "requested_vs_actual",
-                "value": 0,
-                "contribution": 0.0,
-                "detail": "outcome matched what was requested; no mismatch",
-            })
+            if requested_recorded:
+                factors.append({
+                    "factor": "requested_vs_actual",
+                    "value": 0,
+                    "contribution": 0.0,
+                    "detail": "outcome matched what was requested; no mismatch",
+                })
+            else:
+                score -= self._UNVERIFIABLE_PENALTY
+                factors.append({
+                    "factor": "requested_vs_actual_unverifiable",
+                    "value": 0,
+                    "contribution": -self._UNVERIFIABLE_PENALTY,
+                    "detail": (
+                        "no requested fields were recorded on this episode "
+                        "-- there is nothing to compare actual against, so "
+                        "decision-process integrity on this axis could not "
+                        "be checked (this is NOT the same as a verified "
+                        "clean match, and cannot score in the top tier)"
+                    ),
+                })
         else:
             penalty = min(len(mismatches) * 0.2, 0.6)
             score -= penalty
@@ -315,46 +339,55 @@ class MortgageCassette(Cassette, OutcomeObligations):
                 ),
             })
 
-            if not reasons:
-                # Defensive only: episode.validate_episode already
-                # refuses a mismatch with no reason on file, so
-                # judge_episode never reaches this cassette in that
-                # state. Scored anyway rather than assumed unreachable.
-                score -= 0.6
+        # Reason substance is checked on EVERY episode that has a reason
+        # on file, not only inside the mismatch branch -- a placeholder
+        # reason attached with no mismatch (e.g. an adverse action whose
+        # recorded outcome matched what was requested, so no mismatch
+        # ever fires) previously skipped this check entirely and could
+        # score 1.0/excellent with a one-word reason never examined.
+        if reasons:
+            thin = [r for r in reasons
+                   if len(r.split()) < self._THIN_REASON_WORD_COUNT]
+            if thin:
+                penalty2 = min(len(thin) * 0.2, 0.4)
+                score -= penalty2
                 factors.append({
                     "factor": "reason_substance",
-                    "value": 0,
-                    "contribution": -0.6,
-                    "detail": "mismatch present with no outcome reason on file",
+                    "value": len(thin),
+                    "contribution": -penalty2,
+                    "detail": (
+                        f"{len(thin)} outcome reason(s) under "
+                        f"{self._THIN_REASON_WORD_COUNT} words -- "
+                        f"present (kernel requires it on a mismatch) but "
+                        f"too thin to be a documented basis for the "
+                        f"adverse action"
+                    ),
                 })
             else:
-                thin = [r for r in reasons
-                       if len(r.split()) < self._THIN_REASON_WORD_COUNT]
-                if thin:
-                    penalty2 = min(len(thin) * 0.2, 0.4)
-                    score -= penalty2
-                    factors.append({
-                        "factor": "reason_substance",
-                        "value": len(thin),
-                        "contribution": -penalty2,
-                        "detail": (
-                            f"{len(thin)} outcome reason(s) under "
-                            f"{self._THIN_REASON_WORD_COUNT} words -- "
-                            f"present (kernel requires it) but too thin "
-                            f"to be a documented basis for the adverse "
-                            f"action"
-                        ),
-                    })
-                else:
-                    factors.append({
-                        "factor": "reason_substance",
-                        "value": len(reasons),
-                        "contribution": 0.0,
-                        "detail": (
-                            f"all outcome reasons are substantive "
-                            f"(>= {self._THIN_REASON_WORD_COUNT} words)"
-                        ),
-                    })
+                factors.append({
+                    "factor": "reason_substance",
+                    "value": len(reasons),
+                    "contribution": 0.0,
+                    "detail": (
+                        f"all outcome reasons are substantive "
+                        f"(>= {self._THIN_REASON_WORD_COUNT} words)"
+                    ),
+                })
+        elif mismatches:
+            # Defensive only: episode.validate_episode already refuses a
+            # mismatch with no reason on file, so judge_episode never
+            # reaches this cassette in that state. Scored anyway rather
+            # than assumed unreachable.
+            score -= 0.6
+            factors.append({
+                "factor": "reason_substance",
+                "value": 0,
+                "contribution": -0.6,
+                "detail": "mismatch present with no outcome reason on file",
+            })
+        # else: no mismatch and no reasons on file -- normal, nothing to
+        # explain (requested_recorded's own factor above already covers
+        # the unverifiable case when requested was empty).
 
         score = max(0.0, min(1.0, score))
 
@@ -372,8 +405,8 @@ class MortgageCassette(Cassette, OutcomeObligations):
     def judge(self, episode: Episode) -> QualityResult:
         """Judge one validated episode on decision-process integrity
         (see class-level note above for what that means here)."""
-        mismatches, reasons = self._episode_facts(episode)
-        result, _ = self._score_components(mismatches, reasons)
+        mismatches, reasons, requested_recorded = self._episode_facts(episode)
+        result, _ = self._score_components(mismatches, reasons, requested_recorded)
         return result
 
     def explain(self, episode: Episode) -> List[Dict[str, Any]]:
@@ -381,8 +414,8 @@ class MortgageCassette(Cassette, OutcomeObligations):
         verification findings (raw mismatches/discrepancies) are
         prepended by episode.explain_episode; these factors are this
         cassette's own scoring interpretation of them."""
-        mismatches, reasons = self._episode_facts(episode)
-        _, factors = self._score_components(mismatches, reasons)
+        mismatches, reasons, requested_recorded = self._episode_facts(episode)
+        _, factors = self._score_components(mismatches, reasons, requested_recorded)
         return factors
 
     def validate(self) -> bool:

@@ -494,22 +494,20 @@ def derive_open_obligations(decision_rows: Iterable[Mapping[str, Any]],
     return derived
 
 
-def to_cohort_decision(obligation: OutcomeObligation, group_distribution):
-    """Turn a RESOLVED obligation into the unit C2 dimension 4 tests.
+def cohort_favorable(obligation: OutcomeObligation) -> bool:
+    """The two testability rules ANY cohort dimension needs before it can
+    use a RESOLVED obligation -- split out of to_cohort_decision (which
+    now delegates here) so a dimension that needs favorable/subject but
+    NOT a demographic estimate (dimension 6's geography-only check) can
+    reuse this gate directly, without going through to_cohort_decision's
+    group_distribution parameter at all.
 
-    This is the return path cohort-level bias testing has been
-    structurally waiting for: check_statistical_outcome_equity has
-    always taken already-resolved outcomes, and until now nothing in the
-    system produced any.
-
-    Refuses anything not RESOLVED with a real favorable/unfavorable
-    call. An obligation that is still open, or that resolved to
-    genuinely ambiguous, is NOT a quiet False -- feeding a placeholder
-    into a four-fifths test would produce a disparate-impact number
-    computed partly from decisions nobody has measured yet, which is
-    worse than having no number."""
-    from regulatory_checks import CohortDecision
-
+    Same refusal posture as to_cohort_decision: an obligation that isn't
+    RESOLVED, or that resolved to genuinely ambiguous (favorable=None),
+    raises rather than returning a placeholder -- coercing either case
+    into a bool would put an unmeasured or genuinely-unknown decision
+    into a statistical finding.
+    """
     if obligation.state != OUTCOME_RESOLVED:
         raise OutcomeIntegrityError(obligation.obligation_id, [
             f"cannot enter a cohort test in state {obligation.state!r} with reason "
@@ -523,8 +521,28 @@ def to_cohort_decision(obligation: OutcomeObligation, group_distribution):
             "needs a favorable/unfavorable call, and coercing an ambiguous "
             "outcome to either one fabricates the input to a fairness statistic"
         ])
+    return bool(obligation.favorable)
+
+
+def to_cohort_decision(obligation: OutcomeObligation, group_distribution):
+    """Turn a RESOLVED obligation into the unit C2 dimension 4 tests.
+
+    This is the return path cohort-level bias testing has been
+    structurally waiting for: check_statistical_outcome_equity has
+    always taken already-resolved outcomes, and until now nothing in the
+    system produced any.
+
+    Refuses anything not RESOLVED with a real favorable/unfavorable
+    call -- see cohort_favorable, which this delegates to. An obligation
+    that is still open, or that resolved to genuinely ambiguous, is NOT
+    a quiet False -- feeding a placeholder into a four-fifths test would
+    produce a disparate-impact number computed partly from decisions
+    nobody has measured yet, which is worse than having no number."""
+    from regulatory_checks import CohortDecision
+
+    favorable_outcome = cohort_favorable(obligation)
     return CohortDecision(
         subject_id=str(obligation.subject_id or obligation.decision_hash),
-        favorable_outcome=bool(obligation.favorable),
+        favorable_outcome=favorable_outcome,
         group_distribution=group_distribution,
     )

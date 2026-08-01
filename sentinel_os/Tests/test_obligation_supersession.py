@@ -16,6 +16,7 @@ import psycopg2
 import pytest
 from fastapi.testclient import TestClient
 
+import obligation_supersession
 from governance.ledger_postgres import GovernanceDecisionRecord
 from obligation_supersession import (
     STATUS_ABANDONED,
@@ -373,3 +374,58 @@ def test_record_outcomes_uses_each_outcomes_own_decided_at(test_ledger, twin):
     obligations = twin.get(f"/replica/{twin.replica_id}/obligations").json()["obligations"]
     updated = next(o for o in obligations if o["obligation_id"] == old_obligation_id)
     assert updated["resolved_at"] == matching[0].decided_at
+
+
+# ---------------------------------------------------------------------------
+# CLI -- added 2026-08-01. This module had no CLI at all before this (only
+# sweep()/record_outcomes() called directly, from tests), which meant it
+# could not run in production. New main() follows obligation_sweep.py's
+# CLI pattern exactly, including the same ship-token requirement.
+# ---------------------------------------------------------------------------
+
+
+def test_main_requires_ship_token_or_env_var(monkeypatch):
+    """Same requirement as obligation_sweep.py's CLI -- every twin route
+    this module calls is auth-gated as of AC-13."""
+    monkeypatch.delenv("SENTINEL_SHIP_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["obligation_supersession.py", "--ledger-dsn", "x",
+         "--receiver-url", "y", "--replica-id", "z"])
+    with pytest.raises(SystemExit):
+        obligation_supersession.main()
+
+
+def test_main_sends_ship_token_as_bearer_header(monkeypatch):
+    """--ship-token reaches the twin client as a real Authorization header.
+    No real Postgres/twin needed -- this only proves the CLI's own wiring;
+    sweep()/record_outcomes()'s own logic is proven elsewhere in this file
+    against real infra."""
+    import httpx as _httpx
+    import psycopg2 as _psycopg2
+
+    captured = {}
+
+    class _FakeClient:
+        def __init__(self, *, base_url, timeout, headers=None):
+            captured["headers"] = headers
+
+        def close(self):
+            pass
+
+    class _FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(_httpx, "Client", _FakeClient)
+    monkeypatch.setattr(_psycopg2, "connect", lambda dsn: _FakeConn())
+    monkeypatch.setattr(obligation_supersession, "sweep", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["obligation_supersession.py", "--ledger-dsn", "x",
+         "--receiver-url", "y", "--replica-id", "z",
+         "--ship-token", "secret-tok", "--dry-run"])
+
+    obligation_supersession.main()
+
+    assert captured["headers"] == {"Authorization": "Bearer secret-tok"}

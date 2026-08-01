@@ -23,6 +23,7 @@ import psycopg2
 import pytest
 from fastapi.testclient import TestClient
 
+import obligation_sweep
 from governance.ledger_postgres import GovernanceDecisionRecord
 from obligation_sweep import (
     assemble_cohort,
@@ -140,10 +141,39 @@ def test_assemble_cohort_builds_all_three_dimension_cohorts_when_everything_is_o
 
 
 def test_assemble_cohort_skips_an_obligation_with_no_group_distribution():
+    """Dimensions 4/5 both need a demographic estimate and correctly skip
+    without one. Dimension 6 does NOT need one (see the dedicated
+    decoupling test below) -- this obligation also has no geography on
+    file, so dimension 6 skips too, but for its own, independent reason."""
     obligations = [_resolved("o1", "lending", "loan_performance", "h1")]
     assembled = assemble_cohort("lending", "loan_performance", obligations, {}, {})
     assert assembled.dimension_4_cohort == []
     assert assembled.dimension_5_cohort == []
+    assert assembled.dimension_6_cohort == []
+    assert len(assembled.skipped) == 2
+    reasons = [s.reason for s in assembled.skipped]
+    assert any("no protected-characteristic estimate" in r for r in reasons)
+    assert any("dimension 6" in r for r in reasons)
+
+
+def test_assemble_cohort_admits_dimension_6_without_a_demographic_estimate():
+    """The dimension-6 decoupling fix (2026-08-01): geography is a known
+    fact hard-assigned from the property address, not a probability
+    estimate -- dimension 6 must not need a protected-characteristic
+    estimate on file to run. Regression test for the gap where a
+    missing distribution silently zeroed dimension 6 too, even with
+    geography on file and a valid, known favorable outcome."""
+    obligations = [_resolved("o1", "lending", "loan_performance", "h1")]
+    geography = {"h1": {"zip": "62704", "county_fips": "17167"}}
+    assembled = assemble_cohort("lending", "loan_performance", obligations,
+                                {}, {}, geography)
+    assert assembled.dimension_4_cohort == []
+    assert assembled.dimension_5_cohort == []
+    assert len(assembled.dimension_6_cohort) == 1
+    assert assembled.dimension_6_cohort[0].zip_code == "62704"
+    assert assembled.dimension_6_cohort[0].county_fips == "17167"
+    # Only the dimension-4 skip -- dimension 6 succeeded; dimension 5's
+    # gap is the exact same missing-estimate reason already reported once.
     assert len(assembled.skipped) == 1
     assert "no protected-characteristic estimate" in assembled.skipped[0].reason
 
@@ -227,9 +257,10 @@ def test_review_cohort_as_dict_is_json_safe_and_carries_skips():
     assert payload["domain"] == "lending"
     assert payload["obligation_kind"] == "loan_performance"
     assert payload["total_resolved"] == 1
-    assert payload["skipped"] == [
-        {"obligation_id": "o1",
-         "reason": "no protected-characteristic estimate on file for this subject"}]
+    assert len(payload["skipped"]) == 2
+    reasons = [s["reason"] for s in payload["skipped"]]
+    assert any("no protected-characteristic estimate" in r for r in reasons)
+    assert any("dimension 6" in r for r in reasons)
     import json
     json.dumps(payload)  # must not raise
 
@@ -477,3 +508,64 @@ def test_fetch_latest_cohort_review_returns_the_newest_of_several_sweeps(
     latest = fetch_latest_cohort_review(twin, twin.replica_id, "lending",
                                         "loan_performance")
     assert latest["swept_at"] == 1_700_999_999.0
+
+
+# ---------------------------------------------------------------------------
+# CLI -- added 2026-08-01, after an audit found the shipped sweep CLI built
+# its twin client with no Authorization header at all, meaning every real
+# run would 401 against every AC-13-gated route it calls.
+# ---------------------------------------------------------------------------
+
+
+def test_main_requires_ship_token_or_env_var(monkeypatch):
+    """The CLI refuses to start without a ship token -- every twin route it
+    calls is auth-gated as of AC-13 (fix-twin-endpoint-auth); a client
+    built with no Authorization header would just 401 on first use, which
+    is worse than failing loudly up front."""
+    monkeypatch.delenv("SENTINEL_SHIP_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["obligation_sweep.py", "--ledger-dsn", "x", "--receiver-url", "y",
+         "--replica-id", "z"])
+    with pytest.raises(SystemExit):
+        obligation_sweep.main()
+
+
+def test_main_sends_ship_token_as_bearer_header(monkeypatch):
+    """--ship-token reaches the twin client as a real Authorization header.
+    This is the actual regression this fix closes: the CLI previously
+    built an unauthenticated httpx.Client even after every route it calls
+    became auth-gated. No real Postgres/twin/sealed-channel needed -- this
+    only proves the CLI's own wiring, the governance logic it calls is
+    proven elsewhere in this file against real infra."""
+    import httpx as _httpx
+    import psycopg2 as _psycopg2
+
+    import sealed_demographic_channel
+
+    captured = {}
+
+    class _FakeClient:
+        def __init__(self, *, base_url, timeout, headers=None):
+            captured["headers"] = headers
+
+        def close(self):
+            pass
+
+    class _FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(_httpx, "Client", _FakeClient)
+    monkeypatch.setattr(_psycopg2, "connect", lambda dsn: _FakeConn())
+    monkeypatch.setattr(sealed_demographic_channel, "SealedDemographicChannel",
+                        lambda **kwargs: object())
+    monkeypatch.setattr(obligation_sweep, "sweep", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["obligation_sweep.py", "--ledger-dsn", "x", "--receiver-url", "y",
+         "--replica-id", "z", "--ship-token", "secret-tok", "--dry-run"])
+
+    obligation_sweep.main()
+
+    assert captured["headers"] == {"Authorization": "Bearer secret-tok"}
