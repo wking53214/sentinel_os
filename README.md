@@ -14,9 +14,18 @@ Sentinel OS exists to answer one question about an automated decision: why was i
 
 The framework is domain-agnostic. Its founding scenario is an auditor asking a regulated company: "Can you tell me why the AI declined this application?" Sentinel OS is designed to be the system that answers that question, in any industry, without being rebuilt for each one.
 
-Sentinel OS is not an AI governance checklist. It is not a static compliance document system. It is not an implementation of a single regulation. It is not a replacement for legal interpretation. It is not a commercial service platform.
 
-The default posture is witness, not actor. Sentinel judges decisions and records evidence; it does not reach into the acting system. The original reference implementation, a contact-center telephony deployment, also operates in an acting mode where Sentinel drives the decision. That is a distinct, optional operating mode, not the core of the architecture.
+## What Sentinel OS is NOT
+Sentinel OS is not an
+- AI governance checklist
+- Static compliance document system
+- Implementation of a single regulation
+- Replacement for legal interpretation
+- Commercial service platform.
+
+The default posture is witness ##NOT actor. Sentinel judges decisions and records evidence; it does not reach into the acting system. 
+
+***The original reference implementation, a contact-center telephony deployment, does also operates in an acting mode where Sentinel DOES drive the decision. That is a distinct, optional operating mode, not the core of the architecture.
 
 ## Architectural Boundary
 
