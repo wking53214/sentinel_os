@@ -371,3 +371,73 @@ def record_outcomes(twin_client, replica_id: str,
         results.append({"old_obligation_id": outcome.old_obligation_id,
                         **resp.json()})
     return results
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point -- same posture as obligation_sweep.py's: runs on the
+# PRIMARY, needs a real ledger connection and a real twin client. Added
+# 2026-08-01: this module had no CLI at all (only sweep()/record_outcomes()
+# called directly, from tests) -- meaning it could not actually run in
+# production. Whatever triggers it on a schedule (cron, a k8s CronJob, a
+# human running it by hand) is a deployment decision this script
+# deliberately doesn't make for you, same as obligation_sweep.py.
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    import argparse
+    import json as _json
+    import os
+    import time as _time
+
+    import httpx
+    import psycopg2 as _psycopg2
+
+    ap = argparse.ArgumentParser(
+        description="Find every declared loan-modification replacement on "
+                    "the primary ledger and abandon the old obligation it "
+                    "supersedes on the twin.")
+    ap.add_argument("--ledger-dsn", required=True,
+                    help="psycopg2 DSN for the primary's own ledger")
+    ap.add_argument("--receiver-url", required=True,
+                    help="Base URL of the twin's receiver API")
+    ap.add_argument("--replica-id", required=True)
+    ap.add_argument("--ship-token", default=os.environ.get("SENTINEL_SHIP_TOKEN"),
+                    help="Bearer token for the twin's ship-token auth "
+                         "(falls back to the SENTINEL_SHIP_TOKEN env var). "
+                         "Required -- every twin route this script calls is "
+                         "auth-gated (see AC-13).")
+    ap.add_argument("--domain", default=None,
+                    help="Restrict to one domain's replacement candidates "
+                         "(default: every domain)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Compute and print outcomes but do not record any "
+                         "abandonment on the twin")
+    args = ap.parse_args()
+    if not args.ship_token:
+        ap.error("--ship-token is required (or set SENTINEL_SHIP_TOKEN) -- "
+                 "every twin route this script calls is auth-gated (AC-13)")
+
+    ledger_conn = _psycopg2.connect(args.ledger_dsn)
+    twin_client = httpx.Client(
+        base_url=args.receiver_url, timeout=30.0,
+        headers={"Authorization": f"Bearer {args.ship_token}"})
+
+    try:
+        outcomes = sweep(ledger_conn, twin_client, args.replica_id,
+                         domain=args.domain)
+        summary = {
+            "candidates_found": len(outcomes),
+            "outcomes": [o.as_dict() for o in outcomes],
+        }
+        if not args.dry_run:
+            recorded = record_outcomes(twin_client, args.replica_id, outcomes,
+                                       fallback_at=_time.time())
+            summary["recorded"] = recorded
+        print(_json.dumps(summary, indent=2, default=str))
+    finally:
+        ledger_conn.close()
+        twin_client.close()
+
+
+if __name__ == "__main__":
+    main()

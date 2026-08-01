@@ -59,7 +59,7 @@ from outcome_v1 import (
     OUTCOME_RESOLVED,
     OutcomeIntegrityError,
     OutcomeObligation,
-    to_cohort_decision,
+    cohort_favorable,
 )
 from regulatory_cassette_interface import DecisionMaterial, material_from_ledger_row
 from regulatory_checks import (
@@ -204,48 +204,67 @@ def assemble_cohort(
         obligation_id = str(obligation.get("obligation_id", subject))
         decision_hash = str(obligation["decision_hash"])
         distribution = group_distributions.get(subject)
-        if distribution is None:
+
+        favorable_outcome = None
+        favorable_error: Optional[str] = None
+        try:
+            favorable_outcome = cohort_favorable(_to_outcome_obligation(obligation))
+        except OutcomeIntegrityError as exc:
+            favorable_error = "; ".join(exc.violations)
+
+        # Dimension 4: needs BOTH a valid favorable call and a
+        # demographic estimate.
+        if favorable_error is not None:
+            skipped.append(SkippedObligation(
+                obligation_id, f"not usable for dimension 4: {favorable_error}"))
+        elif distribution is None:
             skipped.append(SkippedObligation(
                 obligation_id,
                 "no protected-characteristic estimate on file for this subject"))
-            continue
-        dim4_entry = None
-        try:
-            dim4_entry = to_cohort_decision(
-                _to_outcome_obligation(obligation), distribution)
-            dim4.append(dim4_entry)
-        except OutcomeIntegrityError as exc:
-            skipped.append(SkippedObligation(
-                obligation_id,
-                f"not usable for dimension 4: {'; '.join(exc.violations)}"))
-        material = decision_materials.get(decision_hash)
-        if material is not None:
-            dim5.append(CohortInputDecision(
-                subject_id=subject,
-                input_fields=material.input_fields,
-                group_distribution=distribution,
-            ))
         else:
-            skipped.append(SkippedObligation(
-                obligation_id,
-                "not usable for dimension 5: no decision material found on "
-                "the primary ledger for this obligation's decision_hash"))
-        if dim4_entry is not None:
+            dim4.append(CohortDecision(
+                subject_id=subject, favorable_outcome=favorable_outcome,
+                group_distribution=distribution))
+
+        # Dimension 5: needs a demographic estimate + decision material,
+        # NOT a favorable call -- it screens input VALUES, not outcomes.
+        material = decision_materials.get(decision_hash)
+        if distribution is not None:
+            if material is not None:
+                dim5.append(CohortInputDecision(
+                    subject_id=subject, input_fields=material.input_fields,
+                    group_distribution=distribution))
+            else:
+                skipped.append(SkippedObligation(
+                    obligation_id,
+                    "not usable for dimension 5: no decision material found "
+                    "on the primary ledger for this obligation's decision_hash"))
+        # else: the dimension-4 skip above already covers "no
+        # protected-characteristic estimate" -- dimension 5 needs that
+        # same estimate, so a second identical skip would be noise.
+
+        # Dimension 6: needs a valid favorable call + geography, NOT a
+        # demographic estimate. Geography is a known fact hard-assigned
+        # from the property address, not a probability distribution like
+        # dimensions 4/5's group estimate -- coupling it to a missing
+        # demographic estimate was a real gap (fixed 2026-08-01): it
+        # silently zeroed dimension 6 even when geography was on file
+        # and the outcome was known.
+        if favorable_error is None:
             geography = property_geography.get(decision_hash)
             zip_code = (geography or {}).get("zip")
             county_fips = (geography or {}).get("county_fips")
             if zip_code or county_fips:
                 dim6.append(GeographicCohortDecision(
-                    subject_id=subject,
-                    favorable_outcome=dim4_entry.favorable_outcome,
-                    zip_code=zip_code,
-                    county_fips=county_fips,
-                ))
+                    subject_id=subject, favorable_outcome=favorable_outcome,
+                    zip_code=zip_code, county_fips=county_fips))
             else:
                 skipped.append(SkippedObligation(
                     obligation_id,
                     "not usable for dimension 6: no property ZIP or county "
                     "resolved for this obligation's decision_hash"))
+        # else: the dimension-4 skip above already covers why -- dimension
+        # 6 needs the exact same favorable call dimension 4 does.
     return AssembledCohort(
         domain=domain, obligation_kind=obligation_kind,
         dimension_4_cohort=dim4, dimension_5_cohort=dim5,
@@ -505,6 +524,7 @@ def fetch_latest_cohort_review(twin_client, replica_id: str, domain: str,
 def main() -> None:
     import argparse
     import json as _json
+    import os
 
     import httpx
     import psycopg2 as _psycopg2
@@ -520,6 +540,11 @@ def main() -> None:
     ap.add_argument("--receiver-url", required=True,
                     help="Base URL of the twin's receiver API")
     ap.add_argument("--replica-id", required=True)
+    ap.add_argument("--ship-token", default=os.environ.get("SENTINEL_SHIP_TOKEN"),
+                    help="Bearer token for the twin's ship-token auth "
+                         "(falls back to the SENTINEL_SHIP_TOKEN env var). "
+                         "Required -- every twin route this script calls is "
+                         "auth-gated (see AC-13).")
     ap.add_argument("--sealed-channel-host", default="localhost")
     ap.add_argument("--sealed-channel-port", type=int, default=5432)
     ap.add_argument("--sealed-channel-dbname", default="iceberg")
@@ -532,9 +557,14 @@ def main() -> None:
                     help="Compute and print reviews but do not record "
                          "them on the twin")
     args = ap.parse_args()
+    if not args.ship_token:
+        ap.error("--ship-token is required (or set SENTINEL_SHIP_TOKEN) -- "
+                 "every twin route this script calls is auth-gated (AC-13)")
 
     ledger_conn = _psycopg2.connect(args.ledger_dsn)
-    twin_client = httpx.Client(base_url=args.receiver_url, timeout=30.0)
+    twin_client = httpx.Client(
+        base_url=args.receiver_url, timeout=30.0,
+        headers={"Authorization": f"Bearer {args.ship_token}"})
     channel = SealedDemographicChannel(
         host=args.sealed_channel_host, port=args.sealed_channel_port,
         dbname=args.sealed_channel_dbname, user=args.sealed_channel_user,
