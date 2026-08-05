@@ -334,7 +334,7 @@ def test_content_reused_version_string_is_refused_at_load():
     class V2Different(V1):
         def get_governance_parameters(self):
             params = super().get_governance_parameters()
-            params["outcome_horizon_days"]["value"] = 30
+            params["governance_trigger"]["value"] = 2
             return params
 
     harness_a = GovernanceHarness(PG_CONFIG, V1())
