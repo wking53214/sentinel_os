@@ -139,13 +139,14 @@ class GovernanceHarness:
                 user=config.get("postgres_user", "iceberg"),
                 password=config.get("postgres_password", "iceberg"),
             )
-        except Exception:
+        except Exception as exc:
             if self.require_cassette_binding:
                 raise RuntimeError(
                     "require_cassette_binding is True but the ledger "
                     "connection failed -- refusing to start bound-but-"
-                    "broken, same posture as no ledger configured at all."
-                )
+                    f"broken, same posture as no ledger configured at "
+                    f"all. Underlying error: {type(exc).__name__}: {exc}"
+                ) from exc
             return None
 
     def _bind_current_cassette(self) -> None:
