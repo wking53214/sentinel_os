@@ -419,30 +419,38 @@ def test_real_call_end_to_end_proves_cassette_governs():
 # --------------------------------------------------------------------------
 
 _BAD_CASSETTE_SOURCE = '''\
-"""A cassette missing its governance_trigger -- must NOT load."""
+"""A cassette missing its governance_trigger -- must NOT load.
+
+Based on MortgageCassette rather than IvrCassette (2026-08-05): the
+kernel's auto-discovery lockdown is domain-agnostic behavior and this
+fixture should not carry an IVR dependency. Mortgage declares no
+routing_topology capability, so no queue-definition requirement is in
+play here either -- deleting governance_trigger is the only way this
+cassette is broken.
+"""
 import copy
 from cassette_interface import CassetteConfig
-from cassettes.ivr_cassette import IvrCassette
+from cassettes.mortgage_cassette import MortgageCassette
 
-class BadCassette(IvrCassette):
+class BadCassette(MortgageCassette):
     def get_config(self) -> CassetteConfig:
         return CassetteConfig(name="bad", version="0.0.1",
                               description="broken test cassette",
                               domain="brokenco")
 
     def get_governance_parameters(self):
-        params = copy.deepcopy(IvrCassette._GOVERNANCE_PARAMETERS)
+        params = copy.deepcopy(MortgageCassette._GOVERNANCE_PARAMETERS)
         del params["governance_trigger"]
         return params
 '''
 
 
 def _make_cassette_dir(tmp_path):
-    """A cassette directory holding one valid cassette (the real IVR
-    file, copied verbatim) and one invalid one."""
-    src = os.path.join(REPO_ROOT, "cassettes", "ivr_cassette.py")
+    """A cassette directory holding one valid cassette (the real
+    mortgage file, copied verbatim) and one invalid one."""
+    src = os.path.join(REPO_ROOT, "cassettes", "mortgage_cassette.py")
     with open(src, "r", encoding="utf-8") as fh:
-        (tmp_path / "ivr_cassette.py").write_text(fh.read())
+        (tmp_path / "mortgage_cassette.py").write_text(fh.read())
     (tmp_path / "bad_cassette.py").write_text(_BAD_CASSETTE_SOURCE)
     return str(tmp_path)
 
@@ -462,16 +470,16 @@ def test_auto_discovery_skips_bad_in_debug_mode(tmp_path):
     loader = CassetteLoader(_make_cassette_dir(tmp_path))
     registry = loader.load_all_cassettes(fail_on_invalid=False)
     keys = sorted(registry.cassettes)
-    assert keys == ["ivr:standard-ivr"], f"only the valid cassette may load, got {keys}"
+    assert keys == ["mortgage:mortgage-v1"], f"only the valid cassette may load, got {keys}"
 
 
 def test_production_mode_ignores_bad_neighbors(tmp_path):
-    """Explicit production load: production_mode('ivr') loads exactly
+    """Explicit production load: production_mode('mortgage') loads exactly
     the named domain and never opens the broken neighbor file."""
     cassette_dir = _make_cassette_dir(tmp_path)
-    cassette = CassetteLoader.production_mode("ivr", cassette_dir=cassette_dir)
-    assert cassette.get_config().domain == "ivr"
-    assert validate_cassette(cassette).float_value("long_wait_threshold") == 30.0
+    cassette = CassetteLoader.production_mode("mortgage", cassette_dir=cassette_dir)
+    assert cassette.get_config().domain == "mortgage"
+    assert validate_cassette(cassette).int_value("outcome_horizon_days") == 1095
 
 
 # --------------------------------------------------------------------------

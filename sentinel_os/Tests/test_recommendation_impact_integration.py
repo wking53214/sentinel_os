@@ -12,30 +12,43 @@ from datetime import datetime, timedelta, timezone
 
 from cassette_schema import validate_cassette
 from cassettes.ivr_cassette import IvrCassette
+from cassettes.mortgage_cassette import MortgageCassette
 from claude_governance_api import ClaudeGovernanceDecider
 from governance.ledger_postgres import GovernanceDecisionRecord
 from recommendation_impact import run_healing_bounds_shadow
 
 _PARAMS = validate_cassette(IvrCassette())
+_MORTGAGE_PARAMS = validate_cassette(MortgageCassette())
+_MORTGAGE_VERSION = "mortgage:mortgage-v1:1.0.0"
 
 
-def _decision(node, wait_time, quality_tier="good", cassette_version=None):
+def _decision(node, wait_time, quality_tier="good", cassette_version=None,
+             policy_parameters=None):
     return GovernanceDecisionRecord(
         action_type="governance_decision", node=node,
         cassette_version=cassette_version or "ivr:standard-ivr:2.0.2",
         input_data={"call_sid": f"RI{uuid.uuid4().hex[:10]}",
                    "wait_time": wait_time, "quality_tier": quality_tier},
-        policy_parameters={"governance_trigger": 2},
+        policy_parameters=policy_parameters or {"governance_trigger": 2},
         reasoning="test call for recommendation_impact",
         output={"safe": True})
 
 
 def test_get_decisions_by_node_in_window_filters_by_node(test_ledger):
+    """Node/time filtering is ledger mechanism, not IVR behavior -- proven
+    here against the mortgage cassette so this test carries no IVR
+    dependency at all (see test_full_pipeline below for the one test in
+    this file that legitimately needs IVR, because it exercises
+    decide_healing_bounds, a queue-healing concept mortgage has none of)."""
     node_a, node_b = f"node-a-{uuid.uuid4().hex[:6]}", f"node-b-{uuid.uuid4().hex[:6]}"
-    test_ledger.append_decision(_decision(node_a, 50.0),
-                                governance_params=_PARAMS)
-    test_ledger.append_decision(_decision(node_b, 99.0),
-                                governance_params=_PARAMS)
+    test_ledger.append_decision(
+        _decision(node_a, 50.0, cassette_version=_MORTGAGE_VERSION,
+                 policy_parameters={"governance_trigger": 1}),
+        governance_params=_MORTGAGE_PARAMS)
+    test_ledger.append_decision(
+        _decision(node_b, 99.0, cassette_version=_MORTGAGE_VERSION,
+                 policy_parameters={"governance_trigger": 1}),
+        governance_params=_MORTGAGE_PARAMS)
 
     since = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
     until = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
@@ -45,9 +58,12 @@ def test_get_decisions_by_node_in_window_filters_by_node(test_ledger):
 
 
 def test_get_decisions_by_node_in_window_filters_by_time(test_ledger):
+    """See node-filter test above -- same mechanism-not-domain rationale."""
     node = f"node-time-{uuid.uuid4().hex[:6]}"
-    test_ledger.append_decision(_decision(node, 50.0),
-                                governance_params=_PARAMS)
+    test_ledger.append_decision(
+        _decision(node, 50.0, cassette_version=_MORTGAGE_VERSION,
+                 policy_parameters={"governance_trigger": 1}),
+        governance_params=_MORTGAGE_PARAMS)
 
     # A window entirely in the future must not include this real, already-
     # written row.
