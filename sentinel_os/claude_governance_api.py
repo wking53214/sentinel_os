@@ -1,55 +1,37 @@
 """
-Claude Governance API - Real LLM decisions for Iceberg
+Claude Governance API -- the IVR/Iceberg half of the governor.
 
-Routes critical governance decisions to Claude instead of simulation
+Domain half of the 2026-08-05 governor split. The domain-blind half --
+client construction, the fail-closed safety gate, the decision log and
+cost accounting -- now lives in the kernel repo as
+`governance_decider.GovernanceDecider`. What is left here is the part
+that is genuinely about call centers: three decision methods that take
+queue names, agent counts, wait times and abandonment rates.
+
+Subclassing rather than copying follows this repo's stated policy (see
+DEPENDENCIES.md): one copy of the kernel, not two that can quietly
+drift apart. `__init__`, `safety_check` and `get_decision_log` are
+inherited. Do NOT override safety_check or its fail-closed behaviour
+here -- that contract is the reason the base class is in the kernel.
 
 COST (2026-07-31): every method that reaches the API returns a `cost` key
-(real usage-derived token counts + dollar amount, see ai_cost_tracking.py)
-alongside its decision -- computing the cost is this module's job, since
-only it ever sees the raw API response; DISCLOSING it to the ledger is the
-caller's, since only the caller (production_harness.py) holds a ledger
-reference. See governance/ledger_postgres.py's record_ai_governance_cost.
+(real usage-derived token counts + dollar amount, see ai_cost_tracking.py
+in the kernel repo) alongside its decision -- computing the cost is the
+governor's job, since only it ever sees the raw API response; DISCLOSING
+it to the ledger is the caller's, since only the caller
+(production_harness.py) holds a ledger reference. See
+governance/ledger_postgres.py's record_ai_governance_cost.
 """
 
-import anthropic
-from typing import Dict, Optional
 import json
+from typing import Dict
 
+from governance_decider import GovernanceDecider, _cost_or_none
 from governor_injection_defense import build_governance_call
-from ai_cost_tracking import cost_of_call
 
 
-def _cost_or_none(model_identity: Optional[str], usage) -> Optional[Dict]:
-    """Build the cost dict for one call, or None if no usage data exists.
-
-    No usage data happens when the API call itself never completed (a
-    genuine transport/auth error raised before `message` was assigned) or
-    when a test stub's fake response has no `usage` attribute at all --
-    both are "we don't know what this cost" and get the same None, never
-    a guessed or zeroed cost.
-    """
-    if model_identity is None or usage is None:
-        return None
-    input_tokens = getattr(usage, "input_tokens", None)
-    output_tokens = getattr(usage, "output_tokens", None)
-    if input_tokens is None or output_tokens is None:
-        return None
-    return cost_of_call(model_identity, input_tokens, output_tokens).as_dict()
-
-class ClaudeGovernanceDecider:
-    """Uses real Claude API for governance decisions"""
-    
-    def __init__(self, api_key: Optional[str] = None):
-        """Initialize Claude client.
-
-        The client is only constructed when an API key is actually
-        provided -- constructing it unconditionally made the decider
-        impossible to build in any environment without a key (every
-        harness test, every offline run).
-        """
-        self.client = anthropic.Anthropic(api_key=api_key) if api_key else None
-        self.model = "claude-opus-4-6"
-        self.decisions = []
+class ClaudeGovernanceDecider(GovernanceDecider):
+    """IVR/queue governance decisions, on top of the kernel's fail-closed gate."""
 
     def decide_healing_bounds(self, queue_name: str, current_wait: float,
                              baseline_wait: float, drift_magnitude: float) -> Dict:
@@ -319,118 +301,3 @@ class ClaudeGovernanceDecider:
         decision["cost"] = _cost_or_none(model_identity, usage)
         self.decisions.append(decision)
         return decision
-    
-    def safety_check(self, action: str, details: Dict) -> Dict:
-        """Ask Claude: is this governance action safe? Fail-closed on any error.
-
-        Item 4: caller data (`action`, `details`) is delivered as an escaped,
-        XML-delimited untrusted-data block with the instruction in the `system`
-        role, so a hostile queue name or detail value cannot be read as an
-        instruction to the governor.
-
-        Item 5: the model string the API actually resolved to (response.model)
-        is returned as `model_identity` so the caller can put it in the ledger
-        row and thus in the hash. On every fail-closed path model_identity is
-        None -- a decision that didn't come from a model has no model identity,
-        and inventing one would be a forged fact in a tamper-evident record.
-
-        Item 6 (2026-07-31): every path that actually reached the API --
-        including a parsed-but-invalid response -- also returns `cost`, real
-        token counts plus a computed dollar amount from ai_cost_tracking (None
-        if the model isn't in that module's pricing table; never guessed).
-        `cost` is None only when no API call ever completed, same posture as
-        `model_identity`.
-        """
-
-        if self.client is None:
-            return {
-                "safe": False,
-                "governed": False,
-                "parse_failed": False,
-                "risk_level": "critical",
-                "reasoning": "No API client configured",
-                "recommendations": ["Configure API key"],
-                "confidence": 1.0,
-                "model_identity": None,
-                "cost": None,
-            }
-
-        system, messages = build_governance_call(
-            system_instruction=(
-                "You are an AI safety auditor for IVR systems. Evaluate the "
-                "governance action described in the untrusted data block."
-            ),
-            caller_fields={"action": action, "details": json.dumps(details)},
-            task_and_format=(
-                'Respond ONLY with valid JSON: {"safe": true/false, '
-                '"risk_level": "low"/"medium"/"high", "reasoning": "...", '
-                '"recommendations": [], "confidence": 0.0-1.0}'
-            ),
-        )
-
-        usage = None
-        model_identity = None
-        try:
-            message = self.client.messages.create(
-                model=self.model,
-                max_tokens=300,
-                system=system,
-                messages=messages,
-            )
-            usage = getattr(message, "usage", None)
-            if not message.content or len(message.content) == 0:
-                raise ValueError("Empty response")
-            response_text = message.content[0].text
-            # response.model is the ground truth (what actually served the
-            # call), which can differ from self.model under aliasing.
-            model_identity = getattr(message, "model", None) or self.model
-            decision = json.loads(response_text)
-            if not isinstance(decision.get("safe"), bool):
-                raise ValueError(f"'safe' not bool: {type(decision.get('safe'))}")
-        except json.JSONDecodeError:
-            return {
-                "safe": False,
-                "governed": False,
-                "parse_failed": True,
-                "risk_level": "critical",
-                "reasoning": "Governor response not valid JSON",
-                "recommendations": ["Check governor output"],
-                "confidence": 0.0,
-                "model_identity": None,
-                "cost": _cost_or_none(model_identity, usage),
-            }
-        except ValueError as e:
-            return {
-                "safe": False,
-                "governed": False,
-                "parse_failed": True,
-                "risk_level": "critical",
-                "reasoning": str(e),
-                "recommendations": ["Check governor"],
-                "confidence": 0.0,
-                "model_identity": None,
-                "cost": _cost_or_none(model_identity, usage),
-            }
-        except Exception as e:
-            return {
-                "safe": False,
-                "governed": False,
-                "parse_failed": True,
-                "risk_level": "critical",
-                "reasoning": f"transport_error: Governor call failed: {str(e)}",
-                "recommendations": ["Check API connectivity"],
-                "confidence": 0.0,
-                "model_identity": None,
-                "cost": _cost_or_none(model_identity, usage),
-            }
-
-        decision["governed"] = decision.get("safe", False)
-        decision["parse_failed"] = False
-        decision["model_identity"] = model_identity
-        decision["cost"] = _cost_or_none(model_identity, usage)
-        self.decisions.append(decision)
-        return decision
-
-    def get_decision_log(self) -> list:
-        """Get all decisions made by Claude"""
-        return self.decisions
