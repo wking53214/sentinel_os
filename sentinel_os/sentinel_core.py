@@ -16,7 +16,7 @@ from enum import Enum
 import hashlib
 import json
 
-from twilio_log_ingestion import NODE_ROLE_QUEUE
+from canonical_fields import NODE_ROLE_QUEUE
 
 class OutcomeQuality(Enum):
     EXCELLENT = "excellent"  # Resolved quickly
