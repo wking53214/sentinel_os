@@ -68,6 +68,7 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass, field
 from cassette_schema import validate_cassette
 from event_v1 import PROVENANCE_VERIFIED, PROVENANCE_ESTIMATED
+from canonical_fields import NODE_ROLE_QUEUE
 
 # Named once, here, next to the code that produces the estimate, so the
 # label recorded in the ledger and the logic that earned it cannot drift
@@ -81,7 +82,10 @@ FALLBACK_WAIT_METHOD = ("twilio_log_ingestion._extract_wait_times: fixed 0.1/0.5
 # NODE ROLES -- see module docstring "NODE ROLES" section. A real event
 # source declares one of these on an IVRNodeEvent instead of relying on
 # downstream code to guess a stop's kind from its name.
-NODE_ROLE_QUEUE = "queue"
+# NODE_ROLE_QUEUE is imported above, from canonical_fields -- it's the one
+# role a non-telephony governance path (sentinel_core.py) also needs, so
+# it's defined once, kernel-side, and re-exported here rather than
+# duplicated.
 NODE_ROLE_AGENT = "agent"
 NODE_ROLE_ESCALATION = "escalation"
 NODE_ROLES = frozenset({NODE_ROLE_QUEUE, NODE_ROLE_AGENT, NODE_ROLE_ESCALATION})
