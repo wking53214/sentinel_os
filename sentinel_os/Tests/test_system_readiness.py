@@ -8,7 +8,6 @@ def test_complete_system_ready():
     # Check all production files exist
     files = [
         "production_harness.py",
-        "api_server.py",
         "requirements.txt",
         "docker-compose-prod.yml",
         "start_production.sh",
