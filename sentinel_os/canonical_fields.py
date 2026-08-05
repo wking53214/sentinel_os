@@ -38,6 +38,14 @@ the envelope layer and are deliberately not touched.
 """
 from typing import Any, Dict
 
+# Node-role vocabulary (2026-07-31, relocated here so the kernel doesn't
+# reach into an IVR-side file for one shared constant): a governance path
+# outside telephony -- sentinel_core.py's outcome/journey classification --
+# needs to recognize a "queue" stop without importing anything IVR-specific.
+# twilio_log_ingestion.py imports this back rather than redefining it, so
+# there is exactly one place this string is spelled.
+NODE_ROLE_QUEUE = "queue"
+
 # The optional governance-decision fields that enter the hash when present.
 # Order is fixed for reviewability; sort_keys makes it hash-irrelevant.
 # Adding a new optional hashed field is a ONE-LINE change here -- and it lands
