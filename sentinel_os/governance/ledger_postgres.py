@@ -7,10 +7,12 @@ Replaces LocalDiskAdapter with real database: transactions, durability, ACID
 import json
 import hashlib
 import os
-from canonical_fields import apply_optional_hashed_fields
+from canonical_fields import (CONTRACT_CANONICAL_FIELDS,
+                              CONTRACT_KINDS_WITH_FINDING,
+                              apply_optional_hashed_fields)
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from psycopg2.pool import SimpleConnectionPool
 
 # Forensic cassette handling (ledger item: cassette snapshots for audit)
@@ -1411,6 +1413,381 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
 
+    # -- Contract compliance attestation --------------------------------
+    #
+    # Four record kinds, all on the SAME chain as every other event, all
+    # hashed through the shared canonical_fields contract. They exist as
+    # distinct kinds rather than one "contract_event" with a subtype for
+    # the reason record_outcome_harm_event states: filing distinguishable
+    # events under one record_kind leaves an examiner unable to count
+    # either. "How many egresses went to subcontractors" and "how many
+    # deletions were attested late" are different questions and must be
+    # different queries.
+    #
+    # REMINDER, learned the hard way on outcome_harm_event: a new record
+    # kind is not done until all THREE recompute sites agree -- the
+    # writer here, verify_chain below, and twin_custody.recompute_current_hash.
+
+    _CONTRACT_EGRESS_DECISIONS = ("authorized", "refused")
+    _CONTRACT_APPROVAL_STATES = ("granted", "revoked")
+    _CONTRACT_DELETION_SCOPES = ("active", "backup")
+
+    def record_contract_ingest(self, contract_version: str, counterparty: str,
+                               ingest_id: str, data_scope: str,
+                               received_at: str,
+                               cassette_hash: Optional[str] = None,
+                               authorized_by: Optional[str] = None
+                               ) -> Dict[str, Any]:
+        """Record that data arrived under a contract, as a chained event.
+
+        Retention cannot be checked without a start date. An ingest row
+        is that start date, on the chain, so the clock a deletion is
+        measured against is not something the operator can quietly
+        restate later. A deletion event points back at ingest_id.
+
+        Deliberately NOT a governance_decision: nothing was decided
+        here. Data arrived.
+        """
+        if not contract_version or not isinstance(contract_version, str):
+            raise ValueError("record_contract_ingest requires contract_version")
+        if not counterparty or not str(counterparty).strip():
+            raise ValueError("record_contract_ingest requires the counterparty "
+                             "whose contract governs this data")
+        if not ingest_id or not str(ingest_id).strip():
+            raise ValueError("record_contract_ingest requires ingest_id -- a "
+                             "deletion with nothing to point back at cannot "
+                             "retire anything")
+        if not data_scope or not str(data_scope).strip():
+            raise ValueError("record_contract_ingest requires data_scope")
+        if not received_at or not str(received_at).strip():
+            raise ValueError("record_contract_ingest requires received_at; the "
+                             "retention clock has to start somewhere explicit")
+
+        return self._append_contract_row(
+            record_kind="contract_ingest",
+            cassette_version=contract_version,
+            canonical_extra={
+                "counterparty": str(counterparty),
+                "ingest_id": str(ingest_id),
+                "data_scope": str(data_scope),
+                "received_at": str(received_at),
+            },
+            finding=None,
+            node=str(counterparty)[:100],
+            reason=f"contract ingest {str(ingest_id)[:60]}",
+            cassette_hash=cassette_hash,
+            authorized_by=authorized_by,
+        )
+
+    def record_contract_egress(self, contract_version: str, counterparty: str,
+                               decision: str, data_scope: str, recipient: str,
+                               recipient_class: str, purpose: str,
+                               occurred_at: str, finding: Dict[str, Any],
+                               approval_reference: Optional[str] = None,
+                               cassette_hash: Optional[str] = None,
+                               authorized_by: Optional[str] = None
+                               ) -> Dict[str, Any]:
+        """Record one egress authorization decision -- granted or refused.
+
+        Both outcomes are chained. A refusal that left no trace would
+        make the log a record of successes, which is the one shape of
+        egress log nobody should trust. `decision` is a first-class
+        hashed field, so "authorized" cannot be edited to look like a
+        refusal or vice versa without breaking the chain.
+
+        HONEST SCOPE, and it must stay stated wherever this data is
+        shown: this proves the egress log is complete relative to the
+        chokepoint. It cannot prove nothing left by a path that never
+        called the chokepoint at all.
+        """
+        if not contract_version or not isinstance(contract_version, str):
+            raise ValueError("record_contract_egress requires contract_version")
+        if decision not in self._CONTRACT_EGRESS_DECISIONS:
+            raise ValueError(
+                f"decision must be one of {list(self._CONTRACT_EGRESS_DECISIONS)}, "
+                f"got {decision!r}")
+        for name, value in (("counterparty", counterparty),
+                            ("data_scope", data_scope),
+                            ("recipient", recipient),
+                            ("recipient_class", recipient_class),
+                            ("purpose", purpose),
+                            ("occurred_at", occurred_at)):
+            if not value or not str(value).strip():
+                raise ValueError(f"record_contract_egress requires {name}")
+        if not isinstance(finding, dict) or not finding:
+            raise ValueError("record_contract_egress requires a non-empty finding "
+                             "body stating the basis for the decision")
+        finding = json.loads(json.dumps(finding, sort_keys=True, default=str))
+
+        return self._append_contract_row(
+            record_kind="contract_egress",
+            cassette_version=contract_version,
+            canonical_extra={
+                "counterparty": str(counterparty),
+                "decision": str(decision),
+                "data_scope": str(data_scope),
+                "recipient": str(recipient),
+                "recipient_class": str(recipient_class),
+                "purpose": str(purpose),
+                "approval_reference": str(approval_reference or ""),
+                "occurred_at": str(occurred_at),
+            },
+            finding=finding,
+            node=str(recipient_class)[:100],
+            reason=(f"contract egress {decision}: {str(purpose)[:40]} -> "
+                    f"{str(recipient)[:40]}"),
+            cassette_hash=cassette_hash,
+            authorized_by=authorized_by,
+        )
+
+    def record_contract_approval(self, contract_version: str, counterparty: str,
+                                 approval_id: str, state: str, approver: str,
+                                 recipient: str, recipient_class: str,
+                                 scope: str, granted_at: str,
+                                 expires_at: Optional[str] = None,
+                                 revoked_at: Optional[str] = None,
+                                 cassette_hash: Optional[str] = None
+                                 ) -> Dict[str, Any]:
+        """Record an approval grant or revocation as a chained event.
+
+        Approval is first-class, not an attribute of the egress that
+        used it: an egress references an approval, and whether that
+        approval was live and unrevoked AT EGRESS TIME is then a
+        question answerable from two chained rows rather than from one
+        row's self-description.
+
+        Revocation is its own row with state="revoked", never an edit
+        of the grant row. The grant happened; the chain says so
+        permanently, and the revocation says when that stopped being
+        true.
+
+        approver rides in the authorized_by column, the same column
+        every other authorizing identity in this ledger uses.
+        """
+        if not contract_version or not isinstance(contract_version, str):
+            raise ValueError("record_contract_approval requires contract_version")
+        if state not in self._CONTRACT_APPROVAL_STATES:
+            raise ValueError(
+                f"state must be one of {list(self._CONTRACT_APPROVAL_STATES)}, "
+                f"got {state!r}")
+        for name, value in (("counterparty", counterparty),
+                            ("approval_id", approval_id),
+                            ("approver", approver),
+                            ("recipient", recipient),
+                            ("recipient_class", recipient_class),
+                            ("scope", scope),
+                            ("granted_at", granted_at)):
+            if not value or not str(value).strip():
+                raise ValueError(f"record_contract_approval requires {name}")
+        if state == "revoked" and not str(revoked_at or "").strip():
+            raise ValueError("a revocation requires revoked_at; 'revoked at some "
+                             "point' cannot be compared against an egress time")
+
+        return self._append_contract_row(
+            record_kind="contract_approval",
+            cassette_version=contract_version,
+            canonical_extra={
+                "counterparty": str(counterparty),
+                "approval_id": str(approval_id),
+                "state": str(state),
+                "recipient": str(recipient),
+                "recipient_class": str(recipient_class),
+                "scope": str(scope),
+                "granted_at": str(granted_at),
+                "expires_at": str(expires_at or ""),
+                "revoked_at": str(revoked_at or ""),
+            },
+            finding=None,
+            node=str(recipient_class)[:100],
+            reason=f"contract approval {state}: {str(approval_id)[:60]}",
+            cassette_hash=cassette_hash,
+            authorized_by=str(approver),
+        )
+
+    def record_contract_deletion(self, contract_version: str, counterparty: str,
+                                 ingest_id: str, deleted_at: str,
+                                 scope: str, method: str,
+                                 cassette_hash: Optional[str] = None,
+                                 authorized_by: Optional[str] = None
+                                 ) -> Dict[str, Any]:
+        """Record a deletion as a POSITIVE event bound to the ingest it retires.
+
+        Absence is never evidence of deletion. That is the whole reason
+        this row exists: without a positive event, "no record of this
+        data" and "deleted on time" are indistinguishable, and the
+        latter is the one an operator would prefer you assume.
+
+        PROVENANCE. This event is ATTESTED, never verified, and
+        contract_retention.py stamps it that way in every report.
+        Sentinel does not delete anything and does not watch the
+        deletion happen; the processor deletes and then says so. A
+        read-back check would still be the operator's own code
+        reporting on the operator, which is attestation with extra
+        steps. Real verification needs a signed tombstone from the
+        storage layer -- outside instrumentation, explicitly out of
+        scope. What gives the check teeth is not the stamp on a claim
+        the operator did make, it is the treatment of the claim they
+        did not: a missing deletion past the horizon is overdue or
+        INDETERMINATE, never compliant.
+
+        `method` names how the deletion was performed and is required
+        -- an attestation that will not describe its own mechanism is
+        the same failure event_v1 refuses for an estimate that will not
+        name its method.
+        """
+        if not contract_version or not isinstance(contract_version, str):
+            raise ValueError("record_contract_deletion requires contract_version")
+        if scope not in self._CONTRACT_DELETION_SCOPES:
+            raise ValueError(
+                f"scope must be one of {list(self._CONTRACT_DELETION_SCOPES)}, "
+                f"got {scope!r}")
+        for name, value in (("counterparty", counterparty),
+                            ("ingest_id", ingest_id),
+                            ("deleted_at", deleted_at),
+                            ("method", method)):
+            if not value or not str(value).strip():
+                raise ValueError(f"record_contract_deletion requires {name}")
+
+        return self._append_contract_row(
+            record_kind="contract_deletion",
+            cassette_version=contract_version,
+            canonical_extra={
+                "counterparty": str(counterparty),
+                "ingest_id": str(ingest_id),
+                "deleted_at": str(deleted_at),
+                "scope": str(scope),
+                "method": str(method),
+                "stamp": "attested",
+            },
+            finding=None,
+            node=str(scope)[:100],
+            reason=f"contract deletion ({scope}) of {str(ingest_id)[:50]}",
+            cassette_hash=cassette_hash,
+            authorized_by=authorized_by,
+        )
+
+    def _append_contract_row(self, record_kind: str, cassette_version: str,
+                             canonical_extra: Dict[str, Any],
+                             finding: Optional[Dict[str, Any]],
+                             node: str, reason: str,
+                             cassette_hash: Optional[str],
+                             authorized_by: Optional[str]) -> Dict[str, Any]:
+        """Shared append path for the four contract record kinds.
+
+        One function rather than four near-identical bodies, because
+        four hand-copied canonical-form builders is four chances for
+        the writer to drift from verify_chain and the twin. The
+        canonical form is always:
+
+            record_kind, cassette_version, <the kind's own fields>,
+            [finding, when the kind carries one], previous_hash
+
+        plus the shared optional hashed fields. The kind's own fields
+        are stored verbatim in the data JSONB under the same names, so
+        both other recompute sites rebuild them by copying keys out of
+        data with no per-kind mapping table to get wrong.
+        """
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry: Dict[str, Any] = {
+                "record_kind": record_kind,
+                "cassette_version": cassette_version,
+            }
+            canonical_entry.update(canonical_extra)
+            if finding is not None:
+                canonical_entry["finding"] = finding
+            canonical_entry["previous_hash"] = previous_hash
+            apply_optional_hashed_fields(canonical_entry, {
+                "cassette_hash": cassette_hash,
+                "authorized_by": authorized_by,
+            })
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            data = {"record_kind": record_kind, "parameter_changed": False}
+            data.update(canonical_extra)
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, previous_value, applied_value, reason,
+                 previous_hash, current_hash, data,
+                 record_kind, cassette_version, decision_output, cassette_hash,
+                 authorized_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (record_kind, node, 0.0, 0.0, reason,
+                  previous_hash, current_hash, json.dumps(data),
+                  record_kind, cassette_version,
+                  json.dumps(finding) if finding is not None else None,
+                  cassette_hash, authorized_by))
+            conn.commit()
+            result = {"status": "created", "record_kind": record_kind,
+                      "cassette_version": cassette_version,
+                      "current_hash": current_hash}
+            result.update(canonical_extra)
+            return result
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    # The canonical field lists live in canonical_fields.py, imported by
+    # all three recompute sites. Bound here as class attributes so the
+    # methods below read naturally, NOT redefined -- a second copy is
+    # exactly the drift canonical_fields exists to prevent.
+    CONTRACT_CANONICAL_FIELDS: Dict[str, Tuple[str, ...]] = CONTRACT_CANONICAL_FIELDS
+    CONTRACT_KINDS_WITH_FINDING: Tuple[str, ...] = CONTRACT_KINDS_WITH_FINDING
+
+    def get_contract_rows(self, counterparty: str,
+                          record_kinds: Optional[Tuple[str, ...]] = None,
+                          limit: int = 5000) -> List[Dict[str, Any]]:
+        """Every contract row for ONE counterparty, oldest first.
+
+        Scoped at the query, not filtered after the fact in Python:
+        a report generator that had to remember to filter is a report
+        generator that will eventually forget. See
+        contract_attestation.py for what is built on top of this.
+        """
+        if not counterparty or not str(counterparty).strip():
+            raise ValueError("get_contract_rows requires a counterparty")
+        kinds = tuple(record_kinds or tuple(self.CONTRACT_CANONICAL_FIELDS))
+        unknown = [k for k in kinds if k not in self.CONTRACT_CANONICAL_FIELDS]
+        if unknown:
+            raise ValueError(f"unknown contract record kinds: {unknown}")
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, timestamp, record_kind, cassette_version, data,
+                       decision_output, cassette_hash, authorized_by,
+                       previous_hash, current_hash
+                FROM ledger_entries
+                WHERE record_kind = ANY(%s)
+                  AND data->>'counterparty' = %s
+                ORDER BY id ASC
+                LIMIT %s
+            """, (list(kinds), str(counterparty), int(limit)))
+            rows = []
+            for r in cursor.fetchall():
+                rows.append({
+                    "id": r[0], "timestamp": r[1], "record_kind": r[2],
+                    "cassette_version": r[3], "data": self._as_json(r[4]),
+                    "decision_output": self._as_json(r[5]),
+                    "cassette_hash": r[6], "authorized_by": r[7],
+                    "previous_hash": r[8], "current_hash": r[9],
+                })
+            return rows
+        finally:
+            self.pool.putconn(conn)
+
     def get_regulatory_cassette_history(self,
                                         cassette_version: Optional[str] = None,
                                         limit: int = 200) -> List[Dict[str, Any]]:
@@ -2005,6 +2382,27 @@ class PostgreSQLLedger:
                             "finding": self._as_json(decision_output),
                             "previous_hash": stored_prev,
                         }
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "cassette_hash": cassette_hash,
+                            "authorized_by": authorized_by,
+                        })
+                    elif record_kind in self.CONTRACT_CANONICAL_FIELDS:
+                        # Contract compliance attestation -- mirrors
+                        # _append_contract_row(). Every one of the kind's own
+                        # fields was stored in data under its canonical name,
+                        # so this rebuilds by copying keys in the declared
+                        # order rather than by a per-kind mapping that could
+                        # drift from the writer. Recompute site 2 of 3.
+                        d = self._as_json(data) or {}
+                        canonical_entry = {
+                            "record_kind": record_kind,
+                            "cassette_version": cassette_version,
+                        }
+                        for key in self.CONTRACT_CANONICAL_FIELDS[record_kind]:
+                            canonical_entry[key] = d.get(key)
+                        if record_kind in self.CONTRACT_KINDS_WITH_FINDING:
+                            canonical_entry["finding"] = self._as_json(decision_output)
+                        canonical_entry["previous_hash"] = stored_prev
                         apply_optional_hashed_fields(canonical_entry, {
                             "cassette_hash": cassette_hash,
                             "authorized_by": authorized_by,

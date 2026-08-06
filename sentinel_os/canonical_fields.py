@@ -92,6 +92,48 @@ OPTIONAL_HASHED_FIELDS = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Contract compliance attestation: the four contract record kinds and the
+# fields each one hashes, in the order the writer builds them.
+#
+# This lives HERE, next to OPTIONAL_HASHED_FIELDS, for exactly the reason
+# that list does. Three sites recompute these hashes -- the writer
+# (ledger_postgres._append_contract_row), the primary's own verifier
+# (ledger_postgres.verify_chain) and the witness
+# (twin_custody.recompute_current_hash) -- and the outcome_harm_event
+# build already proved what happens when one of them is missed: honest
+# rows fail their own verification and it looks exactly like tampering.
+# One list, imported by all three, so there is no second copy to forget.
+#
+# sort_keys=True makes the order hash-irrelevant; it is fixed so the
+# three call sites stay visually comparable.
+CONTRACT_CANONICAL_FIELDS: Dict[str, tuple] = {
+    # Data arrived under a contract. Starts the retention clock.
+    "contract_ingest": ("counterparty", "ingest_id", "data_scope",
+                        "received_at"),
+    # One egress authorization decision, granted OR refused. `decision`
+    # is hashed so a refusal cannot later read as an authorization.
+    "contract_egress": ("counterparty", "decision", "data_scope", "recipient",
+                        "recipient_class", "purpose", "approval_reference",
+                        "occurred_at"),
+    # An approval grant or its revocation. Revocation is a new row, never
+    # an edit of the grant.
+    "contract_approval": ("counterparty", "approval_id", "state", "recipient",
+                          "recipient_class", "scope", "granted_at",
+                          "expires_at", "revoked_at"),
+    # A positive deletion event bound to the ingest it retires. `stamp` is
+    # hashed and is always "attested" -- see record_contract_deletion.
+    "contract_deletion": ("counterparty", "ingest_id", "deleted_at", "scope",
+                          "method", "stamp"),
+}
+
+# Which contract kinds carry a finding body (stored in decision_output and
+# hashed under "finding"). The other three hash no finding at all, and
+# omitting the key entirely -- not passing None -- is what keeps the three
+# sites byte-identical.
+CONTRACT_KINDS_WITH_FINDING: tuple = ("contract_egress",)
+
+
 def apply_optional_hashed_fields(canonical: Dict[str, Any],
                                  source: Dict[str, Any]) -> Dict[str, Any]:
     """Add each optional hashed field to `canonical` iff present-and-truthy in `source`.
