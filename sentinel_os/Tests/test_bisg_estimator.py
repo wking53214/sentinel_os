@@ -5,6 +5,10 @@ small, genuinely-real excerpt of actual 2010 Census surname rows, not
 fabricated numbers), and FakeBISGEstimator. No network required -- see
 Tests/test_bisg_estimator_live.py for the live-data-backed proof that
 CensusBISGEstimator itself produces real, correct estimates end to end.
+
+NOTE: BISG demographic inference is RESEARCH MODE only. IP/privacy attorney
+review pending. These tests are skipped by default unless
+SENTINEL_BISG_RESEARCH_MODE=true is set. Run with: pytest -m bisg_research_mode
 """
 
 import os
@@ -12,6 +16,11 @@ import sys
 import tempfile
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("SENTINEL_BISG_RESEARCH_MODE", "false").lower() != "true",
+    reason="BISG research mode disabled by default; set SENTINEL_BISG_RESEARCH_MODE=true to run"
+)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 

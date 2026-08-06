@@ -23,6 +23,12 @@ Sentinel OS is not an
 - Replacement for legal interpretation
 - Commercial service platform.
 
+## Research Mode Features
+
+Some capabilities in this codebase are research-only and disabled by default pending IP/privacy attorney review before production deployment:
+
+- **BISG demographic inference** (`bisg_estimator.py`, `obligation_sweep.py` geographic equity testing): Bayesian Improved Surname Geocoding is disabled unless `SENTINEL_BISG_RESEARCH_MODE=true` is explicitly set. When disabled, geographic cohort equity tests report skips rather than attempting demographic inference. The underlying regulatory checks remain available; only the BISG-specific inference is gated.
+
 The default posture is witness ##NOT actor. Sentinel judges decisions and records evidence; it does not reach into the acting system. 
 
 ***The original reference implementation, a contact-center telephony deployment, does also operates in an acting mode where Sentinel DOES drive the decision. That is a distinct, optional operating mode, not the core of the architecture.
