@@ -57,6 +57,25 @@ _GOVERNANCE_CODE_MODULES = (
     "regulatory_cassette_interface",
     "regulatory_checks",
     "regulatory_deck",
+    # Contract compliance attestation. Same boundary, same reasoning as
+    # the regulatory modules directly above: these define what the
+    # system accepts as a fact about what left, what was deleted, and
+    # what was approved. An edit to the egress permission logic, the
+    # retention status vocabulary, or the counterparty scoping of a
+    # report changes what a compliance statement MEANS, so it must move
+    # every cassette's code hash.
+    #
+    # Yes, this means an edit here bumps the code hash for cassettes
+    # that never touch contract machinery -- the same is already true
+    # of the regulatory modules for a domain cassette that never loads
+    # a lens. The boundary is "is this governance code", not "does this
+    # particular cassette call it", and drawing it the other way would
+    # make the code hash a statement about call graphs rather than
+    # about what the system will accept as true.
+    "contract_cassette",
+    "contract_egress",
+    "contract_retention",
+    "contract_attestation",
 )
 
 

@@ -46,7 +46,7 @@ def test_config_identity():
     config = MortgageCassette().get_config()
     assert config.name == "mortgage-v1"
     assert config.domain == "mortgage"
-    assert cassette_version_of(MortgageCassette()) == "mortgage:mortgage-v1:1.0.0"
+    assert cassette_version_of(MortgageCassette()) == "mortgage:mortgage-v1:1.0.1"
 
 
 def test_validates_cleanly_against_full_schema():
