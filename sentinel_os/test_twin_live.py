@@ -844,6 +844,7 @@ def test_custody_migration_A_to_D(customer_keys, tmp_path):
                         "--sign-pub-file", f"{kd}/sign.pub", "--custodian-url", cust_url])
             assert mig.returncode == 0, mig.stderr + mig.stdout
 
+            # custody-event calls require Authorization header (token: tok-mig from register_replica)
             ents = [e for e in get_entries(url, r) if e["primary_id"] in {x["id"] for x in seed}]
             # OLD key now fails
             aad0 = {"replica_id": r, "primary_id": ents[0]["primary_id"],
@@ -1023,7 +1024,9 @@ def test_restore_drill(customer_keys, tmp_path):
                    json={"event": "evidence_designation",
                          "detail": {"note": "primary evidence"}, "actor": "customer-admin",
                          "signature": tc.sign(ev_payload, customer_keys["spriv"]),
-                         "signer_pub": customer_keys["spub"]}, timeout=10).raise_for_status()
+                         "signer_pub": customer_keys["spub"]},
+                   headers={"Authorization": "Bearer tok-drill"},
+                   timeout=10).raise_for_status()
         before = httpx.get(f"{url}/replica/{r}/head", timeout=10).json()["count"]
         dump_path = scratch("replica.dump")
     # receiver is down now (context exited); do the dump/drop/restore as customer
@@ -1066,7 +1069,9 @@ def test_probe_clean_and_seeded_findings(customer_keys, tmp_path):
         httpx.post(f"{url}/replica/{r}/custody-event",
                    json={"event": "replica_created", "detail": {}, "actor": "customer-admin",
                          "signature": tc.sign(ev, customer_keys["spriv"]),
-                         "signer_pub": customer_keys["spub"]}, timeout=10).raise_for_status()
+                         "signer_pub": customer_keys["spub"]},
+                   headers={"Authorization": "Bearer tok-probe"},
+                   timeout=10).raise_for_status()
 
         # customer key + submission record files for the probe
         kd = customer_keys["dir"]
@@ -1105,7 +1110,9 @@ def test_probe_clean_and_seeded_findings(customer_keys, tmp_path):
         httpx.post(f"{url}/replica/{r2}/custody-event",
                    json={"event": "replica_created", "detail": {}, "actor": "admin",
                          "signature": tc.sign(ev2, customer_keys["spriv"]),
-                         "signer_pub": customer_keys["spub"]}, timeout=10).raise_for_status()
+                         "signer_pub": customer_keys["spub"]},
+                   headers={"Authorization": "Bearer tok-clean2"},
+                   timeout=10).raise_for_status()
         subrec2 = "\n".join(json.dumps({"sid": x["call_sid"], "t": time.time() - 100}) for x in seed2)
         run_as("twincustomer", ["bash", "-lc", f"cat > {kd}/subrec2.jsonl <<'EOF'\n{subrec2}\nEOF"])
         pr2 = run_as("twincustomer", [PY, "twin_probe.py", "--receiver-url", url,
