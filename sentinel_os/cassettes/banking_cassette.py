@@ -113,7 +113,7 @@ class BankingCassette(Cassette, RoutingTopology, ReinforcementLearning,
             # hash moved, and under binding enforcement a moved hash
             # requires a new version string rather than a silent
             # re-bind.
-            version="2.0.3",
+            version="2.0.4",
             description="Financial services & banking",
             domain="banking"
         )
