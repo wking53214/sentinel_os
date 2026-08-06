@@ -305,6 +305,13 @@ class RegulatoryCassette(ABC):
     # never said whether it may attach live would attach by accident.
     MODES: Tuple[str, ...]
 
+    # The reserved identity slot this lens family occupies. Defaulted,
+    # unlike MODES, because "regulatory" is the right answer for every
+    # lens that does not deliberately say otherwise, and because
+    # defaulting it keeps every existing lens's identity string --
+    # already written into shipped ledger rows -- byte-identical.
+    IDENTITY_DOMAIN: str = REGULATORY_DOMAIN
+
     @abstractmethod
     def get_config(self) -> RegulatoryCassetteConfig:
         """Return lens identity metadata."""
@@ -378,11 +385,23 @@ class RegulatoryCassette(ABC):
 
 def regulatory_cassette_version_of(lens) -> str:
     """Canonical identity string a ledger row uses to name a lens:
-    regulatory:<name>:<version>. The reserved "regulatory" domain slot
-    keeps lens identities visibly distinct from operational cassette
-    identities in every ledger query."""
+    <domain>:<name>:<version>. The domain slot keeps lens identities
+    visibly distinct from operational cassette identities in every
+    ledger query.
+
+    The slot is read from the lens's IDENTITY_DOMAIN attribute, which
+    defaults to REGULATORY_DOMAIN. A second lens family that is also
+    not operational policy -- contract_cassette.ContractCassette,
+    identity "contract:<counterparty>:<version>" -- overrides it. That
+    is the ONLY difference in how the two are named, and it is
+    deliberate: both are review lenses, both are validated by
+    validate_regulatory_cassette(), both are inserted and removed
+    through RegulatoryDeck, and neither can ever load as domain policy.
+    Giving contracts a parallel identity function would have been two
+    spellings of one idea."""
     config = lens.get_config()
-    return f"{REGULATORY_DOMAIN}:{config.name}:{config.version}"
+    domain = getattr(lens, "IDENTITY_DOMAIN", REGULATORY_DOMAIN)
+    return f"{domain}:{config.name}:{config.version}"
 
 
 def validate_regulatory_cassette(lens) -> Dict[str, Any]:
