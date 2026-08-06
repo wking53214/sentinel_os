@@ -52,7 +52,11 @@ from typing import Any, Dict, Optional, Tuple
 # Same contract the primary ledger uses to add optional fields to the hash.
 # Importing it (rather than re-listing the fields here) is what guarantees the
 # witness and the writer can never drift on which keys enter the canonical form.
-from canonical_fields import apply_optional_hashed_fields
+from canonical_fields import (
+    CONTRACT_CANONICAL_FIELDS as _CONTRACT_CANONICAL_FIELDS,
+    CONTRACT_KINDS_WITH_FINDING as _CONTRACT_KINDS_WITH_FINDING,
+    apply_optional_hashed_fields,
+)
 
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import hashes, serialization
@@ -337,6 +341,26 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
             "finding": row["decision_output"],
             "previous_hash": row["previous_hash"],
         }
+        apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") in _CONTRACT_CANONICAL_FIELDS:
+        # Mirrors ledger_postgres._append_contract_row(). Contract
+        # compliance attestation: every field the kind hashes was
+        # stored in the data JSONB under its canonical name, so the
+        # rebuild is a key copy in the declared order. Only
+        # contract_egress carries a finding body (in decision_output);
+        # the other three hash no finding, and omitting the key here
+        # matches the writer exactly. Recompute site 3 of 3.
+        d = row.get("data") or {}
+        kind = row["record_kind"]
+        canonical = {
+            "record_kind": kind,
+            "cassette_version": row["cassette_version"],
+        }
+        for key in _CONTRACT_CANONICAL_FIELDS[kind]:
+            canonical[key] = d.get(key)
+        if kind in _CONTRACT_KINDS_WITH_FINDING:
+            canonical["finding"] = row["decision_output"]
+        canonical["previous_hash"] = row["previous_hash"]
         apply_optional_hashed_fields(canonical, row)
     elif row.get("record_kind") == "decision_supersession":
         # Mirrors ledger_postgres.supersede_decision(). Item 6. The writer
