@@ -50,10 +50,16 @@ and belongs in the review, not a bucket that silently never appears.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 import psycopg2.extras
+
+# BISG (Bayesian Improved Surname Geocoding) demographic inference is currently
+# RESEARCH MODE ONLY. IP/privacy attorney review pending before any production use.
+# Defaults to False (disabled); only enabled if SENTINEL_BISG_RESEARCH_MODE=true.
+BISG_RESEARCH_MODE_ENABLED = os.getenv("SENTINEL_BISG_RESEARCH_MODE", "false").lower() == "true"
 
 from outcome_v1 import (
     OUTCOME_RESOLVED,
@@ -405,6 +411,12 @@ def fetch_property_geography(
     text parse for ZIP (bisg_estimator.extract_zip) -- no new data
     source, one geocode per address.
 
+    BISG RESEARCH MODE: This function is currently disabled by default
+    (SENTINEL_BISG_RESEARCH_MODE must be explicitly set to "true").
+    IP/privacy attorney review is pending before production deployment.
+    When disabled, returns all-None results for all addresses, which
+    the cohort assembly properly reports as skips (no silent drops).
+
     address_field is a parameter, not a hardcoded import of
     cassettes.mortgage_cassette.PROPERTY_ADDRESS_FIELD: this module
     stays domain-agnostic, same posture as every other cohort-assembly
@@ -419,9 +431,21 @@ def fetch_property_geography(
     turns "present but both None" into a reported skip, not this
     function silently omitting it.
     """
+    result: Dict[str, Dict[str, Optional[str]]] = {}
+
+    # If BISG research mode is not explicitly enabled, return all-None results.
+    # Cohort assembly will report these as skips (no silent drops).
+    if not BISG_RESEARCH_MODE_ENABLED:
+        for decision_hash, material in decision_materials.items():
+            address = material.input_fields.get(address_field)
+            if not address:
+                continue
+            result[decision_hash] = {"zip": None, "county_fips": None}
+        return result
+
+    # BISG research mode enabled: perform actual geocoding.
     from bisg_estimator import extract_zip
 
-    result: Dict[str, Dict[str, Optional[str]]] = {}
     for decision_hash, material in decision_materials.items():
         address = material.input_fields.get(address_field)
         if not address:
@@ -441,12 +465,19 @@ def sweep(twin_client, replica_id: str, ledger_conn, sealed_channel,
     return one CohortEquityReview per bucket -- including buckets too
     small to test (see review_cohort).
 
+    BISG RESEARCH MODE: Geographic equity testing is currently disabled by
+    default (SENTINEL_BISG_RESEARCH_MODE must be explicitly set to "true").
+    IP/privacy attorney review is pending before production deployment.
+    When disabled, geocoder stays None and fetch_property_geography() returns
+    all-None results, which the cohort assembly properly reports as skips.
+
     geocoder defaults to a real bisg_estimator.CensusGeocoder() when not
-    supplied -- the same live, key-free geocoding service dimension 4's
-    BISG estimate already depends on. Pass a stub/mock in tests to avoid
-    a real network call, same posture as sealed_channel and twin_client.
+    supplied (and BISG research mode is enabled) -- the same live, key-free
+    geocoding service dimension 4's BISG estimate already depends on. Pass a
+    stub/mock in tests to avoid a real network call, same posture as
+    sealed_channel and twin_client.
     """
-    if geocoder is None:
+    if geocoder is None and BISG_RESEARCH_MODE_ENABLED:
         from bisg_estimator import CensusGeocoder
         geocoder = CensusGeocoder()
     obligations = fetch_resolved_obligations(twin_client, replica_id)

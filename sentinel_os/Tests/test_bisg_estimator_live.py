@@ -10,14 +10,24 @@ runs; this file is the one place the "not fabricated, genuinely real"
 claim about CensusBISGEstimator itself is proven, and it needs live
 network access to do that honestly.
 
+NOTE: BISG demographic inference is RESEARCH MODE only. IP/privacy attorney
+review pending. These tests are skipped by default unless
+SENTINEL_BISG_RESEARCH_MODE=true is set.
+
 Run: pytest Tests/test_bisg_estimator_live.py -v
-Requires CENSUS_API_KEY in the environment and outbound internet access.
+Requires SENTINEL_BISG_RESEARCH_MODE=true, CENSUS_API_KEY in the environment,
+and outbound internet access.
 """
 
 import os
 import sys
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("SENTINEL_BISG_RESEARCH_MODE", "false").lower() != "true",
+    reason="BISG research mode disabled by default; set SENTINEL_BISG_RESEARCH_MODE=true to run"
+)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
