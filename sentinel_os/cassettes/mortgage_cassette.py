@@ -224,7 +224,7 @@ class MortgageCassette(Cassette, OutcomeObligations):
     def get_config(self) -> CassetteConfig:
         return CassetteConfig(
             name="mortgage-v1",
-            version="1.0.0",
+            version="1.0.1",
             description="Residential mortgage lending",
             domain="mortgage",
         )

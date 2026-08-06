@@ -255,7 +255,7 @@ def test_harness_binds_cassette_on_construction():
     cur.execute("SELECT record_kind, cassette_version, current_hash "
                "FROM ledger_entries WHERE record_kind='cassette_binding' "
                "AND cassette_version=%s ORDER BY id DESC LIMIT 1",
-               ("mortgage:mortgage-v1:1.0.0",))
+               ("mortgage:mortgage-v1:1.0.1",))
     row = cur.fetchone()
     assert row is not None, "expected a cassette_binding row for mortgage"
     harness.shutdown()
