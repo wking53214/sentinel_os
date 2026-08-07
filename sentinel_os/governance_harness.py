@@ -64,6 +64,8 @@ from cassette_interface import Cassette
 from cassette_schema import validate_cassette
 from episode import Episode, explain_episode, judge_episode
 from governance_decider import GovernanceDecider
+from regulatory_cassette_interface import RegulatoryBlock
+from regulatory_deck import RegulatoryDeck
 
 
 class GovernanceHarness:
@@ -80,7 +82,8 @@ class GovernanceHarness:
 
     def __init__(self, config: Dict[str, Any], cassette: Cassette,
                 require_cassette_binding: bool = True,
-                decider: Optional[GovernanceDecider] = None):
+                decider: Optional[GovernanceDecider] = None,
+                regulatory_deck: Optional[RegulatoryDeck] = None):
         self._refuse_if_telephony(cassette)
         validate_cassette(cassette)
 
@@ -88,6 +91,18 @@ class GovernanceHarness:
         self.require_cassette_binding = require_cassette_binding
         self.decider = decider if decider is not None else GovernanceDecider(
             api_key=config.get("claude_api_key"))
+        # Optional, default None: a RegulatoryDeck needs this harness's
+        # own ledger to insert a lens into (see RegulatoryDeck's own
+        # "no ledgerless mode" refusal), which does not exist until
+        # after _connect_ledger below runs -- so this is commonly set
+        # as a plain attribute post-construction (same pattern
+        # `self.decider` already supports; see sentinel_worker.py's
+        # main()), not only passed here. None means exactly what it
+        # meant before this parameter existed: process() calls the
+        # kernel's judge_episode/explain_episode directly, no
+        # regulatory screening, byte-identical to every caller that
+        # doesn't opt in.
+        self.regulatory_deck = regulatory_deck
         self.ledger = self._connect_ledger(config)
 
         if self.ledger is None and require_cassette_binding:
@@ -170,11 +185,48 @@ class GovernanceHarness:
         ACTION (governance_approved stays False, governance_blocked
         becomes True) but never aborts the pipeline -- judgment still
         ran and the result still carries it.
+
+        When self.regulatory_deck is set, judgment routes through the
+        deck's own judge()/explain() (which run the kernel's
+        judge_episode/explain_episode internally, plus every LIVE
+        lens's own review -- see regulatory_deck.py) instead of calling
+        judge_episode/explain_episode directly. A live lens's own
+        ACTION_BLOCK finding raises RegulatoryBlock; that gets the SAME
+        fail-closed treatment as an unusable governor answer below --
+        the action is withheld (governance_blocked=True), the pipeline
+        is not aborted. Every regulatory finding (flag or block) was
+        already disclosed to the ledger by the deck before this method
+        ever sees it (RegulatoryDeck.judge's own guarantee), and rides
+        in the result's "regulatory_findings" key either way.
         """
         params = validate_cassette(self.cassette)
         trigger = params.int_value("governance_trigger")
-        quality = judge_episode(self.cassette, episode)
-        factors = explain_episode(self.cassette, episode)
+        if self.regulatory_deck is not None:
+            try:
+                governed = self.regulatory_deck.judge(self.cassette, episode)
+            except RegulatoryBlock as exc:
+                return {
+                    "episode_id": episode.episode_id,
+                    "cassette_version": params.cassette_version,
+                    "quality": None,
+                    "factors": [],
+                    "issue_count": issue_count,
+                    "governance_trigger": trigger,
+                    "governance_required": True,
+                    "governed": True,
+                    "governance_approved": False,
+                    "governance_blocked": True,
+                    "reasoning": (f"regulatory_block: lens '{exc.lens_identity}' "
+                                 f"({exc.regulation})"),
+                    "regulatory_findings": [f.as_dict() for f in exc.findings],
+                }
+            quality = governed.quality
+            factors = self.regulatory_deck.explain(self.cassette, episode)
+            regulatory_findings = governed.findings
+        else:
+            quality = judge_episode(self.cassette, episode)
+            factors = explain_episode(self.cassette, episode)
+            regulatory_findings = ()
         governance_required = issue_count >= trigger
 
         result: Dict[str, Any] = {
@@ -188,6 +240,7 @@ class GovernanceHarness:
             "governed": False,
             "governance_approved": False,
             "governance_blocked": False,
+            "regulatory_findings": [f.as_dict() for f in regulatory_findings],
         }
         if not governance_required:
             return result
