@@ -86,6 +86,7 @@ def _ship_and_derive(twin):
         "decided_at": NOW, "domain": "lending"}, headers=twin.good)
     resp = twin.post(f"/replica/{twin.replica_id}/obligations/derive",
                      headers=twin.good)
+    assert resp.status_code == 200, resp.text
     obligations = twin.get(f"/replica/{twin.replica_id}/obligations",
                            headers=twin.good).json()["obligations"]
     return obligations[0]["obligation_id"]

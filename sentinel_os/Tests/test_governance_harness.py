@@ -245,19 +245,26 @@ def test_shutdown_is_a_clean_noop_when_never_bound():
 def test_harness_binds_cassette_on_construction():
     from twin_custody import recompute_current_hash
     import psycopg2
+    import psycopg2.extras
     conn = psycopg2.connect(host="localhost", dbname="iceberg",
                             user="iceberg", password="iceberg")
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     harness = GovernanceHarness(PG_CONFIG, MortgageCassette())
     assert harness.ledger is not None
 
-    cur.execute("SELECT record_kind, cassette_version, current_hash "
+    cur.execute("SELECT record_kind, cassette_version, current_hash, previous_hash, "
+               "cassette_hash, cassette_code_hash "
                "FROM ledger_entries WHERE record_kind='cassette_binding' "
                "AND cassette_version=%s ORDER BY id DESC LIMIT 1",
                ("mortgage:mortgage-v1:1.0.1",))
     row = cur.fetchone()
     assert row is not None, "expected a cassette_binding row for mortgage"
+    # The stored current_hash must actually be what the canonical entry
+    # hashes to -- proves the binding row is genuinely content-bound, not
+    # merely present (see twin_custody.recompute_current_hash, the same
+    # recomputation a witness twin runs independently).
+    assert recompute_current_hash(dict(row)) == row["current_hash"]
     harness.shutdown()
     conn.close()
 
