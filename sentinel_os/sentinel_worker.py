@@ -29,6 +29,15 @@ consumers (resilient_harness.py, cassette_harness.py, the circuit-
 breaker/production-harness test suites), are untouched -- they keep
 running exactly as before.
 
+BIAS/FAIR-LENDING SCREENING (2026-08-07): main() now inserts the CFPB
+Reg B reference lens into a RegulatoryDeck, LIVE mode, flag-only, and
+hands it to GovernanceHarness via the new regulatory_deck attribute
+(governance_harness.py). See the comment at the insertion site for
+exact scope. GovernanceHarness itself stays domain-agnostic --
+regulatory_deck is optional and defaults to None, so every other
+caller (tests, any future non-mortgage cassette on this harness) is
+byte-identical to before this was added.
+
 THE CENTRAL DESIGN DECISION: how a claimed job's outcome maps to
 ack/fail is not "did process_call raise" -- it mostly doesn't, by
 design (see production_harness.py's own comments on why ledger-write
@@ -553,6 +562,36 @@ def main() -> None:
     governance_harness = GovernanceHarness(
         _harness_config_from_env(), MortgageCassette(), require_cassette_binding=True,
     )
+    # Bias/fair-lending screening (2026-08-07): the CFPB/ECOA/Reg B
+    # reference lens, LIVE mode, flag-only (block_on_placeholder stays
+    # at its default False -- a boilerplate adverse-action reason is
+    # disclosed for human review, never blocks the decision; same
+    # "always ACTION_FLAG" posture regulatory_deck.py's cohort-equity
+    # escalation already established). Covers dimension 1 (declared
+    # proxy / prohibited-basis input screening) and the reason-
+    # specificity check, both always-on in this lens with no extra
+    # infrastructure needed. Deliberately NOT enabled here: the tier
+    # and narrative opt-ins (no authorized-tier declarations exist for
+    # mortgage inputs yet -- turning those on now would just flag
+    # everything as undeclared) and the cohort-level dimensions 4-6
+    # (need a twin client plus a scheduled obligation_sweep.py run,
+    # neither of which this repo runs anywhere yet -- see
+    # COMPLIANCE.md). Only constructed when the harness actually has a
+    # ledger (require_cassette_binding=True above means it always will
+    # in this real entrypoint; the guard exists so an
+    # offline/unbound harness -- tests, dev runs with binding opted
+    # out -- never hits RegulatoryDeck's own "no ledgerless mode"
+    # refusal).
+    if governance_harness.ledger is not None:
+        from regulatory_cassette_interface import MODE_LIVE
+        from regulatory_cassettes.cfpb_reg_b import CFPBRegBLens
+        from regulatory_deck import RegulatoryDeck
+
+        deck = RegulatoryDeck(governance_harness.ledger,
+                              default_authorized_by="sentinel_worker:mortgage")
+        deck.insert(CFPBRegBLens(), MODE_LIVE,
+                   inserted_by="sentinel_worker:mortgage")
+        governance_harness.regulatory_deck = deck
     harness = GovernanceHarnessJobAdapter(governance_harness)
     queue = TransmissionQueue(name=args.queue_name, redis_url=args.redis_url)
     worker = SentinelWorker(harness, queue, worker_id=args.worker_id)
