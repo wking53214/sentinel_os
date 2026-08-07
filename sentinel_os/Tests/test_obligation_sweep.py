@@ -26,10 +26,12 @@ from fastapi.testclient import TestClient
 import obligation_sweep
 from governance.ledger_postgres import GovernanceDecisionRecord
 from obligation_sweep import (
+    BisgQuarantineError,
     assemble_cohort,
     bucket_resolved_obligations,
     cohort_key,
     fetch_decision_materials,
+    fetch_property_geography,
     fetch_group_distributions,
     fetch_latest_cohort_review,
     fetch_resolved_obligations,
@@ -437,6 +439,65 @@ def test_sweep_geocodes_property_address_into_dimension_6(twin, channel, test_le
     review = reviews[0]
     assert review.dimension_6_cohort_size == 1
     assert review.skipped == []
+
+
+# ---------------------------------------------------------------------------
+# BISG quarantine boundary (F4). The quarantine is on the live Census
+# service, not on the dimension-6 wiring. These three tests pin each branch
+# so the boundary cannot drift back to either extreme: blanket-disabled
+# (which left the wiring untested) or blanket-allowed (which would let the
+# live service be reached while attorney review is still pending).
+# ---------------------------------------------------------------------------
+
+def _material_with_address(address):
+    from regulatory_cassette_interface import DecisionMaterial
+
+    return DecisionMaterial(
+        subject_id="s1", domain="lending", reasons=(),
+        input_fields={"loan_property_address": address},
+        mismatched_fields=(), outcome={"approved": True}, source="ledger",
+    )
+
+
+def test_quarantine_refuses_real_census_geocoder_when_research_mode_off(monkeypatch):
+    """A real CensusGeocoder while the quarantine is on raises, rather than
+    silently returning skips. A legal refusal and an absence of data are
+    different facts and must not render identically."""
+    from bisg_estimator import CensusGeocoder
+
+    monkeypatch.setattr(obligation_sweep, "BISG_RESEARCH_MODE_ENABLED", False)
+    with pytest.raises(BisgQuarantineError):
+        fetch_property_geography(
+            CensusGeocoder(),
+            {"h1": _material_with_address("123 Main St, Springfield, IL 62704")},
+        )
+
+
+def test_quarantine_honors_injected_stub_geocoder(monkeypatch):
+    """An injected stub touches no live service, so the wiring stays
+    exercisable while the quarantine is on."""
+    class _StubGeocoder:
+        def geocode_county_fips(self, address: str):
+            return "17167"
+
+    monkeypatch.setattr(obligation_sweep, "BISG_RESEARCH_MODE_ENABLED", False)
+    result = fetch_property_geography(
+        _StubGeocoder(),
+        {"h1": _material_with_address("123 Main St, Springfield, IL 62704")},
+    )
+    assert result["h1"]["county_fips"] == "17167"
+
+
+def test_quarantine_default_is_all_none_not_omission(monkeypatch):
+    """No geocoder is the default posture while the quarantine is on. The
+    address must still appear in the result as all-None so cohort assembly
+    reports a skip; dropping the key entirely would hide it."""
+    monkeypatch.setattr(obligation_sweep, "BISG_RESEARCH_MODE_ENABLED", False)
+    result = fetch_property_geography(
+        None,
+        {"h1": _material_with_address("123 Main St, Springfield, IL 62704")},
+    )
+    assert result["h1"] == {"zip": None, "county_fips": None}
 
 
 # ---------------------------------------------------------------------------
