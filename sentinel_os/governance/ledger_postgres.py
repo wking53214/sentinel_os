@@ -2556,6 +2556,36 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
 
+    def episode_decision_exists(self, episode_id: str) -> bool:
+        """Check whether a governance_decision for this episode_id has
+        already been recorded.
+
+        Same role as sid_exists above, for consumers built on
+        GovernanceHarness's domain-agnostic Episode path instead of the
+        telephony call_sid column: a redelivery-safe pre-check a caller
+        runs BEFORE invoking GovernanceHarness.process() again, so a
+        crash-between-commit-and-ack redelivery is recognized as
+        already-done rather than written a second time.
+        episode_id lives inside the JSONB input_data column
+        (GovernanceHarness._write_decision's record shape), not a
+        dedicated column the way call_sid is -- there is no unique
+        index backstopping this one, so a caller relying on it for
+        correctness under real concurrency (not just crash recovery)
+        would need one; this is the same pre-check-only posture
+        sid_exists documents for its own DB-level backstop.
+        """
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM ledger_entries WHERE record_kind = 'governance_decision' "
+                "AND input_data->>'episode_id' = %s LIMIT 1;",
+                (episode_id,)
+            )
+            return cursor.fetchone() is not None
+        finally:
+            self.pool.putconn(conn)
+
     def close(self):
         """Close connection pool"""
         self.pool.closeall()

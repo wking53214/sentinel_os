@@ -2,9 +2,26 @@
 
 Runs against REAL Postgres and REAL Redis -- no mocks of either. The
 Claude client is left unconfigured (no CLAUDE_API_KEY) so governed
-calls take the harness's own documented "No API client configured"
-fail-closed path -- a real code path in production_harness.py, not a
-test double, and one that still exercises the full ledger write.
+episodes take GovernanceDecider's own documented "No API client
+configured" fail-closed path -- a real code path in
+governance_decider.py, not a test double, and one that still exercises
+the full ledger write.
+
+HARNESS (2026-08-07): re-pointed from IcebergProductionHarness onto
+GovernanceHarness -- see sentinel_worker.py's module docstring and
+GovernanceHarnessJobAdapter's own docstring for the two things that
+had to change to make that work (GovernanceHarness refuses telephony
+cassettes, so this worker now governs MortgageCassette decisions
+instead of Twilio calls; and GovernanceHarness has no sid_exists-
+equivalent redelivery-dedup, closed here via the new
+PostgreSQLLedger.episode_decision_exists()). SentinelWorker's own
+claim/process/ack-or-fail loop, lease/heartbeat, dead-letter routing,
+and worker_id/processed/acked/failed counters are UNCHANGED and this
+file proves it with the SAME scenarios the IVR-shaped version proved,
+just against mortgage-shaped payloads: `good_record()`'s Twilio fields
+(sid/status/from/duration) are gone, replaced by
+governed_payload()/ungoverned_payload() below (requested/actual/
+outcome_reasons, matching MortgageCassette's own vocabulary).
 
 Run:  pytest -q -s test_sentinel_worker.py
 """
@@ -23,9 +40,10 @@ import pytest
 
 os.environ.setdefault("ICEBERG_LEDGER_RUNTIME_USER", "")
 
-from production_harness import IcebergProductionHarness
+from cassettes.mortgage_cassette import MortgageCassette
+from governance_harness import GovernanceHarness
 from queue_schema import Outcome, TransmissionQueue
-from sentinel_worker import SentinelWorker
+from sentinel_worker import GovernanceHarnessJobAdapter, SentinelWorker
 
 REDIS_PORT = 6398
 PG_DSN = dict(host="localhost", port=5432, dbname="iceberg",
@@ -74,14 +92,23 @@ def _clear_ledger():
 
 @pytest.fixture()
 def harness():
-    h = IcebergProductionHarness({
+    """Named `harness` for continuity with the original IVR-shaped
+    suite (same role: the object handed to SentinelWorker), but this
+    is now a GovernanceHarnessJobAdapter wrapping a real
+    GovernanceHarness(MortgageCassette()) -- see sentinel_worker.py.
+    `.harness` on the returned adapter reaches the underlying
+    GovernanceHarness (`.harness.ledger`, `.harness.cassette`, ...)
+    for tests that need to reach into it directly, the same way the
+    original suite reached into a bare IcebergProductionHarness."""
+    gh = GovernanceHarness({
         "postgres_host": PG_DSN["host"], "postgres_port": PG_DSN["port"],
         "postgres_db": PG_DSN["dbname"], "postgres_user": PG_DSN["user"],
-        "postgres_password": PG_DSN["password"], "cassette_domain": "ivr",
-    })
+        "postgres_password": PG_DSN["password"],
+    }, MortgageCassette())
+    adapter = GovernanceHarnessJobAdapter(gh)
     _clear_ledger()
-    yield h
-    h.shutdown()
+    yield adapter
+    adapter.shutdown()
 
 
 def make_worker(harness, redis_url, **kw):
@@ -89,66 +116,86 @@ def make_worker(harness, redis_url, **kw):
     return SentinelWorker(harness, q, worker_id="w-" + uuid.uuid4().hex[:6], **kw)
 
 
-def good_record(sid, digit="1", status="completed", duration=320):
-    return {"sid": sid, "status": status, "from": f"+1555123456{digit}",
-            "duration": duration, "start_time": 0}
+def governed_payload(episode_id, reason="reduced based on updated appraisal value on file"):
+    """1 requested-vs-actual mismatch with a substantive reason on
+    file -- >= mortgage's governance_trigger (1), so this is governed."""
+    return {"episode_id": episode_id, "requested": {"amount": 300000.0},
+            "actual": {"amount": 250000.0}, "outcome_reasons": [reason]}
+
+
+def ungoverned_payload(episode_id):
+    """Clean match, zero requested-vs-actual mismatches and zero thin
+    reasons -- 0 issues, below governance_trigger, never governed."""
+    return {"episode_id": episode_id,
+            "requested": {"outcome": "approved", "amount": 300000.0},
+            "actual": {"outcome": "approved", "amount": 300000.0}}
+
+
+def malformed_payload(episode_id):
+    """A requested-vs-actual mismatch with NO outcome_reasons on file
+    -- the kernel's own invariant (episode.validate_episode) refuses
+    this outright (EpisodeIntegrityError), the mortgage-domain analog
+    of IVR's "not in TWILIO_TO_ICEBERG" unparseable call record."""
+    return {"episode_id": episode_id, "requested": {"amount": 300000.0},
+            "actual": {"amount": 250000.0}}
 
 
 # ------------------------------------------------------------ happy path --
-def test_happy_path_governed_call_completes_and_is_recorded(harness, redis_url):
+def test_happy_path_governed_episode_completes_and_is_recorded(harness, redis_url):
     w = make_worker(harness, redis_url)
-    w.queue.enqueue(good_record("CAH1"), job_id="CAH1")
+    w.queue.enqueue(governed_payload("CAH1"), job_id="CAH1")
     job = w.queue.claim(w.worker_id, wait_timeout_s=2.0)
     outcome = w.handle_one(job)
     assert outcome is Outcome.OK
-    assert harness.ledger.sid_exists("CAH1")
+    assert harness.harness.ledger.episode_decision_exists("CAH1")
     assert w.queue.stats()["counters"]["completed"] == 1
     assert w.acked == 1 and w.failed == 0
 
 
-def test_ungoverned_call_also_completes(harness, redis_url):
-    # low friction / short duration -> below governance_trigger, no
-    # governor call at all, still a fully successful job.
+def test_ungoverned_episode_also_completes(harness, redis_url):
+    # 0 issues -> below governance_trigger, no governor call at all,
+    # still a fully successful job.
     w = make_worker(harness, redis_url)
-    rec = good_record("CAH2", digit="4", duration=15)
-    w.queue.enqueue(rec, job_id="CAH2")
+    w.queue.enqueue(ungoverned_payload("CAH2"), job_id="CAH2")
     job = w.queue.claim(w.worker_id, wait_timeout_s=2.0)
     outcome = w.handle_one(job)
     assert outcome is Outcome.OK
-    assert harness.ledger.sid_exists("CAH2") is False  # ungoverned: no ledger row expected
+    assert harness.harness.ledger.episode_decision_exists("CAH2") is False  # ungoverned: no ledger row expected
     # (governed=False path never calls append_decision at all)
 
 
 def test_governed_and_blocked_is_still_a_completed_job(harness, redis_url):
-    # No Claude client configured -> harness's own documented fail-closed
-    # path: safe=False, but the decision IS durably recorded. That is a
-    # successfully processed job, not a queue failure.
+    # No Claude client configured -> GovernanceDecider's own documented
+    # fail-closed path: safe=False, but the decision IS durably
+    # recorded. That is a successfully processed job, not a queue
+    # failure.
     w = make_worker(harness, redis_url)
-    w.queue.enqueue(good_record("CAH3"), job_id="CAH3")
+    w.queue.enqueue(governed_payload("CAH3"), job_id="CAH3")
     job = w.queue.claim(w.worker_id, wait_timeout_s=2.0)
     outcome = w.handle_one(job)
     assert outcome is Outcome.OK
-    assert harness.ledger.sid_exists("CAH3")
+    assert harness.harness.ledger.episode_decision_exists("CAH3")
 
 
 # --------------------------------------------------------------- bad input --
 def test_bad_input_dead_letters_without_touching_the_ledger(harness, redis_url):
     w = make_worker(harness, redis_url)
-    bad = {"sid": "CAH4", "status": "ringing", "from": "+15551234561"}  # not in TWILIO_TO_ICEBERG
+    bad = malformed_payload("CAH4")  # mismatch, no outcome_reasons -> kernel refuses
     w.queue.enqueue(bad, job_id="CAH4")
     job = w.queue.claim(w.worker_id, wait_timeout_s=2.0)
     outcome = w.handle_one(job)
     assert outcome is Outcome.DEAD
-    assert harness.ledger.sid_exists("CAH4") is False
+    assert harness.harness.ledger.episode_decision_exists("CAH4") is False
     dead = w.queue.dlq_peek(1)[0]
     assert dead["dead_reason"] == "data_corruption"
-    assert "Failed to parse call" in dead["error_trail"][0]["detail"]
+    assert "Failed to parse job" in dead["error_trail"][0]["detail"]
 
 
-def test_missing_sid_dead_letters(harness, redis_url):
+def test_missing_episode_id_dead_letters(harness, redis_url):
     w = make_worker(harness, redis_url)
-    w.queue.enqueue({"status": "completed", "from": "+15551234561",
-                     "duration": 10}, job_id="CAH5")
+    w.queue.enqueue({"requested": {"amount": 300000.0}, "actual": {"amount": 250000.0},
+                     "outcome_reasons": ["reduced based on updated appraisal value on file"]},
+                    job_id="CAH5")
     job = w.queue.claim(w.worker_id, wait_timeout_s=2.0)
     outcome = w.handle_one(job)
     assert outcome is Outcome.DEAD
@@ -161,9 +208,9 @@ def test_ledger_write_failure_retries_and_never_acks(harness, redis_url, monkeyp
     a later successful attempt, the job completes and IS recorded
     exactly once."""
     w = make_worker(harness, redis_url, claim_wait_s=2.0)
-    w.queue.enqueue(good_record("CAH6"), job_id="CAH6")
+    w.queue.enqueue(governed_payload("CAH6"), job_id="CAH6")
 
-    real_append = harness.ledger.append_decision
+    real_append = harness.harness.ledger.append_decision
     calls = {"n": 0}
 
     def flaky_append(*a, **kw):
@@ -172,16 +219,21 @@ def test_ledger_write_failure_retries_and_never_acks(harness, redis_url, monkeyp
             raise RuntimeError("simulated ledger outage")
         return real_append(*a, **kw)
 
-    monkeypatch.setattr(harness.ledger, "append_decision", flaky_append)
+    monkeypatch.setattr(harness.harness.ledger, "append_decision", flaky_append)
 
     job1 = w.queue.claim(w.worker_id, wait_timeout_s=2.0)
     outcome1 = w.handle_one(job1)
     assert outcome1 is Outcome.SCHEDULED
-    assert harness.ledger.sid_exists("CAH6") is False   # NOT acked, NOT recorded
+    assert harness.harness.ledger.episode_decision_exists("CAH6") is False   # NOT acked, NOT recorded
     assert w.failed == 1 and w.acked == 0
 
     trail = w.queue.error_trail("CAH6")
     assert trail[0]["reason"] == "db_connection_loss"
+    # This message is generated entirely inside handle_one (unchanged
+    # by the harness re-point) from result["claude_safe"]/["intent"],
+    # which the adapter now supplies as None/"mortgage" respectively --
+    # see GovernanceHarnessJobAdapter.process_call's ledger_write_failed
+    # branch.
     assert "NOT durably recorded" in trail[0]["detail"]
 
     # backoff elapses, job becomes claimable again
@@ -190,7 +242,7 @@ def test_ledger_write_failure_retries_and_never_acks(harness, redis_url, monkeyp
     assert job2 is not None and job2.attempt == 2
     outcome2 = w.handle_one(job2)
     assert outcome2 is Outcome.OK
-    assert harness.ledger.sid_exists("CAH6") is True
+    assert harness.harness.ledger.episode_decision_exists("CAH6") is True
     assert calls["n"] == 2                              # exactly one retry needed
 
 
@@ -202,15 +254,17 @@ def test_worker_crash_between_ledger_commit_and_ack_causes_no_duplicate(
     row IS committed), simulate the worker dying before it could ack
     (don't call ack), let the lease expire, reap, redeliver, and process
     again. Expect: exactly one ledger row, second attempt acked via the
-    duplicate_sid path, zero data loss, zero duplication."""
+    duplicate_sid path (episode_decision_exists -- the new dedup
+    pre-check GovernanceHarness itself does not have), zero data loss,
+    zero duplication."""
     q = TransmissionQueue(name="crash-" + uuid.uuid4().hex[:8], redis_url=redis_url)
     w = SentinelWorker(harness, q, worker_id="doomed-worker")
 
-    q.enqueue(good_record("CAH7"), job_id="CAH7")
+    q.enqueue(governed_payload("CAH7"), job_id="CAH7")
     job = q.claim(w.worker_id, lease_ms=400, wait_timeout_s=2.0)
     result = harness.process_call(job.payload)     # the real, committing call
     assert result.get("ledger_write_failed") is False
-    assert harness.ledger.sid_exists("CAH7") is True
+    assert harness.harness.ledger.episode_decision_exists("CAH7") is True
     # worker "dies" here -- no ack, no fail, just gone
 
     time.sleep(0.6)                                  # lease expires
@@ -226,8 +280,8 @@ def test_worker_crash_between_ledger_commit_and_ack_causes_no_duplicate(
     assert outcome is Outcome.OK                      # acked via duplicate_sid path
     assert rescuer.acked == 1
 
-    rows = [d for d in harness.ledger.get_decisions(limit=50)
-            if d["input_data"].get("call_sid") == "CAH7"]
+    rows = [d for d in harness.harness.ledger.get_decisions(limit=50)
+            if d["input_data"].get("episode_id") == "CAH7"]
     assert len(rows) == 1, f"expected exactly one ledger row, found {len(rows)}"
     assert q.stats()["counters"]["completed"] == 1
 
@@ -236,11 +290,11 @@ def test_worker_crash_between_ledger_commit_and_ack_causes_no_duplicate(
 def test_multiple_workers_share_one_queue_no_dup_no_loss(harness, redis_url):
     q = TransmissionQueue(name="multi-" + uuid.uuid4().hex[:8], redis_url=redis_url)
     n = 25
-    sids = []
+    eids = []
     for i in range(n):
-        sid = f"CAM{i:03d}"
-        sids.append(sid)
-        q.enqueue(good_record(sid, digit=str(i % 5)), job_id=sid)
+        eid = f"CAM{i:03d}"
+        eids.append(eid)
+        q.enqueue(governed_payload(eid), job_id=eid)
 
     workers = [SentinelWorker(harness, q, worker_id=f"mw-{i}", claim_wait_s=0.3)
                for i in range(4)]
@@ -260,10 +314,10 @@ def test_multiple_workers_share_one_queue_no_dup_no_loss(harness, redis_url):
 
     total_acked = sum(w.acked for w in workers)
     assert total_acked == n
-    for sid in sids:
-        assert harness.ledger.sid_exists(sid)
-    rows = [d for d in harness.ledger.get_decisions(limit=200)
-            if d["input_data"].get("call_sid") in sids]
+    for eid in eids:
+        assert harness.harness.ledger.episode_decision_exists(eid)
+    rows = [d for d in harness.harness.ledger.get_decisions(limit=200)
+            if d["input_data"].get("episode_id") in eids]
     assert len(rows) == n, "no duplicate ledger rows across concurrent workers"
     assert q.stats()["counters"]["completed"] == n
 
@@ -273,6 +327,8 @@ def test_multiple_workers_share_one_queue_no_dup_no_loss(harness, redis_url):
 # the rebuild) existed but was never called from this file -- see module
 # docstring's HEARTBEAT section. These tests prove the fix both ways: the
 # danger is real without it, and the reaper-driven heartbeat closes it.
+# Unaffected by the GovernanceHarness re-point -- they exercise the reaper
+# thread and process_call's TIMING, not any harness-specific behavior.
 
 def test_without_heartbeat_a_slow_call_would_get_reclaimed(harness, redis_url):
     """Documents the bug this session fixed, not the fix itself: claim a
@@ -283,7 +339,7 @@ def test_without_heartbeat_a_slow_call_would_get_reclaimed(harness, redis_url):
     claim. If this test ever starts failing, something upstream (Redis
     lease semantics, reap_expired's own logic) changed, not this file."""
     q = TransmissionQueue(name="hb-danger-" + uuid.uuid4().hex[:8], redis_url=redis_url)
-    q.enqueue(good_record("HBDANGER1"), job_id="HBDANGER1")
+    q.enqueue(governed_payload("HBDANGER1"), job_id="HBDANGER1")
     job = q.claim("slow-worker", lease_ms=300, wait_timeout_s=2.0)
     assert job is not None
 
@@ -308,7 +364,7 @@ def test_reaper_heartbeats_this_workers_in_flight_job(harness, redis_url):
 
     harness.process_call = slow_process_call
     try:
-        q.enqueue(good_record("HBFIX1"), job_id="HBFIX1")
+        q.enqueue(governed_payload("HBFIX1"), job_id="HBFIX1")
         job = q.claim(w.worker_id, lease_ms=250, wait_timeout_s=2.0)
         w.start_reaper()
         try:
@@ -321,8 +377,8 @@ def test_reaper_heartbeats_this_workers_in_flight_job(harness, redis_url):
     assert outcome is Outcome.OK
     assert w.acked == 1
     assert w.failed == 0
-    rows = [d for d in harness.ledger.get_decisions(limit=50)
-            if d["input_data"].get("call_sid") == "HBFIX1"]
+    rows = [d for d in harness.harness.ledger.get_decisions(limit=50)
+            if d["input_data"].get("episode_id") == "HBFIX1"]
     assert len(rows) == 1, (
         "exactly one ledger row -- if the lease had lapsed and the job "
         "got redelivered to a second worker, either this worker's own "
@@ -337,7 +393,7 @@ def test_current_job_is_cleared_after_handling_so_the_reaper_stops_touching_it(
     handle_one returns, _current_job goes back to None."""
     q = TransmissionQueue(name="hb-clear-" + uuid.uuid4().hex[:8], redis_url=redis_url)
     w = SentinelWorker(harness, q, worker_id="hb-clear-worker")
-    q.enqueue(good_record("HBCLEAR1"), job_id="HBCLEAR1")
+    q.enqueue(governed_payload("HBCLEAR1"), job_id="HBCLEAR1")
     job = q.claim(w.worker_id, wait_timeout_s=2.0)
 
     assert w._current_job is None          # nothing in flight yet
@@ -358,6 +414,6 @@ def test_reaper_tolerates_no_in_flight_job(harness, redis_url):
     # nothing here would raise visibly in the test process if the reaper
     # thread itself died, so this is really just "the worker is still
     # usable afterward":
-    q.enqueue(good_record("HBIDLE1"), job_id="HBIDLE1")
+    q.enqueue(governed_payload("HBIDLE1"), job_id="HBIDLE1")
     job = q.claim(w.worker_id, wait_timeout_s=2.0)
     assert w.handle_one(job) is Outcome.OK
