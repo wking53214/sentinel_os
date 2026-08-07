@@ -32,9 +32,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.dirname(__file__))
 
-from cassette_capabilities import CapabilityError
 from cassette_interface import CassetteConfig
-from cassette_schema import CassetteValidationError, validate_cassette
 from cassettes.mortgage_cassette import MortgageCassette
 from episode import make_episode
 from governance_decider import GovernanceDecider

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol
 
 from .scenarios import Scenario, ScenarioLibrary
 

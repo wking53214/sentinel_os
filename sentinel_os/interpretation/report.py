@@ -20,7 +20,7 @@ before the part that is not.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from typing import List, Optional, Sequence
 
 from .drift import DriftReport, ZoneDrift, calibration_suggestion
 from .realignment import RealignmentRecord, RealignmentTrail
@@ -120,8 +120,8 @@ def annual_realignment_report(
         "",
         "## Decision",
         "",
-        f"| | |",
-        f"| --- | --- |",
+        "| | |",
+        "| --- | --- |",
         f"| Legal sign-off | **{quick['legal_sign_off']}** |",
         f"| Decision | **{quick['decision']}** |",
         f"| Risk level | **{quick['risk_level']}** |",
