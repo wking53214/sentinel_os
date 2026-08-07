@@ -265,6 +265,23 @@ async def _body_size_guard(request: Request, call_next):
 # ADMITTED and will dead-letter with a real reason + error trail, which is
 # the queue doing its job, not a validation gap.
 # --------------------------------------------------------------------------
+def _validate_job_key(v: str, field_name: str) -> str:
+    """Shared sanity check for any field that becomes job_id -- the
+    queue hash key AND the /job/{id} URL path segment. Used by both
+    CallSubmission.sid (IcebergProductionHarness/IVR path) and
+    MortgageDecisionSubmission.episode_id (GovernanceHarness/
+    MortgageCassette path, see sentinel_worker.py's
+    GovernanceHarnessJobAdapter) -- the key-shape requirement is the
+    same regardless of which domain the submission governs."""
+    if v != v.strip() or not v.strip():
+        raise ValueError(f"{field_name} must be non-blank with no surrounding whitespace")
+    if any(ch.isspace() or ord(ch) < 0x20 or ch == "\x7f" for ch in v):
+        raise ValueError(f"{field_name} must not contain whitespace or control characters")
+    if "/" in v:
+        raise ValueError(f"{field_name} must be usable as a URL path segment ('/' not allowed)")
+    return v
+
+
 class CallSubmission(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -274,13 +291,29 @@ class CallSubmission(BaseModel):
     @field_validator("sid")
     @classmethod
     def _sid_is_a_sane_key(cls, v: str) -> str:
-        if v != v.strip() or not v.strip():
-            raise ValueError("sid must be non-blank with no surrounding whitespace")
-        if any(ch.isspace() or ord(ch) < 0x20 or ch == "\x7f" for ch in v):
-            raise ValueError("sid must not contain whitespace or control characters")
-        if "/" in v:
-            raise ValueError("sid must be usable as a URL path segment ('/' not allowed)")
-        return v
+        return _validate_job_key(v, "sid")
+
+
+# --------------------------------------------------------------------------
+# Submission model — mortgage/GovernanceHarness path. Same cheap-validation
+# posture as CallSubmission above: episode_id is the job key (checked the
+# same way sid is), everything else (requested/actual/outcome_reasons/
+# actor_report/attributes) passes through untouched with extra="allow" --
+# GovernanceHarnessJobAdapter._payload_to_mortgage_episode
+# (sentinel_worker.py) owns real episode-shape validation, and a
+# malformed body here is ADMITTED and will dead-letter with a real
+# reason, same as a malformed call record already does on /submit-call.
+# --------------------------------------------------------------------------
+class MortgageDecisionSubmission(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    episode_id: StrictStr = Field(min_length=1, max_length=256,
+                                  description="Episode identity; becomes the job_id.")
+
+    @field_validator("episode_id")
+    @classmethod
+    def _episode_id_is_a_sane_key(cls, v: str) -> str:
+        return _validate_job_key(v, "episode_id")
 
 
 def _iso(epoch: Optional[float]) -> Optional[str]:
@@ -317,6 +350,35 @@ def submit_call(call: CallSubmission, q: TransmissionQueue = Depends(get_queue))
     """
     try:
         out = q.enqueue(job_id=call.sid, payload=call.model_dump())
+    except (redis.exceptions.RedisError, OSError) as exc:
+        raise _queue_unavailable(exc)
+    logger.info(f"submitted job_id={out['job_id']} status={out['status']} deduped={out['deduped']}")
+    return {
+        "job_id": out["job_id"],
+        "status": out["status"],
+        "deduped": out["deduped"],
+        "status_url": f"/job/{out['job_id']}",
+    }
+
+
+# --------------------------------------------------------------------------
+# POST /submit-mortgage-decision
+# --------------------------------------------------------------------------
+@app.post("/submit-mortgage-decision", status_code=202, dependencies=INGRESS_GUARDS)
+def submit_mortgage_decision(
+    decision: MortgageDecisionSubmission, q: TransmissionQueue = Depends(get_queue)
+) -> Dict[str, Any]:
+    """Accept a mortgage-domain decision payload and enqueue it.
+
+    Mirrors submit_call above exactly (same atomicity guarantee, same
+    idempotent-on-key semantics, same 503 posture) for the
+    GovernanceHarness/MortgageCassette worker path
+    (sentinel_worker.py's GovernanceHarnessJobAdapter) instead of the
+    IcebergProductionHarness/IVR path submit_call feeds. job_id ==
+    episode_id.
+    """
+    try:
+        out = q.enqueue(job_id=decision.episode_id, payload=decision.model_dump())
     except (redis.exceptions.RedisError, OSError) as exc:
         raise _queue_unavailable(exc)
     logger.info(f"submitted job_id={out['job_id']} status={out['status']} deduped={out['deduped']}")
