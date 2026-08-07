@@ -43,7 +43,7 @@ def test_imports():
         return True
     except ImportError as e:
         print(f"  ✗ FAILED - Import error: {e}")
-        return False
+        raise
 
 def test_harness_initialization():
     print("\n[TEST 3] Production harness initializes")
@@ -67,7 +67,7 @@ def test_harness_initialization():
         return True
     except Exception as e:
         print(f"  ✗ FAILED - {e}")
-        return False
+        raise
 
 def test_e2e_call_processing():
     print("\n[TEST 4] End-to-end call processing")
@@ -104,7 +104,7 @@ def test_e2e_call_processing():
         print(f"  ✗ FAILED - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 def test_batch_processing():
     print("\n[TEST 5] Batch call processing")
@@ -138,7 +138,7 @@ def test_batch_processing():
         print(f"  ✗ FAILED - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 def test_prometheus_export():
     print("\n[TEST 6] Prometheus metrics export")
@@ -169,7 +169,7 @@ def test_prometheus_export():
         return True
     except Exception as e:
         print(f"  ✗ FAILED - {e}")
-        return False
+        raise
 
 def main():
     print("\n" + "="*70)
