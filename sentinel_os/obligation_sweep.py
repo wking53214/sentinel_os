@@ -61,6 +61,14 @@ import psycopg2.extras
 # Defaults to False (disabled); only enabled if SENTINEL_BISG_RESEARCH_MODE=true.
 BISG_RESEARCH_MODE_ENABLED = os.getenv("SENTINEL_BISG_RESEARCH_MODE", "false").lower() == "true"
 
+
+class BisgQuarantineError(RuntimeError):
+    """Raised when a caller supplies the real Census geocoder while BISG
+    research mode is off. The quarantine is on the live demographic-inference
+    service, not on the dimension-6 wiring, so an injected stub is honored --
+    but a real CensusGeocoder is refused loudly rather than quietly used or
+    quietly downgraded to skips. Absence is never compliance."""
+
 from outcome_v1 import (
     OUTCOME_RESOLVED,
     OutcomeIntegrityError,
@@ -411,11 +419,20 @@ def fetch_property_geography(
     text parse for ZIP (bisg_estimator.extract_zip) -- no new data
     source, one geocode per address.
 
-    BISG RESEARCH MODE: This function is currently disabled by default
-    (SENTINEL_BISG_RESEARCH_MODE must be explicitly set to "true").
-    IP/privacy attorney review is pending before production deployment.
-    When disabled, returns all-None results for all addresses, which
-    the cohort assembly properly reports as skips (no silent drops).
+    BISG RESEARCH MODE: the quarantine is on the live Census service, not
+    on this wiring. IP/privacy attorney review is pending before production
+    deployment. Three cases:
+
+      - geocoder is None (the default while research mode is off, because
+        sweep() only builds a real CensusGeocoder when it is on): returns
+        all-None results for every address, which cohort assembly reports
+        as skips, never as a clean result.
+      - geocoder is a real bisg_estimator.CensusGeocoder while research
+        mode is off: raises BisgQuarantineError. Silently downgrading it
+        to skips would misrepresent a legal refusal as an absence of data.
+      - geocoder is anything else (a test stub, or a caller's own
+        resolver): honored. Injecting one is a deliberate act and touches
+        no live service.
 
     address_field is a parameter, not a hardcoded import of
     cassettes.mortgage_cassette.PROPERTY_ADDRESS_FIELD: this module
@@ -433,9 +450,23 @@ def fetch_property_geography(
     """
     result: Dict[str, Dict[str, Optional[str]]] = {}
 
-    # If BISG research mode is not explicitly enabled, return all-None results.
-    # Cohort assembly will report these as skips (no silent drops).
-    if not BISG_RESEARCH_MODE_ENABLED:
+    # A real CensusGeocoder while the quarantine is on is refused outright.
+    # Downgrading it to the skip path would let a caller believe geographic
+    # equity was evaluated when it was declined for legal reasons.
+    if geocoder is not None and not BISG_RESEARCH_MODE_ENABLED:
+        from bisg_estimator import CensusGeocoder
+        if isinstance(geocoder, CensusGeocoder):
+            raise BisgQuarantineError(
+                "Refusing to geocode with the live Census service: BISG "
+                "research mode is off (SENTINEL_BISG_RESEARCH_MODE). Attorney "
+                "review is pending. Inject a stub geocoder to exercise the "
+                "dimension-6 wiring without touching the live service.")
+
+    # No geocoder available: return all-None results. Cohort assembly reports
+    # these as skips (no silent drops). This is the default posture while the
+    # quarantine is on, because sweep() only constructs a real CensusGeocoder
+    # when research mode is enabled.
+    if geocoder is None:
         for decision_hash, material in decision_materials.items():
             address = material.input_fields.get(address_field)
             if not address:
@@ -443,7 +474,7 @@ def fetch_property_geography(
             result[decision_hash] = {"zip": None, "county_fips": None}
         return result
 
-    # BISG research mode enabled: perform actual geocoding.
+    # A geocoder is available: perform actual geocoding.
     from bisg_estimator import extract_zip
 
     for decision_hash, material in decision_materials.items():
@@ -465,11 +496,14 @@ def sweep(twin_client, replica_id: str, ledger_conn, sealed_channel,
     return one CohortEquityReview per bucket -- including buckets too
     small to test (see review_cohort).
 
-    BISG RESEARCH MODE: Geographic equity testing is currently disabled by
-    default (SENTINEL_BISG_RESEARCH_MODE must be explicitly set to "true").
-    IP/privacy attorney review is pending before production deployment.
-    When disabled, geocoder stays None and fetch_property_geography() returns
-    all-None results, which the cohort assembly properly reports as skips.
+    BISG RESEARCH MODE: geographic equity testing against the live Census
+    service is disabled by default (SENTINEL_BISG_RESEARCH_MODE must be
+    explicitly set to "true"). IP/privacy attorney review is pending before
+    production deployment. When disabled and no geocoder is supplied, geocoder
+    stays None and fetch_property_geography() returns all-None results, which
+    the cohort assembly properly reports as skips. Supplying a stub geocoder
+    still exercises the wiring; supplying a real CensusGeocoder while the
+    quarantine is on raises BisgQuarantineError.
 
     geocoder defaults to a real bisg_estimator.CensusGeocoder() when not
     supplied (and BISG research mode is enabled) -- the same live, key-free
