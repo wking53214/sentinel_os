@@ -56,19 +56,6 @@ from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 import psycopg2.extras
 
-# BISG (Bayesian Improved Surname Geocoding) demographic inference is currently
-# RESEARCH MODE ONLY. IP/privacy attorney review pending before any production use.
-# Defaults to False (disabled); only enabled if SENTINEL_BISG_RESEARCH_MODE=true.
-BISG_RESEARCH_MODE_ENABLED = os.getenv("SENTINEL_BISG_RESEARCH_MODE", "false").lower() == "true"
-
-
-class BisgQuarantineError(RuntimeError):
-    """Raised when a caller supplies the real Census geocoder while BISG
-    research mode is off. The quarantine is on the live demographic-inference
-    service, not on the dimension-6 wiring, so an injected stub is honored --
-    but a real CensusGeocoder is refused loudly rather than quietly used or
-    quietly downgraded to skips. Absence is never compliance."""
-
 from outcome_v1 import (
     OUTCOME_RESOLVED,
     OutcomeIntegrityError,
@@ -85,6 +72,19 @@ from regulatory_checks import (
     check_geographic_outcome_equity,
     check_statistical_outcome_equity,
 )
+
+# BISG (Bayesian Improved Surname Geocoding) demographic inference is currently
+# RESEARCH MODE ONLY. IP/privacy attorney review pending before any production use.
+# Defaults to False (disabled); only enabled if SENTINEL_BISG_RESEARCH_MODE=true.
+BISG_RESEARCH_MODE_ENABLED = os.getenv("SENTINEL_BISG_RESEARCH_MODE", "false").lower() == "true"
+
+
+class BisgQuarantineError(RuntimeError):
+    """Raised when a caller supplies the real Census geocoder while BISG
+    research mode is off. The quarantine is on the live demographic-inference
+    service, not on the dimension-6 wiring, so an injected stub is honored --
+    but a real CensusGeocoder is refused loudly rather than quietly used or
+    quietly downgraded to skips. Absence is never compliance."""
 
 # ---------------------------------------------------------------------------
 # Bucketing: pure, no I/O.

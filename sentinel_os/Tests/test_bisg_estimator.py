@@ -24,7 +24,7 @@ pytestmark = pytest.mark.skipif(
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from bisg_estimator import (
+from bisg_estimator import (  # noqa: E402
     RACE_CATEGORIES,
     BISGEstimate,
     FakeBISGEstimator,

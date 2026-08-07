@@ -40,13 +40,8 @@ from interpretation import (
     calibration_suggestion,
     monthly_drift_report,
 )
-from interpretation.drift import STATE_BREACH, STATE_OK, STATE_UNKNOWN, STATE_WATCH
-from interpretation.harness import (
-    RESULT_ERROR,
-    RESULT_INDETERMINATE,
-    RESULT_MATCH,
-    RESULT_MISMATCH,
-)
+from interpretation.drift import STATE_BREACH, STATE_UNKNOWN, STATE_WATCH
+from interpretation.harness import RESULT_ERROR, RESULT_MATCH
 
 REG = "TEST-FAIR-LENDING"
 ZONES = ["proxy_correlation", "geographic_scope"]
