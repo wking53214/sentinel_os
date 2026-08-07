@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from cassette_capabilities import (
+    CAPABILITY_INTERPRETATION_TESTABLE,
     CAPABILITY_OUTCOME_OBLIGATION,
     require_capabilities,
 )
@@ -26,6 +27,7 @@ from cassettes.mortgage_cassette import (
     RESOLUTION_INVOLUNTARY_CLOSURE,
     RESOLUTION_PAID_IN_FULL,
     RESOLUTION_TYPES,
+    ZONE_ADVERSE_ACTION_REASON_SPECIFICITY,
     MortgageCassette,
 )
 from episode import EpisodeIntegrityError, explain_episode, judge_episode, make_episode
@@ -36,10 +38,13 @@ from outcome_v1 import MaturationRule
 # Manifest / schema validity
 # ---------------------------------------------------------------------------
 
-def test_manifest_is_outcome_obligation_only():
-    """Kernel-only plus outcome_obligation -- no call-center surface
-    at all, matching this domain's honest capability set."""
-    assert MortgageCassette.CAPABILITIES == (CAPABILITY_OUTCOME_OBLIGATION,)
+def test_manifest_is_outcome_obligation_and_interpretation_testable():
+    """Kernel-only plus outcome_obligation plus interpretation_testable
+    (the second obligated by the first -- see cassette_capabilities'
+    module docstring) -- no call-center surface at all, matching this
+    domain's honest capability set."""
+    assert MortgageCassette.CAPABILITIES == (
+        CAPABILITY_OUTCOME_OBLIGATION, CAPABILITY_INTERPRETATION_TESTABLE)
 
 
 def test_config_identity():
@@ -51,7 +56,8 @@ def test_config_identity():
 
 def test_validates_cleanly_against_full_schema():
     params = validate_cassette(MortgageCassette())
-    assert params.capabilities == (CAPABILITY_OUTCOME_OBLIGATION,)
+    assert params.capabilities == (
+        CAPABILITY_OUTCOME_OBLIGATION, CAPABILITY_INTERPRETATION_TESTABLE)
     # Exactly kernel + outcome_obligation's own parameter -- nothing
     # owned by a capability this cassette doesn't enable (the
     # anti-placeholder rule; a stray owned-but-unenabled param would
@@ -167,6 +173,65 @@ def test_missing_resolution_type_is_genuinely_ambiguous():
 def test_resolution_types_are_exactly_the_two_locked_paths():
     assert set(RESOLUTION_TYPES) == {RESOLUTION_PAID_IN_FULL,
                                      RESOLUTION_INVOLUNTARY_CLOSURE}
+
+
+# ---------------------------------------------------------------------------
+# resolve_scenario -- the interpretation_testable capability this
+# cassette is obligated to implement (see module docstring's SCENARIO
+# RESOLUTION section).
+# ---------------------------------------------------------------------------
+
+def _reason_scenario(candidate_reason, options=("specific", "generic"), zone=None):
+    from interpretation.scenarios import Scenario
+    return Scenario(
+        regulation_id="cfpb-ecoa-reg-b",
+        zone=zone if zone is not None else ZONE_ADVERSE_ACTION_REASON_SPECIFICITY,
+        question="Is this adverse-action reason specific enough under Reg B?",
+        situation={"candidate_reason": candidate_reason},
+        options=list(options),
+    )
+
+
+def test_resolve_scenario_calls_a_substantive_reason_specific():
+    reason = "credit score 574 is below the 620 minimum required for this loan amount"
+    assert MortgageCassette().resolve_scenario(_reason_scenario(reason)) == "specific"
+
+
+def test_resolve_scenario_calls_a_thin_reason_generic():
+    assert MortgageCassette().resolve_scenario(_reason_scenario("denied")) == "generic"
+
+
+def test_resolve_scenario_uses_the_same_threshold_as_judge():
+    """The word-count boundary must not drift between judge()'s own
+    reason-substance check and resolve_scenario's -- both read
+    _THIN_REASON_WORD_COUNT, never a separately maintained number."""
+    cassette = MortgageCassette()
+    boundary_words = " ".join(["word"] * cassette._THIN_REASON_WORD_COUNT)
+    assert cassette.resolve_scenario(_reason_scenario(boundary_words)) == "specific"
+    one_short = " ".join(["word"] * (cassette._THIN_REASON_WORD_COUNT - 1))
+    assert cassette.resolve_scenario(_reason_scenario(one_short)) == "generic"
+
+
+def test_resolve_scenario_declines_a_different_zone():
+    scenario = _reason_scenario("denied", zone="some_unrelated_zone")
+    assert MortgageCassette().resolve_scenario(scenario) is None
+
+
+def test_resolve_scenario_declines_a_different_options_shape():
+    scenario = _reason_scenario("denied", options=("A", "B"))
+    assert MortgageCassette().resolve_scenario(scenario) is None
+
+
+def test_resolve_scenario_declines_a_missing_candidate_reason():
+    from interpretation.scenarios import Scenario
+    scenario = Scenario(
+        regulation_id="cfpb-ecoa-reg-b",
+        zone=ZONE_ADVERSE_ACTION_REASON_SPECIFICITY,
+        question="Is this adverse-action reason specific enough under Reg B?",
+        situation={},  # no candidate_reason key at all
+        options=["specific", "generic"],
+    )
+    assert MortgageCassette().resolve_scenario(scenario) is None
 
 
 # ---------------------------------------------------------------------------

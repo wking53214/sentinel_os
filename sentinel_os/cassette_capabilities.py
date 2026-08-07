@@ -28,6 +28,23 @@ cassette explicitly enables in its manifest (Cassette.CAPABILITIES):
       later, and forcing it to declare a horizon would produce exactly
       the fake declaration the anti-placeholder rule below exists to
       stop.
+  interpretation_testable -- this domain's decisions can be probed by
+      the monthly interpretation drift-check (interpretation/
+      harness.py): given an approved Scenario, resolve_scenario
+      answers with this domain's own reading (one of the scenario's
+      options, or None to decline). Opt-in by default, same posture as
+      every other capability -- most domains have no regulation-reading
+      a drift-check needs to probe. NOT opt-in, however, for a cassette
+      that also enables outcome_obligation, or that declares a
+      REGULATORY_BINDINGS entry (cassette_interface.Cassette): a domain
+      whose outcomes mature later, or that a regulatory lens is bound
+      to review, is exactly the kind of decision this drift-check
+      exists to probe, and cassette_schema.validate_governance_
+      parameters refuses to load such a cassette unless it also enables
+      this capability and implements resolve_scenario -- the same
+      fail-closed, anti-placeholder posture as every other rule in this
+      module, applied to "silently untestable" instead of "silently
+      fake."
 
 Load-time validation (cassette_schema.validate_cassette) checks the
 kernel contract plus the UNION of the enabled capabilities' contracts:
@@ -50,7 +67,7 @@ a clear error, not discovered mid-call as a KeyError.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Manifest names -- stable strings, these ride in ledger snapshots.
 CAPABILITY_TELEPHONY_INGEST = "telephony_ingest"
@@ -58,6 +75,7 @@ CAPABILITY_ROUTING_TOPOLOGY = "routing_topology"
 CAPABILITY_RL = "rl"
 CAPABILITY_SELF_HEALING = "self_healing"
 CAPABILITY_OUTCOME_OBLIGATION = "outcome_obligation"
+CAPABILITY_INTERPRETATION_TESTABLE = "interpretation_testable"
 
 
 class CapabilityError(Exception):
@@ -207,12 +225,50 @@ class OutcomeObligations(ABC):
         REASON_GENUINELY_AMBIGUOUS instead."""
 
 
+class InterpretationTestable(ABC):
+    """Contract for domains whose decisions can be probed by the
+    monthly interpretation drift-check (interpretation/harness.py).
+
+    resolve_scenario follows the kernel's judge()/explain() pattern:
+    given a typed input (here, interpretation.scenarios.Scenario) it
+    returns a typed answer the caller grades against a locked expected
+    value. The answer shape matches interpretation.harness.Resolver
+    exactly -- one of the scenario's own options, or None to decline --
+    so a cassette's bound method is a drop-in resolver for
+    TestHarness.run with no adapter needed.
+
+    Opt-in, same posture as every other capability, EXCEPT: a cassette
+    that also enables outcome_obligation, or that declares a non-empty
+    REGULATORY_BINDINGS (cassette_interface.Cassette), MUST enable this
+    capability too -- see the module docstring and
+    cassette_schema.validate_governance_parameters, which refuses to
+    load such a cassette otherwise.
+    """
+
+    NAME = CAPABILITY_INTERPRETATION_TESTABLE
+    REQUIRED_PARAMETERS: Dict[str, str] = {}
+    REQUIRED_METHODS: Tuple[str, ...] = ("resolve_scenario",)
+
+    @abstractmethod
+    def resolve_scenario(self, scenario: Any) -> Optional[str]:
+        """Answer one interpretation scenario with this domain's own
+        reading of it.
+
+        scenario is an interpretation.scenarios.Scenario (typed as Any
+        here so this kernel-adjacent module does not import the
+        higher-level interpretation package). Returns the chosen
+        option (a string that must appear in scenario.options) or None
+        to decline -- declining is a first-class answer, not a
+        failure, the same posture classify_outcome takes on a
+        genuinely ambiguous outcome."""
+
+
 # The registry load-time validation walks. An unknown name in a
 # cassette's manifest is a violation, not a shrug.
 CAPABILITIES: Dict[str, type] = {
     cap.NAME: cap
     for cap in (TelephonyIngest, RoutingTopology, ReinforcementLearning,
-                SelfHealing, OutcomeObligations)
+                SelfHealing, OutcomeObligations, InterpretationTestable)
 }
 
 # Reverse map: which capability OWNS a given governance parameter.
