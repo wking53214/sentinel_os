@@ -117,6 +117,31 @@ address field at all). This is the field the new ZIP/county regional-
 equity cohort dimension geocodes via bisg_estimator.CensusGeocoder,
 reusing the existing address-to-tract pipeline rather than a new data
 source.
+
+SCENARIO RESOLUTION (interpretation_testable, added post-1.0.1)
+------------------------------------------------------------------
+This cassette enables CAPABILITY_OUTCOME_OBLIGATION, which obligates it
+to also enable CAPABILITY_INTERPRETATION_TESTABLE and implement
+resolve_scenario (cassette_capabilities' module docstring; enforced at
+load time by cassette_schema.validate_governance_parameters) -- it is
+the one cassette this rule currently binds.
+
+resolve_scenario answers exactly one recognized zone,
+ZONE_ADVERSE_ACTION_REASON_SPECIFICITY, which names the same regulatory
+question regulatory_cassettes.cfpb_reg_b's reason-specificity check
+screens (adverse-action reasons must be case-specific, not boilerplate,
+under Reg B 12 CFR 1002.9) -- viewed from the other side: that lens
+SCREENS a reason already on file, this cassette CHOOSES between
+candidate reasons at decision time. A recognized scenario carries
+situation["candidate_reason"] (the reason text to evaluate) and
+options == ["specific", "generic"] exactly; the verdict reuses the
+SAME _THIN_REASON_WORD_COUNT rule judge() already applies to a
+decision's own recorded reason, so the drift-check probes the same
+reading this cassette's ordinary judgment enforces, not a second,
+divergent one. Any scenario outside that shape (a different zone, a
+missing candidate_reason, or a different options set) is declined
+(returns None) rather than guessed at -- the same "genuinely
+ambiguous, not a failure" posture classify_outcome already takes.
 """
 
 from __future__ import annotations
@@ -126,7 +151,9 @@ from typing import Any, Dict, List, Optional
 
 from cassette_interface import Cassette, CassetteConfig, QualityResult
 from cassette_capabilities import (
+    CAPABILITY_INTERPRETATION_TESTABLE,
     CAPABILITY_OUTCOME_OBLIGATION,
+    InterpretationTestable,
     OutcomeObligations,
 )
 from episode import Episode, outcome_mismatches
@@ -152,17 +179,33 @@ _OUTCOME_HORIZON_DAYS = 1095  # 3 years
 # 2026-07-29 -- see module docstring; no prior convention existed).
 PROPERTY_ADDRESS_FIELD = "loan_property_address"
 
+# The one interpretation-scenario zone this cassette knows how to
+# answer (see module docstring's SCENARIO RESOLUTION section). Named
+# after regulatory_cassettes.cfpb_reg_b.CHECK_REASON_SPECIFICITY on
+# purpose -- same regulatory question, screen side vs. decision side.
+ZONE_ADVERSE_ACTION_REASON_SPECIFICITY = "adverse_action_reason_specificity"
 
-class MortgageCassette(Cassette, OutcomeObligations):
+# situation key a recognized scenario carries: the candidate reason
+# text under review.
+SCENARIO_CANDIDATE_REASON_KEY = "candidate_reason"
+
+# The exact two-option shape resolve_scenario answers.
+SCENARIO_REASON_OPTIONS = frozenset({"specific", "generic"})
+
+
+class MortgageCassette(Cassette, OutcomeObligations, InterpretationTestable):
     """Residential mortgage lending cassette.
 
-    Kernel-only plus outcome_obligation: no telephony/routing/RL/
-    self-healing surface, because this domain has none. Judgment
-    happens through judge/explain over episodes (see _score_components
-    for what "judgment" means here).
+    Kernel plus outcome_obligation plus interpretation_testable (the
+    second is obligated by the first -- see module docstring): no
+    telephony/routing/RL/self-healing surface, because this domain has
+    none. Judgment happens through judge/explain over episodes (see
+    _score_components for what "judgment" means here); scenario
+    resolution happens through resolve_scenario (see module docstring's
+    SCENARIO RESOLUTION section).
     """
 
-    CAPABILITIES = (CAPABILITY_OUTCOME_OBLIGATION,)
+    CAPABILITIES = (CAPABILITY_OUTCOME_OBLIGATION, CAPABILITY_INTERPRETATION_TESTABLE)
 
     # THE declaration site for mortgage governance numbers (see
     # cassette_schema). governance_trigger is the kernel-required
@@ -263,6 +306,29 @@ class MortgageCassette(Cassette, OutcomeObligations):
         if resolution_type == RESOLUTION_INVOLUNTARY_CLOSURE:
             return False
         return None
+
+    # ---- interpretation_testable capability ----
+
+    def resolve_scenario(self, scenario: Any) -> Optional[str]:
+        """Answer one interpretation scenario -- see module docstring's
+        SCENARIO RESOLUTION section for the recognized shape.
+
+        Reuses _THIN_REASON_WORD_COUNT, the SAME threshold judge()
+        applies to a decision's own recorded reason, so the drift-check
+        probes the reading this cassette already enforces day to day
+        rather than a second, independently-maintained one. Anything
+        outside the recognized zone/shape is declined (None) rather
+        than guessed at.
+        """
+        if scenario.zone != ZONE_ADVERSE_ACTION_REASON_SPECIFICITY:
+            return None
+        if set(scenario.options) != SCENARIO_REASON_OPTIONS:
+            return None
+        reason = scenario.situation.get(SCENARIO_CANDIDATE_REASON_KEY)
+        if not isinstance(reason, str) or not reason.strip():
+            return None
+        word_count = len(reason.split())
+        return "generic" if word_count < self._THIN_REASON_WORD_COUNT else "specific"
 
     # ---- Kernel judgment surface ----
     #
