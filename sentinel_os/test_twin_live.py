@@ -841,7 +841,8 @@ def test_custody_migration_A_to_D(customer_keys, tmp_path):
                         "--replica-id", r, "--old-key-file", f"{kd}/old.priv",
                         "--new-recipient-pub-file", f"{kd}/new.pub", "--new-model", "D",
                         "--actor", "customer-admin", "--sign-key-file", f"{kd}/sign.priv",
-                        "--sign-pub-file", f"{kd}/sign.pub", "--custodian-url", cust_url])
+                        "--sign-pub-file", f"{kd}/sign.pub", "--ship-token", "tok-mig",
+                        "--custodian-url", cust_url])
             assert mig.returncode == 0, mig.stderr + mig.stdout
 
             # custody-event calls require Authorization header (token: tok-mig from register_replica)

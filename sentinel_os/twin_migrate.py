@@ -15,6 +15,13 @@ recorded as a customer-signed event in the replica's hash-chained custody log
 Old-key retirement is the customer's final step (delete/retire the old private
 key once the migration verifies) -- after re-sealing, the old key no longer
 opens any stored envelope anyway, which the tests prove.
+
+The custody-event write is authenticated the same way row shipping is: the
+replica's registered ship token, sent as a Bearer token (--ship-token). A
+rejected write (bad token, receiver error) raises rather than being silently
+folded into a "successful" migration -- the envelopes are already re-sealed
+by that point, so a write that failed to record would otherwise leave a
+migration that happened with no log entry showing it did.
 """
 
 from __future__ import annotations
@@ -40,6 +47,7 @@ def migrate(replica_dsn: str, receiver_url: str, replica_id: str,
             old_priv_b64: str, new_recipient_pub_b64: str,
             new_custody_model: str, actor: str,
             customer_sign_priv_b64: str, customer_sign_pub_b64: str,
+            ship_token: str,
             new_custodian_url: str = "") -> Dict[str, Any]:
     conn = psycopg2.connect(replica_dsn)
     migrated = 0
@@ -92,7 +100,14 @@ def migrate(replica_dsn: str, receiver_url: str, replica_id: str,
                       json={"event": "custody_migration", "detail": detail, "actor": actor,
                             "signature": sign(event_payload, customer_sign_priv_b64),
                             "signer_pub": customer_sign_pub_b64},
+                      headers={"Authorization": f"Bearer {ship_token}"},
                       timeout=10.0)
+    # Fail loud: the envelopes above are already re-sealed and committed,
+    # so a rejected custody-event write (bad/missing ship token, receiver
+    # error) must not be reported as success -- a migration whose log
+    # entry silently failed to write is exactly the "custody transitioned
+    # but the record doesn't show it" gap this event exists to close.
+    resp.raise_for_status()
     return {"migrated": migrated, "from_fp": old_fp,
             "to_fp": detail["to_fp"], "custody_event": resp.json()}
 
@@ -108,6 +123,10 @@ def main() -> None:
     ap.add_argument("--actor", required=True)
     ap.add_argument("--sign-key-file", required=True)
     ap.add_argument("--sign-pub-file", required=True)
+    ap.add_argument("--ship-token", required=True,
+                    help="the replica's registered ship token -- the receiver's "
+                         "/custody-event endpoint requires it as a Bearer token, "
+                         "same token used to ship rows for this replica")
     ap.add_argument("--custodian-url", default="")
     args = ap.parse_args()
     out = migrate(args.replica_dsn, args.receiver_url, args.replica_id,
@@ -116,6 +135,7 @@ def main() -> None:
                   args.new_model, args.actor,
                   open(args.sign_key_file).read().strip(),
                   open(args.sign_pub_file).read().strip(),
+                  args.ship_token,
                   args.custodian_url)
     print(json.dumps(out, indent=2))
 
