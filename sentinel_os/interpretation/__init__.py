@@ -48,6 +48,7 @@ from .harness import (
     ScenarioResult,
     TestHarness,
     TestRun,
+    cassette_is_scenario_testable,
 )
 from .drift import (
     STATE_BREACH,
@@ -79,7 +80,7 @@ __all__ = [
     "Scenario", "ScenarioLibrary", "ScenarioIntegrityError",
     "STATUS_PROPOSED", "STATUS_APPROVED", "STATUS_REJECTED", "STATUS_RETIRED",
     "ScenarioGenerator", "InterpretationContext", "ModelClient", "StubModelClient",
-    "TestHarness", "TestRun", "ScenarioResult",
+    "TestHarness", "TestRun", "ScenarioResult", "cassette_is_scenario_testable",
     "RESULT_MATCH", "RESULT_MISMATCH", "RESULT_INDETERMINATE", "RESULT_ERROR",
     "DriftAnalyzer", "DriftReport", "ZoneDrift", "ZoneTolerance", "ToleranceConfig",
     "calibration_suggestion", "STRICT",

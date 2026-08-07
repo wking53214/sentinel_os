@@ -72,6 +72,20 @@ class Cassette(ABC):
     # cassette that never said what it is would validate by accident.
     CAPABILITIES: Tuple[str, ...]
 
+    # Which regulatory lens(es)/regulation(s) this domain cassette is
+    # bound to be reviewed under (e.g. ("cfpb-ecoa-reg-b",)). OPTIONAL,
+    # unlike CAPABILITIES -- empty by default, because most domains
+    # carry no regulatory binding at all and forcing an explicit
+    # declaration on every cassette would be exactly the busywork
+    # CAPABILITIES' own required-manifest rule avoids for capabilities
+    # that don't apply. A non-empty declaration here, like
+    # outcome_obligation, obligates the cassette to also enable
+    # cassette_capabilities.CAPABILITY_INTERPRETATION_TESTABLE and
+    # implement resolve_scenario -- see that module's docstring and
+    # cassette_schema.validate_governance_parameters, which enforces it
+    # at load time.
+    REGULATORY_BINDINGS: Tuple[str, ...] = ()
+
     @abstractmethod
     def get_config(self) -> CassetteConfig:
         """Return cassette metadata"""

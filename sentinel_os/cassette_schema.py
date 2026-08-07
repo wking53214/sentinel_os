@@ -17,6 +17,15 @@ Schema versioning: SCHEMA_VERSION identifies the shape of the
 declaration itself and rides inside every ledger policy snapshot, so a
 decision recorded today can still be interpreted after the schema
 evolves.
+
+Manifest-level validation also enforces one cross-capability rule that
+is not a parameter check: a cassette that enables
+cassette_capabilities.CAPABILITY_OUTCOME_OBLIGATION, or that declares a
+non-empty cassette_interface.Cassette.REGULATORY_BINDINGS, MUST also
+enable CAPABILITY_INTERPRETATION_TESTABLE and implement
+resolve_scenario. Same fail-closed posture as the anti-placeholder
+rule below, applied to "silently outside the monthly interpretation
+drift-check's reach" instead of "silently faking a parameter."
 """
 
 from __future__ import annotations
@@ -271,7 +280,12 @@ def validate_governance_parameters(cassette) -> GovernanceParameters:
     nothing is repaired: the cassette is either the source of truth or
     it does not load.
     """
-    from cassette_capabilities import CAPABILITIES, PARAMETER_OWNERS
+    from cassette_capabilities import (
+        CAPABILITIES,
+        CAPABILITY_INTERPRETATION_TESTABLE,
+        CAPABILITY_OUTCOME_OBLIGATION,
+        PARAMETER_OWNERS,
+    )
 
     label = cassette_version_of(cassette)
     violations: List[str] = []
@@ -302,6 +316,41 @@ def validate_governance_parameters(cassette) -> GovernanceParameters:
              f"{sorted(CAPABILITIES)}" for name in unknown],
         )
     enabled = set(manifest)
+
+    # --- The outcome-obligation / regulatory-binding exception: a
+    # cassette whose outcomes mature later, or that a regulatory lens
+    # is bound to review, is exactly the kind of decision the monthly
+    # interpretation drift-check (interpretation/harness.py) exists to
+    # probe -- it must be answerable by that check, not merely capable
+    # of judging episodes. Checked here, at the same manifest-only
+    # point as the anti-placeholder rule below, because it is the same
+    # shape of violation: a domain that has not declared it can answer
+    # scenario probes must not be allowed to silently carry an
+    # obligation or a regulatory binding outside the drift-check's
+    # reach.
+    regulatory_bindings = getattr(cassette, "REGULATORY_BINDINGS", ()) or ()
+    if isinstance(regulatory_bindings, str):
+        regulatory_bindings = (regulatory_bindings,)
+    regulatory_bindings = tuple(str(b) for b in regulatory_bindings)
+
+    testable_triggers = []
+    if CAPABILITY_OUTCOME_OBLIGATION in enabled:
+        testable_triggers.append("declares outcome_obligation")
+    if regulatory_bindings:
+        testable_triggers.append(
+            f"carries a regulatory-cassette binding ({', '.join(regulatory_bindings)})"
+        )
+    if testable_triggers and CAPABILITY_INTERPRETATION_TESTABLE not in enabled:
+        violations.append(
+            f"cassette {' and '.join(testable_triggers)} but does not enable "
+            f"'{CAPABILITY_INTERPRETATION_TESTABLE}' -- a domain whose "
+            f"outcomes mature later, or that a regulatory lens is bound to "
+            f"review, must be scenario-testable by the monthly "
+            f"interpretation drift-check (interpretation/harness.py); "
+            f"enable the capability and implement resolve_scenario, or "
+            f"this is exactly the silently-untestable cassette the "
+            f"anti-placeholder rule exists to refuse"
+        )
 
     # --- Each enabled capability's METHOD contract must be met: a
     # manifest that promises a surface the class doesn't implement is
