@@ -89,6 +89,13 @@ OPTIONAL_HASHED_FIELDS = (
     # field mean two different things depending on record_kind with
     # nothing to warn a future reader which one they're looking at.
     "shadow_run_hash",
+    # F2 (2026-08-07): which governance_decision row a human_selection
+    # row is reviewing. Its own field for the same reason shadow_run_hash
+    # is its own field and not a reuse of replaces_hash/supersedes_hash --
+    # a human_selection isn't a decision, a correction, or a supersession,
+    # it's a separate reviewer's verdict ON a decision, and needs a link
+    # that means only that. See governance/human_selection_v1.py.
+    "decision_hash",
 )
 
 
