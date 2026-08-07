@@ -1,10 +1,33 @@
 """sentinel_worker.py -- the piece that actually does the work the
 transmission queue was built to protect.
 
-One worker = one long-lived IcebergProductionHarness (cassette loaded
-once, Postgres pool held open, Claude client held open if configured)
-pulling jobs off TransmissionQueue in a loop. Multiple worker processes
-run side by side; the queue's claim fencing is what makes that safe.
+One worker = one long-lived harness (cassette loaded once, Postgres pool
+held open, Claude client held open if configured) pulling jobs off
+TransmissionQueue in a loop. Multiple worker processes run side by side;
+the queue's claim fencing is what makes that safe.
+
+HARNESS (2026-08-07): re-pointed from IcebergProductionHarness onto
+GovernanceHarness (governance_harness.py), the domain-agnostic kernel
+harness -- swap_cassette() covers both the fixed-per-client case and a
+future multi-tenant one without redoing this migration later.
+GovernanceHarness refuses any cassette declaring CAPABILITY_TELEPHONY_
+INGEST (the inverse of IcebergProductionHarness's own posture), so this
+worker no longer governs Twilio call traffic -- it governs
+MortgageCassette decisions instead (see main()). SentinelWorker's own
+code below is UNCHANGED: it only ever calls
+self.harness.process_call(job.payload), and GovernanceHarnessJobAdapter
+(below) is what now sits behind that call, translating a queued job
+payload into (Episode, issue_count) for GovernanceHarness.process() and
+translating the result back into the exact process_call(payload)->dict
+shape this file's ack/fail branching already depends on. See that
+class's own docstring for the redelivery-dedup gap it closes --
+GovernanceHarness has no equivalent to IcebergProductionHarness's
+sid_exists() pre-check, so the adapter (via the new
+PostgreSQLLedger.episode_decision_exists()) builds one.
+production_harness.py/IcebergProductionHarness itself, and its other
+consumers (resilient_harness.py, cassette_harness.py, the circuit-
+breaker/production-harness test suites), are untouched -- they keep
+running exactly as before.
 
 THE CENTRAL DESIGN DECISION: how a claimed job's outcome maps to
 ack/fail is not "did process_call raise" -- it mostly doesn't, by
@@ -75,10 +98,18 @@ import os
 import signal
 import threading
 import uuid
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
+from cassettes.mortgage_cassette import MortgageCassette
+from episode import (
+    Episode,
+    EpisodeIntegrityError,
+    make_episode,
+    outcome_mismatches,
+    validate_episode,
+)
+from governance_harness import GovernanceHarness
 from operational_resilience import setup_logging
-from production_harness import IcebergProductionHarness
 
 from queue_schema import ClaimedJob, Outcome, Reason, TransmissionQueue
 
@@ -93,17 +124,183 @@ def _harness_config_from_env() -> dict:
         "postgres_user": os.getenv("POSTGRES_USER", "iceberg"),
         "postgres_password": os.getenv("POSTGRES_PASSWORD", "iceberg"),
         "claude_api_key": os.getenv("CLAUDE_API_KEY"),
-        "cassette_domain": os.getenv("SENTINEL_CASSETTE_DOMAIN", "ivr"),
+        # No cassette_domain here (IcebergProductionHarness's old config-
+        # driven cassette lookup) -- GovernanceHarness takes a cassette
+        # OBJECT directly (see main()), so a domain string has nothing
+        # to select among and would be misleading to leave in.
     }
 
 
+# ---------------------------------------------------------------------------
+# GovernanceHarness adapter -- turns a queued job.payload into
+# (Episode, issue_count) and translates GovernanceHarness.process()'s
+# result back into the SAME process_call(payload)->dict shape
+# IcebergProductionHarness's already produces, so SentinelWorker.handle_one
+# (below) needs NO changes: it only ever calls self.harness.process_call(...)
+# and branches on the shape of what comes back.
+# ---------------------------------------------------------------------------
+
+def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> Tuple[Episode, int]:
+    """Turn one queued job payload into (Episode, issue_count) for
+    GovernanceHarness.process() -- mortgage-domain-shaped, matching
+    MortgageCassette's own vocabulary (see cassettes/mortgage_cassette.py).
+
+    Payload shape:
+      episode_id      -- required, non-empty string. Also the dedup key
+                         PostgreSQLLedger.episode_decision_exists() checks
+                         before this episode is processed again.
+      requested       -- required dict: what was asked for.
+      actual          -- required dict: what was observed.
+      actor_report    -- optional dict, defaults to {}.
+      outcome_reasons -- optional list of str, defaults to [].
+      attributes      -- optional dict, defaults to {} (e.g. carries
+                         mortgage_cassette.PROPERTY_ADDRESS_FIELD).
+
+    issue_count follows mortgage_cassette.py's OWN governance_trigger
+    parameter description verbatim, not a rule invented here: "Episodes
+    with >= this many decision-process integrity issues (requested-vs-
+    actual mismatches, or an adverse action recorded with a reason too
+    thin to be a documented basis)". Reads the cassette's own
+    _THIN_REASON_WORD_COUNT rather than a duplicated literal, so this
+    can never drift from judge()'s own reason-substance check.
+
+    Raises ValueError/TypeError on a structurally malformed payload
+    (missing or wrong-typed required fields) or EpisodeIntegrityError on
+    a kernel-invalid episode (e.g. a mismatch with no outcome reason on
+    file) -- both are caught by GovernanceHarnessJobAdapter.process_call
+    and reported as the same {"error": ...} shape IcebergProductionHarness's
+    own parse-failure path already uses.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError(f"job payload must be a dict, got {type(payload).__name__}")
+    episode_id = payload.get("episode_id")
+    if not episode_id or not isinstance(episode_id, str):
+        raise ValueError("job payload missing required non-empty string 'episode_id'")
+    requested = payload.get("requested")
+    actual = payload.get("actual")
+    if not isinstance(requested, dict):
+        raise ValueError(f"job payload 'requested' must be a dict, got {type(requested).__name__}")
+    if not isinstance(actual, dict):
+        raise ValueError(f"job payload 'actual' must be a dict, got {type(actual).__name__}")
+
+    episode = make_episode(
+        episode_id=episode_id,
+        domain=cassette.get_config().domain,
+        requested=requested,
+        actual=actual,
+        actor_report=payload.get("actor_report"),
+        outcome_reasons=payload.get("outcome_reasons") or (),
+        attributes=payload.get("attributes"),
+    )
+    validate_episode(episode)  # raises EpisodeIntegrityError on a real kernel violation
+
+    mismatch_count = len(outcome_mismatches(episode))
+    thin_reason_count = sum(
+        1 for r in episode.outcome_reasons
+        if len(r.split()) < cassette._THIN_REASON_WORD_COUNT
+    )
+    issue_count = mismatch_count + thin_reason_count
+    return episode, issue_count
+
+
+class GovernanceHarnessJobAdapter:
+    """Adapts a GovernanceHarness (episode-shaped: process(episode,
+    issue_count)) to the process_call(payload) -> dict interface
+    SentinelWorker.handle_one already depends on. SentinelWorker itself
+    needs no changes -- only what gets constructed and handed to it as
+    `harness` changes (see main()).
+
+    Reuses the "duplicate_sid" error string verbatim (not a new
+    sentinel) so handle_one's existing `if error == "duplicate_sid":`
+    branch fires unchanged for a redelivered, already-recorded episode
+    -- what handle_one's branching depends on is the KEY NAMES and
+    VALUES in the returned dict, not any telephony-specific meaning
+    behind them.
+
+    THE DEDUP GAP THIS CLOSES: GovernanceHarness.process() has no
+    equivalent to IcebergProductionHarness's sid_exists() pre-check --
+    confirmed by reading PostgreSQLLedger.append_decision() in full,
+    which validates required fields and appends, nothing else. Without
+    a pre-check here, a redelivered job (crash before ack, a lapsed
+    heartbeat) would write a SECOND governance_decision ledger row
+    instead of being recognized as already-done -- exactly the
+    duplicate-write hazard this whole system exists to prevent, now
+    unguarded. episode_decision_exists() (governance/ledger_postgres.py)
+    is the new, minimal, sid_exists-mirroring lookup this pre-check
+    needs; it did not exist before this change.
+    """
+
+    def __init__(self, harness: GovernanceHarness):
+        self.harness = harness
+
+    def process_call(self, payload: Dict) -> Dict:
+        try:
+            episode, issue_count = _payload_to_mortgage_episode(self.harness.cassette, payload)
+        except (ValueError, TypeError, EpisodeIntegrityError) as exc:
+            return {"error": f"Failed to parse job: {exc}"}
+
+        if (self.harness.ledger is not None
+                and self.harness.ledger.episode_decision_exists(episode.episode_id)):
+            return {
+                "error": "duplicate_sid",
+                "detail": f"Episode {episode.episode_id} has already been processed",
+                "sid": episode.episode_id,
+            }
+
+        try:
+            result = self.harness.process(episode, issue_count)
+        except Exception:
+            # GovernanceHarness.process() does not catch a ledger-write
+            # failure the way IcebergProductionHarness's process_call
+            # does (see that method's own comments on why it's returned,
+            # not raised) -- it raises straight out of _write_decision.
+            # Translate to the SAME ledger_write_failed=True dict shape
+            # here so handle_one's existing branch (fail, retryable,
+            # NEVER ack) fires exactly as it does for
+            # IcebergProductionHarness. The governor decision that
+            # preceded the failed write (real cost if a real API call
+            # was made) is lost either way -- same F-2 shape, delivered
+            # via exception here instead of a dict flag.
+            return {
+                "error": None,
+                "ledger_write_failed": True,
+                # Approximate log-readability analogs of IVR's
+                # claude_safe/intent fields (handle_one only ever
+                # interpolates these into a log message, never branches
+                # on them) -- not a semantic requirement, just kept
+                # meaningful rather than always None.
+                "claude_safe": None,
+                "intent": episode.domain,
+            }
+
+        return {
+            "error": None,
+            "ledger_write_failed": False,
+            "governed": result.get("governed", False),
+            "governance_approved": result.get("governance_approved", False),
+            "governance_blocked": result.get("governance_blocked", False),
+            "claude_safe": result.get("governance_approved"),
+            "intent": episode.domain,
+        }
+
+    def shutdown(self) -> None:
+        self.harness.shutdown()
+
+
 class SentinelWorker:
-    """Wraps one IcebergProductionHarness with a claim/process/ack-or-fail
-    loop against the transmission, plus a background reaper."""
+    """Wraps one harness with a claim/process/ack-or-fail loop against
+    the transmission queue, plus a background reaper.
+
+    `harness` is duck-typed, not a fixed class -- anything with
+    process_call(payload) -> dict and shutdown() works (see
+    GovernanceHarnessJobAdapter above for the current production
+    wiring; a bare IcebergProductionHarness satisfies the same shape
+    directly and still works here unmodified, for anything that
+    constructs a SentinelWorker with one directly)."""
 
     def __init__(
         self,
-        harness: IcebergProductionHarness,
+        harness: Any,
         queue: TransmissionQueue,
         *,
         worker_id: Optional[str] = None,
@@ -347,9 +544,16 @@ def main() -> None:
     # same posture as ICEBERG_LEDGER_RUNTIME_USER: this is the real
     # production entrypoint, and there is no fallback that lets it start
     # ungoverned by an operator forgetting to set a flag.
-    harness = IcebergProductionHarness(
-        _harness_config_from_env(), require_cassette_binding=True,
+    #
+    # MortgageCassette, fixed at construction (Config A: fixed-per-
+    # client). GovernanceHarness.swap_cassette() is available for a
+    # future multi-tenant (Config B) wiring without redoing this
+    # migration -- not built here, since nothing in this task asked for
+    # multi-cassette dispatch.
+    governance_harness = GovernanceHarness(
+        _harness_config_from_env(), MortgageCassette(), require_cassette_binding=True,
     )
+    harness = GovernanceHarnessJobAdapter(governance_harness)
     queue = TransmissionQueue(name=args.queue_name, redis_url=args.redis_url)
     worker = SentinelWorker(harness, queue, worker_id=args.worker_id)
 
