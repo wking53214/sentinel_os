@@ -179,12 +179,28 @@ class PostgreSQLLedger:
         never any other role. Uses sql.Identifier for the role name (it
         can't be parameterized as a literal in DDL) and a parameterized
         literal for the password itself, mirroring set_ledger_reader_password.py.
+
+        Advisory-locked (same pattern as bind_cassette_version's own
+        pg_advisory_xact_lock, keyed here per runtime_user rather than
+        globally): ALTER ROLE modifies the shared pg_authid catalog, and
+        concurrent ALTER ROLE statements on the SAME role from different
+        sessions can raise Postgres's own "tuple concurrently updated" --
+        confirmed live, not theoretical: 9 of 10 threads each
+        constructing their own PostgreSQLLedger simultaneously (this
+        method running once per construction) failed with exactly that
+        error before this lock was added. The lock is transaction-scoped
+        (released at the commit/rollback below), so it only serializes
+        the brief ALTER ROLE window, not the whole harness construction.
         """
         from psycopg2 import sql
         conn = self.pool.getconn()
         try:
             cursor = conn.cursor()
             try:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext('ledger_runtime_password_' || %s));",
+                    (runtime_user,)
+                )
                 cursor.execute(
                     sql.SQL("ALTER ROLE {} WITH PASSWORD %s;").format(
                         sql.Identifier(runtime_user)
