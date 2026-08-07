@@ -40,6 +40,31 @@ option string, or None to decline. In production that wraps the live
 cassette. In tests it is a dict lookup. Keeping it injected is what
 lets the same harness probe a proposed interpretation in shadow before
 anyone deploys it.
+
+WIRING A LIVE CASSETTE (the kernel/capability seam)
+-----------------------------------------------------
+run() takes any Resolver, but a cassette is not automatically one: a
+domain cassette (cassette_interface.Cassette) must OPT IN by enabling
+cassette_capabilities.CAPABILITY_INTERPRETATION_TESTABLE and
+implementing resolve_scenario(scenario) -> Optional[str] -- same
+signature as the Resolver protocol above, so a testable cassette's
+bound method is a drop-in resolver. Opt-in is the default because most
+domains have no regulation-reading a drift-check needs to probe, BUT a
+cassette that enables CAPABILITY_OUTCOME_OBLIGATION, or that declares a
+non-empty REGULATORY_BINDINGS, MUST enable this capability -- a domain
+whose outcomes mature later, or that a regulatory lens reviews, is
+exactly the kind of decision this drift-check exists to catch, and
+cassette_schema.validate_governance_parameters refuses to load such a
+cassette otherwise (see cassette_capabilities' module docstring).
+
+run_against_cassette() is the capability-aware entry point: it checks
+cassette_is_scenario_testable() first and, when the cassette does not
+enable the capability, reports every candidate scenario in `skipped`
+with a not-testable reason instead of calling resolve_scenario at all
+-- "cannot be scenario-tested" is a reported fact, same NO SILENT SKIPS
+posture as an unapproved scenario, never a crash and never a
+disappearing denominator. Only cassettes that opt in ever reach
+resolve_scenario.
 """
 
 from __future__ import annotations
@@ -59,6 +84,34 @@ RESULT_ERROR = "ERROR"
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def cassette_is_scenario_testable(cassette: Any) -> bool:
+    """Whether `cassette` enables cassette_capabilities.
+    CAPABILITY_INTERPRETATION_TESTABLE and can therefore be probed by
+    this harness's resolver seam (see the module docstring's WIRING A
+    LIVE CASSETTE section). Imported lazily so this package does not
+    take a hard, load-time dependency on the kernel/capability module
+    -- the same posture cassette_interface.Cassette.capabilities()
+    already takes on cassette_capabilities.
+
+    A cassette that cannot even state its manifest (CapabilityError)
+    is treated as not testable rather than propagating the error here
+    -- run_against_cassette reports that as a skip, the caller finds
+    out the real reason when it tries to load the cassette anywhere
+    else.
+    """
+    from cassette_capabilities import (
+        CAPABILITY_INTERPRETATION_TESTABLE,
+        CapabilityError,
+        enabled_capabilities,
+    )
+
+    try:
+        enabled = enabled_capabilities(cassette)
+    except CapabilityError:
+        return False
+    return CAPABILITY_INTERPRETATION_TESTABLE in enabled
 
 
 class Resolver(Protocol):
@@ -241,6 +294,50 @@ class TestHarness:
             results=results,
             skipped=skipped,
         )
+
+    def run_against_cassette(
+        self,
+        cassette: Any,
+        regulation_id: str,
+        interpretation_version: str,
+        run_id: Optional[str] = None,
+    ) -> TestRun:
+        """Run this library's approved scenarios against a domain
+        cassette's own resolve_scenario -- but only if the cassette
+        enables cassette_capabilities.CAPABILITY_INTERPRETATION_TESTABLE
+        (see the module docstring's WIRING A LIVE CASSETTE section).
+
+        A cassette that does not enable the capability cannot be
+        scenario-tested: every candidate scenario for this regulation
+        is reported in the returned TestRun's `skipped` list with a
+        not-testable reason, and resolve_scenario is never called.
+        This is a report, not an error -- the same NO SILENT SKIPS
+        posture scenarios.py already takes with unapproved scenarios,
+        applied to a cassette that was never obligated to answer in
+        the first place.
+        """
+        if not cassette_is_scenario_testable(cassette):
+            from cassette_schema import cassette_version_of
+
+            label = cassette_version_of(cassette)
+            candidates = [s for s in self._library.all() if s.regulation_id == regulation_id]
+            return TestRun(
+                run_id=run_id or f"run-{uuid.uuid4().hex[:12]}",
+                regulation_id=regulation_id,
+                interpretation_version=interpretation_version,
+                ran_at=_utc_now(),
+                results=[],
+                skipped=[{
+                    "scenario_id": s.scenario_id,
+                    "zone": s.zone,
+                    "reason": (
+                        f"not testable: cassette '{label}' does not enable "
+                        f"'interpretation_testable'"
+                    ),
+                } for s in candidates],
+            )
+        return self.run(cassette.resolve_scenario, regulation_id,
+                        interpretation_version, run_id)
 
     @staticmethod
     def _score(scenario: Scenario, answer: Optional[str]) -> ScenarioResult:
