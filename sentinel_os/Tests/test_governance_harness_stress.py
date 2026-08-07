@@ -8,14 +8,33 @@ Split deliberately into two halves:
   governor, cassette-swap churn, internal-failure propagation, and an
   in-process concurrency probe.
 
-  @requires_pg (this sandbox has no live Postgres -- these are written
-  and correct but UNVERIFIED here; they need to run on a machine with
-  one, which is the whole point): concurrent construction racing the
-  SAME new cassette version (does bind_cassette_version's advisory
-  lock actually serialize under real concurrency, not just in the
-  code comment), concurrent ledger writes from multiple harness
-  instances at volume, and connection-pool churn across repeated
-  construct/shutdown cycles.
+  @requires_pg (skips automatically on a sandbox with no live Postgres;
+  runs for real wherever one is reachable, which is the whole point):
+  concurrent construction racing the SAME new cassette version (does
+  bind_cassette_version's advisory lock actually serialize under real
+  concurrency, not just in the code comment), concurrent ledger writes
+  from multiple harness instances at volume, and connection-pool churn
+  across repeated construct/shutdown cycles.
+
+  2026-08-07: these three ran green against a real Postgres instance
+  and stayed xfail-marked anyway, misdiagnosed as one shared "ledger
+  concurrency bug" in bind_cassette_version's own role-management
+  logic. The real bug was PostgreSQLLedger._provision_runtime_password
+  running an unlocked ALTER ROLE on every single construction -- ten
+  threads constructing harnesses simultaneously raced on Postgres's
+  own pg_authid catalog and hit its "tuple concurrently updated" error
+  (reproduced live: 9 of 10 failed before the fix). Fixed with the
+  same pg_advisory_xact_lock pattern bind_cassette_version already
+  uses, keyed per runtime_user. test_concurrent_ledger_writes_from_
+  multiple_harnesses_at_volume had a SECOND, unrelated bug once that
+  one cleared: get_decisions() defaults to limit=100, so its 200-row
+  assertion always failed regardless of whether the concurrent writes
+  themselves were correct -- fixed by passing limit=200 explicitly.
+  test_repeated_construct_shutdown_does_not_leak_connections never
+  exercised the concurrency bug at all (its 50 cycles are sequential,
+  not threaded) -- the xfail marker was simply copy-pasted onto it by
+  mistake. All three verified passing 5x in a row before the xfail
+  markers were removed.
 
 Correctness (does it do the right thing once) is
 test_governance_harness.py's job. This file's job is: does it keep
@@ -384,7 +403,6 @@ def test_concurrent_process_calls_on_one_shared_instance():
 # --------------------------------------------------------------------------
 
 @requires_pg
-@pytest.mark.xfail(reason="Ledger concurrency bug: tuple concurrently updated in role-management logic under simultaneous bind_cassette_version calls. Harness is correct; issue is in ledger infrastructure.")
 def test_concurrent_construction_same_new_version_serializes_correctly():
     """Ten threads construct a harness with the SAME brand-new cassette
     version simultaneously. bind_cassette_version's advisory lock
@@ -434,7 +452,6 @@ def test_concurrent_construction_same_new_version_serializes_correctly():
 
 
 @requires_pg
-@pytest.mark.xfail(reason="Ledger concurrency bug: tuple concurrently updated in role-management logic under simultaneous bind_cassette_version calls. Harness is correct; issue is in ledger infrastructure.")
 def test_concurrent_ledger_writes_from_multiple_harnesses_at_volume():
     """Five 'workers', each its own harness instance (mirroring
     sentinel_worker.py's one-harness-per-worker design), each writing
@@ -471,14 +488,17 @@ def test_concurrent_ledger_writes_from_multiple_harnesses_at_volume():
 
     from governance.ledger_postgres import PostgreSQLLedger
     ledger = PostgreSQLLedger(host="localhost", dbname="iceberg", user="iceberg", password="iceberg")
-    rows = ledger.get_decisions(cassette_version=version)
+    # get_decisions defaults to limit=100 -- without an explicit override
+    # this silently truncated at 100 of the 200 real rows and always
+    # failed here, regardless of whether the concurrent writes themselves
+    # were correct.
+    rows = ledger.get_decisions(cassette_version=version, limit=200)
     assert len(rows) == 200, f"expected 200 decision rows from 5x40 concurrent writers, got {len(rows)}"
     assert ledger.verify_chain()["ok"] is True, "hash chain must still verify after concurrent writes"
     ledger.close()
 
 
 @requires_pg
-@pytest.mark.xfail(reason="Ledger concurrency bug: tuple concurrently updated in role-management logic under simultaneous bind_cassette_version calls. Harness is correct; issue is in ledger infrastructure.")
 def test_repeated_construct_shutdown_does_not_leak_connections():
     """50 construct/shutdown cycles in a row. If shutdown() isn't
     actually releasing the pool, this either slows down badly or the
