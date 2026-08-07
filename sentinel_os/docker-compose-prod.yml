@@ -39,7 +39,17 @@ services:
       - ./logs:/app/logs
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      # Protocol fallback (2026-08-07): api_server_resilient.py serves
+      # HTTPS (self-signed cert) whenever ./certs/cert.pem + key.pem
+      # exist at startup, plain HTTP otherwise -- cert presence depends
+      # on the build context, not this compose file. Plain "curl http://"
+      # against a TLS-serving instance fails at the handshake, never
+      # reaching the app -- confirmed live against docker-compose.yml's
+      # identically-shaped healthcheck (2 days reporting unhealthy on
+      # every check despite /health answering fine over HTTPS). CMD-SHELL
+      # (not CMD) so the || fallback runs; try HTTPS (-k: self-signed, no
+      # CA to validate against) first, fall back to HTTP.
+      test: ["CMD-SHELL", "curl -fsk https://localhost:9090/health || curl -fs http://localhost:9090/health"]
       interval: 30s
       timeout: 10s
       retries: 3
