@@ -10,6 +10,7 @@ import os
 from canonical_fields import (CONTRACT_CANONICAL_FIELDS,
                               CONTRACT_KINDS_WITH_FINDING,
                               apply_optional_hashed_fields)
+from .human_selection_v1 import HUMAN_SELECTIONS
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -429,6 +430,18 @@ class PostgreSQLLedger:
                     CREATE INDEX IF NOT EXISTS idx_shadow_run_hash
                         ON ledger_entries(shadow_run_hash)
                         WHERE shadow_run_hash IS NOT NULL;
+                """)
+            # F2 (2026-08-07): which governance_decision a human_selection
+            # row is reviewing. Own column, own index -- see
+            # canonical_fields.py's comment on decision_hash for why this
+            # is deliberately not a reuse of shadow_run_hash/replaces_hash.
+            if "decision_hash" not in existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS decision_hash VARCHAR(64);
+                    CREATE INDEX IF NOT EXISTS idx_decision_hash
+                        ON ledger_entries(decision_hash)
+                        WHERE decision_hash IS NOT NULL;
                 """)
             # Item 10: timestamp column made timezone-aware. The original
             # TIMESTAMP (no zone) column stored CURRENT_TIMESTAMP under
@@ -1306,6 +1319,159 @@ class PostgreSQLLedger:
         except Exception:
             conn.rollback()
             raise
+        finally:
+            self.pool.putconn(conn)
+
+    def record_human_selection(
+            self, decision_hash: str, human_selection: str, selected_by: str,
+            rationale: Optional[str] = None) -> Dict[str, Any]:
+        """Record a human's response to ONE governance_decision row's verdict.
+
+        F2 (2026-08-07): the founding idea that had never been built --
+        nothing captured which recommendation a human accepted, overrode,
+        or rejected. Piloted on exactly one surface: GovernanceDecider.
+        safety_check's verdict on a governed episode, the only
+        recommendation confirmed live in the whole system (see
+        record_recommendation_shadow_run's own docstring, and
+        governance/human_selection_v1.py's module docstring for the full
+        survey that ruled out every other candidate). Every other
+        recommendation surface (queue-reordering, healing-bounds,
+        staffing) is untouched by this method.
+
+        `recommendation_shown` is never accepted from the caller -- same
+        "never trust the actor's self-report" posture as episode.py's
+        Provenance Rule. It is looked up here from the actual
+        governance_decision row decision_hash names, so a human_selection
+        row can never misrepresent what was actually recommended.
+
+        This is capture only. Nothing here feeds simple_rl_trainer.py or
+        any other learner -- that trainer is simulator-only and slated
+        for GSA-815; wiring a real signal into it is a separate, later
+        decision this method deliberately does not make.
+        """
+        if not decision_hash or not str(decision_hash).strip():
+            raise ValueError("record_human_selection requires decision_hash")
+        if human_selection not in HUMAN_SELECTIONS:
+            raise ValueError(
+                f"record_human_selection requires human_selection to be one "
+                f"of {sorted(HUMAN_SELECTIONS)}, got {human_selection!r}")
+        if not selected_by or not str(selected_by).strip():
+            raise ValueError("record_human_selection requires selected_by "
+                             "(who reviewed this decision)")
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+
+            cursor.execute("""
+                SELECT record_kind, cassette_version, reason, decision_output
+                FROM ledger_entries WHERE current_hash = %s
+            """, (decision_hash,))
+            parent = cursor.fetchone()
+            if parent is None or parent[0] != "governance_decision":
+                raise ValueError(
+                    f"decision_hash {decision_hash!r} does not match any "
+                    "governance_decision row -- refusing to record a human "
+                    "selection against something that was never actually "
+                    "decided")
+            _, cassette_version, parent_reason, parent_output = parent
+            recommendation_shown = {
+                "reasoning": parent_reason,
+                "output": self._as_json(parent_output),
+            }
+
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+
+            canonical_entry = {
+                "record_kind": "human_selection",
+                "cassette_version": cassette_version,
+                "human_selection": human_selection,
+                "rationale": rationale,
+                "recommendation_shown": recommendation_shown,
+                "previous_hash": previous_hash,
+            }
+            apply_optional_hashed_fields(canonical_entry, {
+                "authorized_by": selected_by,
+                "decision_hash": decision_hash,
+            })
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            data = {"record_kind": "human_selection",
+                    "human_selection": human_selection,
+                    "rationale": rationale, "parameter_changed": False}
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, previous_value, applied_value, reason,
+                 previous_hash, current_hash, data,
+                 record_kind, cassette_version, decision_hash, decision_output,
+                 authorized_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, ("human_selection", decision_hash[:100], 0.0, 0.0,
+                  f"human selection ({human_selection}) on decision "
+                  f"{decision_hash[:12]}",
+                  previous_hash, current_hash, json.dumps(data),
+                  "human_selection", cassette_version, decision_hash,
+                  json.dumps(recommendation_shown), selected_by))
+            conn.commit()
+            return {
+                "status": "created",
+                "human_selection": human_selection,
+                "decision_hash": decision_hash,
+                "current_hash": current_hash,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def get_human_selections(self, decision_hash: Optional[str] = None,
+                             limit: int = 100) -> List[Dict[str, Any]]:
+        """human_selection rows, newest first. `decision_hash`, when given,
+        filters to selections reviewing that one governance_decision row --
+        mirrors get_decisions'/get_unscored_shadow_runs' filter posture.
+        """
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT id, timestamp, cassette_version, decision_hash,
+                       authorized_by, current_hash, previous_hash, data,
+                       decision_output
+                FROM ledger_entries
+                WHERE record_kind = 'human_selection'
+            """
+            params: list = []
+            if decision_hash is not None:
+                query += " AND decision_hash = %s"
+                params.append(decision_hash)
+            query += " ORDER BY id DESC LIMIT %s"
+            params.append(limit)
+            cursor.execute(query, tuple(params))
+
+            selections = []
+            for row in cursor.fetchall():
+                data = self._as_json(row[7]) or {}
+                selections.append({
+                    "id": row[0],
+                    "timestamp": row[1].isoformat() if row[1] else None,
+                    "cassette_version": row[2],
+                    "decision_hash": row[3],
+                    "selected_by": row[4],
+                    "current_hash": row[5],
+                    "previous_hash": row[6],
+                    "human_selection": data.get("human_selection"),
+                    "rationale": data.get("rationale"),
+                    "recommendation_shown": self._as_json(row[8]),
+                })
+            return selections
         finally:
             self.pool.putconn(conn)
 
@@ -2307,7 +2473,7 @@ class PostgreSQLLedger:
                        decision_output, cassette_hash,
                        cassette_code_hash, model_identity, authorized_by,
                        supersedes_id, supersedes_hash, outcome_obligation,
-                       replaces_hash, ai_cost, shadow_run_hash
+                       replaces_hash, ai_cost, shadow_run_hash, decision_hash
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -2327,7 +2493,7 @@ class PostgreSQLLedger:
                  decision_output, cassette_hash,
                  cassette_code_hash, model_identity, authorized_by,
                  supersedes_id, supersedes_hash, outcome_obligation,
-                 replaces_hash, ai_cost, shadow_run_hash) = row
+                 replaces_hash, ai_cost, shadow_run_hash, decision_hash) = row
                 
                 # Check chain link integrity
                 if stored_prev != prev_hash:
@@ -2509,6 +2675,32 @@ class PostgreSQLLedger:
                         apply_optional_hashed_fields(canonical_entry, {
                             "authorized_by": authorized_by,
                             "shadow_run_hash": shadow_run_hash,
+                        })
+                    elif record_kind == "human_selection":
+                        # F2 -- mirrors record_human_selection(). The
+                        # selection/rationale were stored in data;
+                        # recommendation_shown (looked up from the parent
+                        # governance_decision at write time, never
+                        # caller-supplied) in decision_output;
+                        # decision_hash has its own dedicated column, same
+                        # posture as shadow_run_hash -- see
+                        # canonical_fields.py. Without this branch a
+                        # human_selection row would fall through to the
+                        # legacy path and fail its own verification -- a
+                        # new record kind is not done until all three
+                        # recompute sites (writer, this, twin_custody) agree.
+                        d = self._as_json(data)
+                        canonical_entry = {
+                            "record_kind": "human_selection",
+                            "cassette_version": cassette_version,
+                            "human_selection": d.get("human_selection"),
+                            "rationale": d.get("rationale"),
+                            "recommendation_shown": self._as_json(decision_output),
+                            "previous_hash": stored_prev,
+                        }
+                        apply_optional_hashed_fields(canonical_entry, {
+                            "authorized_by": authorized_by,
+                            "decision_hash": decision_hash,
                         })
                     else:
                         # Legacy path (append)
