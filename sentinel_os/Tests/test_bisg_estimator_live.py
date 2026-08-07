@@ -31,7 +31,7 @@ pytestmark = pytest.mark.skipif(
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from bisg_estimator import AcsRaceTable, CensusBISGEstimator, CensusGeocoder
+from bisg_estimator import AcsRaceTable, CensusBISGEstimator, CensusGeocoder  # noqa: E402
 
 _KNOWN_ADDRESS = "4600 Silver Hill Rd, Washington, DC"
 
