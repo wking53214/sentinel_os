@@ -16,6 +16,15 @@ test_api_server_v2.py otherwise uses) and proves:
   3. TRANSMISSION_NAMESPACE remains a working escape hatch for direct
      ingress-side control.
 
+This is queue-IDENTITY plumbing, domain-agnostic by construction --
+which prefix a job lands on has nothing to do with what the job
+governs. Submits through POST /submit-mortgage-decision (2026-08-07:
+sentinel_worker.py's default worker governs MortgageCassette decisions
+via GovernanceHarness now, not Twilio calls via IcebergProductionHarness
+-- see sentinel_worker.py's module docstring) rather than /submit-call,
+so a submitted job actually reaches "done" against the worker these
+tests spawn for real, same as before the re-point.
+
 Run:  python3 -m pytest test_queue_identity_converter.py -v -s
 """
 from __future__ import annotations
@@ -48,7 +57,7 @@ def wait_for(fn, timeout=15.0, interval=0.1, desc="condition"):
     raise TimeoutError(f"timed out waiting for {desc} (last error: {last})")
 
 
-def sid() -> str:
+def random_job_id() -> str:
     return f"QIC{uuid.uuid4().hex}"
 
 
@@ -86,17 +95,22 @@ def _run_pair_and_submit(ingress_env: dict, worker_env: dict, port: int,
     try:
         wait_for(lambda: httpx.get(f"http://127.0.0.1:{port}/health", timeout=1.0).status_code == 200,
                  desc=f"ingress /health on :{port}")
-        call_sid = sid()
+        episode_id = random_job_id()
         with httpx.Client(timeout=5.0) as c:
-            r = c.post(f"http://127.0.0.1:{port}/submit-call",
-                      json={"sid": call_sid, "status": "completed",
-                            "from": "+15551234567", "duration": 320, "start_time": 0})
+            # 1 requested-vs-actual mismatch with a substantive reason
+            # on file -- >= MortgageCassette's governance_trigger (1),
+            # so this is a real governed decision, not just a queue
+            # round trip.
+            r = c.post(f"http://127.0.0.1:{port}/submit-mortgage-decision",
+                      json={"episode_id": episode_id, "requested": {"amount": 300000.0},
+                            "actual": {"amount": 250000.0},
+                            "outcome_reasons": ["reduced based on updated appraisal value on file"]})
             assert r.status_code == 202, f"submit failed: {r.status_code} {r.text}"
 
             deadline = time.monotonic() + timeout_s
             last_status = None
             while time.monotonic() < deadline:
-                jr = c.get(f"http://127.0.0.1:{port}/job/{call_sid}")
+                jr = c.get(f"http://127.0.0.1:{port}/job/{episode_id}")
                 last_status = jr.json().get("status")
                 if last_status == "done":
                     break
