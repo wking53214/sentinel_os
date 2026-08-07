@@ -229,6 +229,10 @@ SHIPPED_COLUMNS = [
     # run a shadow-score row is scoring. Its own field, not a reuse of
     # replaces_hash -- see canonical_fields.py.
     "shadow_run_hash",
+    # F2 human-selection capture (2026-08-07): which governance_decision
+    # row a human_selection row is reviewing. Its own field, same posture
+    # as shadow_run_hash -- see canonical_fields.py.
+    "decision_hash",
 ]
 
 
@@ -405,6 +409,22 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
             "record_kind": "recommendation_shadow_score",
             "actual": row["input_data"],
             "score": row["decision_output"],
+            "previous_hash": row["previous_hash"],
+        }
+        apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") == "human_selection":
+        # Mirrors ledger_postgres.record_human_selection(). F2. The
+        # selection + rationale rode in data; recommendation_shown (looked
+        # up from the parent governance_decision at write time) in
+        # decision_output; decision_hash has its own shipped column,
+        # entering via the shared contract like shadow_run_hash.
+        d = row.get("data") or {}
+        canonical = {
+            "record_kind": "human_selection",
+            "cassette_version": row["cassette_version"],
+            "human_selection": d.get("human_selection"),
+            "rationale": d.get("rationale"),
+            "recommendation_shown": row["decision_output"],
             "previous_hash": row["previous_hash"],
         }
         apply_optional_hashed_fields(canonical, row)
