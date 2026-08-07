@@ -36,8 +36,20 @@ EXPOSE 9090
 # resilient API server exposes instead. If your entrypoint doesn't serve
 # /health (e.g. a non-API worker process), override HEALTHCHECK for that
 # image/service.
+#
+# Protocol fallback (2026-08-07): api_server_resilient.py serves HTTPS
+# (self-signed cert) whenever ./certs/cert.pem + key.pem exist at
+# startup, plain HTTP otherwise -- and cert presence depends on the
+# build context, not anything this Dockerfile pins. A plain `curl
+# http://` healthcheck against a TLS-serving instance gets "Empty reply
+# from server" at the TLS handshake, never reaching the app -- confirmed
+# live against a 2-day-old container stuck reporting unhealthy on every
+# check despite the app itself answering /health fine over HTTPS. Try
+# HTTPS (-k: the cert is self-signed, curl has no CA to validate it
+# against) first, fall back to HTTP -- correct whichever mode the app
+# actually started in, instead of assuming one.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:${PORT:-9090}/health || exit 1
+  CMD curl -fsk https://localhost:${PORT:-9090}/health || curl -fs http://localhost:${PORT:-9090}/health || exit 1
 
 # Run the persistent API server. Previously this ran run_adaptive.py,
 # a one-shot demo/batch script that prints a report and exits -- it never

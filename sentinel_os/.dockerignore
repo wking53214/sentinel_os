@@ -1,0 +1,32 @@
+# No .dockerignore existed before (2026-08-07) -- the build context was
+# everything under this directory, including ledger_data/ (Postgres data
+# dir owned by a different uid, unreadable by the build, and the reason
+# `docker-compose build` failed outright: "error checking context: can't
+# stat 'ledger_data'") and venv/ (5.2GB of a host-local virtualenv the
+# image never needs -- the Dockerfile already does its own
+# `pip install -r requirements.txt` inside the image).
+
+# Runtime/local state, never image content.
+# NOTE: certs/ is deliberately NOT excluded -- api_server_resilient.py
+# reads ./certs/cert.pem + key.pem at startup and neither compose file
+# mounts a certs volume, so those files only reach the running
+# container by being baked in at COPY . /app. Excluding this dir would
+# silently flip the service from HTTPS to plain HTTP on next rebuild --
+# a real behavior change, not something a healthcheck fix should cause.
+venv/
+ledger_data/
+data/
+logs/
+
+# Python bytecode/cache
+__pycache__/
+*.pyc
+*.pyo
+
+# VCS (this directory is itself a subdirectory of the outer git repo,
+# not its own -- excluded for the same reason it would be anywhere else)
+.git/
+.gitignore
+
+# Editor/OS cruft
+.DS_Store
