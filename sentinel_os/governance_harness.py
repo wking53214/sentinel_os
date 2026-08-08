@@ -54,7 +54,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from cassette_capabilities import CAPABILITY_TELEPHONY_INGEST, CapabilityError
+from cassette_capabilities import (
+    CAPABILITY_OUTCOME_OBLIGATION,
+    CAPABILITY_TELEPHONY_INGEST,
+    CapabilityError,
+)
 from cassette_forensics import (
     compute_cassette_code_hash,
     compute_cassette_hash,
@@ -291,6 +295,33 @@ class GovernanceHarness:
 
         return result
 
+    def _outcome_obligation_declaration(self) -> Optional[str]:
+        """The maturation rule this cassette declares, as a canonical
+        declaration string ("loan_performance@36mo"), or None.
+
+        None is the honest answer for a cassette that doesn't enable
+        CAPABILITY_OUTCOME_OBLIGATION (a domain whose outcome is settled
+        at decision time has nothing to declare) -- same posture
+        production_harness.py's own _outcome_obligation_declaration
+        already established for the telephony harness; this is the
+        follow-on this module's own docstring flagged as real and
+        worth having but out of the original nine-bullet spec.
+
+        Deliberately NOT a try/except-and-warn like the telephony
+        harness's version: a cassette that DECLARES the capability but
+        whose get_maturation_rule() cannot actually produce a
+        declaration is a broken cassette, and this harness's posture
+        everywhere else (construction, swap_cassette, cassette binding)
+        is to fail loud on a broken cassette, never to silently record
+        None and let a misconfigured cassette limp along undetected.
+        Without this, an obligation that should exist is never opened,
+        and nothing downstream (twin derivation, the C2 cohort sweep)
+        ever learns there was a gap.
+        """
+        if CAPABILITY_OUTCOME_OBLIGATION not in self.cassette.capabilities():
+            return None
+        return self.cassette.get_maturation_rule().declaration()
+
     def _write_decision(self, episode: Episode, params, issue_count: int,
                         decision: Dict[str, Any]) -> None:
         from governance.ledger_postgres import GovernanceDecisionRecord
@@ -308,6 +339,7 @@ class GovernanceHarness:
             output={"approved": bool(decision.get("safe"))},
             model_identity=decision.get("model_identity"),
             ai_cost=decision.get("cost"),
+            outcome_obligation=self._outcome_obligation_declaration(),
         )
         self.ledger.append_decision(record, governance_params=params)
 
