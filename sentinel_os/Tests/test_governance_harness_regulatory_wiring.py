@@ -142,11 +142,19 @@ def test_findings_are_flag_only_decision_proceeds_untouched():
 
 @requires_pg
 def test_findings_are_disclosed_to_the_ledger():
+    """Episode ID must be unique per run, not hardcoded: the primary
+    ledger is a real, persistent, append-only Postgres database, never
+    wiped between test runs by design -- a fixed subject ID means every
+    repeat run of this file accumulates another regulatory_disclosure
+    row under the same subject, and the exact-count assertion below
+    breaks the moment the suite has run more than once against this
+    database (caught 2026-08-08 after several same-day runs)."""
+    import uuid
     harness = GovernanceHarness(PG_CONFIG, MortgageCassette())
     harness.decider = StubDecider(safe=True)
     harness.regulatory_deck = _live_deck(harness.ledger)
 
-    episode = _proxy_and_boilerplate_episode("E-bias-disclosed")
+    episode = _proxy_and_boilerplate_episode(f"E-bias-disclosed-{uuid.uuid4().hex[:8]}")
     result = harness.process(episode, issue_count=0)
     assert result["regulatory_findings"]
 
