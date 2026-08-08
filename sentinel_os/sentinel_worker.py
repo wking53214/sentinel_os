@@ -36,7 +36,13 @@ hands it to GovernanceHarness via the new regulatory_deck attribute
 exact scope. GovernanceHarness itself stays domain-agnostic --
 regulatory_deck is optional and defaults to None, so every other
 caller (tests, any future non-mortgage cassette on this harness) is
-byte-identical to before this was added.
+byte-identical to before this was added. The deck is also now built
+twin-client-ready for cohort-level dimensions 4-6 (SENTINEL_TWIN_
+REPLICA_ID/RECEIVER_URL/SHIP_TOKEN, all unset by default -- no twin
+is deployed in this repo's own configs, and standing one up is a
+customer-infrastructure decision, not this entrypoint's to make).
+Getting obligation_sweep.py's own sweep running on an actual schedule
+is a separate, still-open piece -- see that module's docstring.
 
 THE CENTRAL DESIGN DECISION: how a claimed job's outcome maps to
 ack/fail is not "did process_call raise" -- it mostly doesn't, by
@@ -138,6 +144,55 @@ def _harness_config_from_env() -> dict:
         # OBJECT directly (see main()), so a domain string has nothing
         # to select among and would be misleading to leave in.
     }
+
+
+def _regulatory_deck_from_env(ledger):
+    """Build the bias/fair-lending RegulatoryDeck for main() -- see the
+    BIAS/FAIR-LENDING SCREENING section of this module's own docstring
+    for the full design. Pulled into its own function (mirrors
+    _harness_config_from_env's reason for existing) so the env-var
+    wiring is testable without running main()'s blocking worker loop.
+
+    CFPB Reg B lens, LIVE mode, flag-only (block_on_placeholder stays
+    at its default False). twin_client is nothing bespoke:
+    obligation_sweep.py's own CLI already builds one as a plain
+    httpx.Client with a Bearer ship-token; this mirrors that exactly.
+    twin_client/replica_id stay None unless ALL THREE of
+    SENTINEL_TWIN_REPLICA_ID/RECEIVER_URL/SHIP_TOKEN are set -- there
+    is no twin receiver deployed anywhere in this repo's own deploy
+    configs (checked docker-compose.yml/-prod.yml, k8s/, Deploy/: zero
+    references), and per DAP v1's own design that twin is
+    customer-operated infrastructure this repo does not stand up for
+    itself. Setting the three variables is what activates cohort-
+    equity escalation once a real twin deployment and credentials
+    exist -- RegulatoryDeck._cohort_equity_escalations already exists
+    and is already tested, it is a complete no-op with twin_client=None
+    (its own docstring says so), so no further code change is needed
+    then. Separately, and NOT handled here: obligation_sweep.py's own
+    sweep still needs to actually RUN on a schedule somewhere (cron /
+    k8s CronJob / by hand) for there to be any review data to fetch --
+    that module's own docstring calls this "a deployment decision this
+    script deliberately doesn't make for you", and this function
+    doesn't make it either.
+    """
+    from regulatory_cassette_interface import MODE_LIVE
+    from regulatory_cassettes.cfpb_reg_b import CFPBRegBLens
+    from regulatory_deck import RegulatoryDeck
+
+    twin_client = None
+    replica_id = os.getenv("SENTINEL_TWIN_REPLICA_ID")
+    receiver_url = os.getenv("SENTINEL_TWIN_RECEIVER_URL")
+    ship_token = os.getenv("SENTINEL_SHIP_TOKEN")
+    if replica_id and receiver_url and ship_token:
+        import httpx
+        twin_client = httpx.Client(
+            base_url=receiver_url, timeout=30.0,
+            headers={"Authorization": f"Bearer {ship_token}"})
+
+    deck = RegulatoryDeck(ledger, default_authorized_by="sentinel_worker:mortgage",
+                          twin_client=twin_client, replica_id=replica_id)
+    deck.insert(CFPBRegBLens(), MODE_LIVE, inserted_by="sentinel_worker:mortgage")
+    return deck
 
 
 # ---------------------------------------------------------------------------
@@ -562,36 +617,16 @@ def main() -> None:
     governance_harness = GovernanceHarness(
         _harness_config_from_env(), MortgageCassette(), require_cassette_binding=True,
     )
-    # Bias/fair-lending screening (2026-08-07): the CFPB/ECOA/Reg B
-    # reference lens, LIVE mode, flag-only (block_on_placeholder stays
-    # at its default False -- a boilerplate adverse-action reason is
-    # disclosed for human review, never blocks the decision; same
-    # "always ACTION_FLAG" posture regulatory_deck.py's cohort-equity
-    # escalation already established). Covers dimension 1 (declared
-    # proxy / prohibited-basis input screening) and the reason-
-    # specificity check, both always-on in this lens with no extra
-    # infrastructure needed. Deliberately NOT enabled here: the tier
-    # and narrative opt-ins (no authorized-tier declarations exist for
-    # mortgage inputs yet -- turning those on now would just flag
-    # everything as undeclared) and the cohort-level dimensions 4-6
-    # (need a twin client plus a scheduled obligation_sweep.py run,
-    # neither of which this repo runs anywhere yet -- see
-    # COMPLIANCE.md). Only constructed when the harness actually has a
-    # ledger (require_cassette_binding=True above means it always will
-    # in this real entrypoint; the guard exists so an
-    # offline/unbound harness -- tests, dev runs with binding opted
-    # out -- never hits RegulatoryDeck's own "no ledgerless mode"
-    # refusal).
+    # Bias/fair-lending screening (2026-08-07): see
+    # _regulatory_deck_from_env's own docstring for the full design.
+    # Only constructed when the harness actually has a ledger
+    # (require_cassette_binding=True above means it always will in
+    # this real entrypoint; the guard exists so an offline/unbound
+    # harness -- tests, dev runs with binding opted out -- never hits
+    # RegulatoryDeck's own "no ledgerless mode" refusal).
     if governance_harness.ledger is not None:
-        from regulatory_cassette_interface import MODE_LIVE
-        from regulatory_cassettes.cfpb_reg_b import CFPBRegBLens
-        from regulatory_deck import RegulatoryDeck
-
-        deck = RegulatoryDeck(governance_harness.ledger,
-                              default_authorized_by="sentinel_worker:mortgage")
-        deck.insert(CFPBRegBLens(), MODE_LIVE,
-                   inserted_by="sentinel_worker:mortgage")
-        governance_harness.regulatory_deck = deck
+        governance_harness.regulatory_deck = _regulatory_deck_from_env(
+            governance_harness.ledger)
     harness = GovernanceHarnessJobAdapter(governance_harness)
     queue = TransmissionQueue(name=args.queue_name, redis_url=args.redis_url)
     worker = SentinelWorker(harness, queue, worker_id=args.worker_id)
