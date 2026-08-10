@@ -1,0 +1,25 @@
+# Declared entry points for sentinel_os wiring_verify.
+#
+# One spec per line:
+#   module.py                    -- whole module's public surface is
+#                                    treated as the root set (main(),
+#                                    every public top-level function,
+#                                    every public method of every public
+#                                    top-level class, plus the module's
+#                                    own top-level statements including
+#                                    any `if __name__ == "__main__":`
+#                                    body). Use this for a module with no
+#                                    single obvious entry function.
+#   module.py:function_or_Class  -- a single precise root: one function,
+#                                    or a class (whose public methods
+#                                    become the roots).
+#
+# This list is a human judgment call the tool cannot make for itself --
+# "what counts as a real entry point" is a statement about how this
+# system is actually operated, not something derivable from the AST.
+# Update it when a new long-running process or CLI is added.
+governance_harness.py
+production_harness.py
+sentinel_worker.py
+api_server_v2.py
+api_server_resilient.py
