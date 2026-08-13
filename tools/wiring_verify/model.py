@@ -445,15 +445,27 @@ class Graph:
                     cls.resolved_bases.append(target_mod.classes[resolved_name])
 
     def _infer_instance_attrs(self, cls: ClassNode) -> None:
-        """`self.attr = SomeClass(...)` anywhere in any method of this
-        class -> attr's inferred type is SomeClass, for resolving
-        `self.attr.method(...)` call sites elsewhere in the class.
-        Direct constructor calls only; no chained/indirect inference."""
+        """Two sources for `self.attr`'s inferred type, for resolving
+        `self.attr.method(...)` call sites elsewhere in the class:
+
+          1. `self.attr = SomeClass(...)` -- a direct constructor call.
+          2. `self.attr = param` where `param` is one of the enclosing
+             method's own parameters AND has a type annotation
+             resolving to a known class (unwrapping `Optional[X]` /
+             `Union[X, None]`). This is the common dependency-injection
+             constructor pattern (`def __init__(self, x: SomeClass)`) --
+             without it, every constructor-injected collaborator looks
+             like an untyped attribute and every method call through it
+             is reported UNREACHABLE/UNVERIFIABLE with no real basis.
+
+        Both are single-pass, last-write-wins, no cross-method
+        reconciliation -- see module docstring."""
         mod = self.modules_by_relpath[cls.relpath]
         for method_id in cls.methods.values():
             fn = self.functions[method_id]
             if fn.ast_node is None:
                 continue
+            param_types = self._param_annotation_types(mod, fn.ast_node)
             for node in ast.walk(fn.ast_node):
                 if not isinstance(node, ast.Assign):
                     continue
@@ -463,8 +475,58 @@ class Graph:
                 if not (isinstance(tgt, ast.Attribute) and isinstance(tgt.value, ast.Name) and tgt.value.id == "self"):
                     continue
                 callee_cls_id = self._resolve_constructor(mod, node.value)
+                if not callee_cls_id and isinstance(node.value, ast.Name):
+                    callee_cls_id = param_types.get(node.value.id)
                 if callee_cls_id:
                     cls.instance_attr_types[tgt.attr] = callee_cls_id
+
+    def _param_annotation_types(self, mod: ModuleInfo, func_ast) -> Dict[str, str]:
+        args = func_ast.args
+        all_params = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+        out: Dict[str, str] = {}
+        for a in all_params:
+            if a.annotation is None:
+                continue
+            cls_id = self._resolve_annotation_to_class(mod, a.annotation)
+            if cls_id:
+                out[a.arg] = cls_id
+        return out
+
+    def _resolve_annotation_to_class(self, mod: ModuleInfo, annotation: ast.AST) -> Optional[str]:
+        # String forward-ref annotation, e.g. `x: "RegulatoryDeck"`.
+        if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+            try:
+                parsed = ast.parse(annotation.value, mode="eval").body
+            except SyntaxError:
+                return None
+            return self._resolve_annotation_to_class(mod, parsed)
+        # Optional[X] / Union[X, None] / X | None -> unwrap to X.
+        if isinstance(annotation, ast.Subscript):
+            head_chain = flatten_attr_chain(annotation.value)
+            head = head_chain[-1] if head_chain else None
+            if head == "Optional":
+                return self._resolve_annotation_to_class(mod, annotation.slice)
+            if head == "Union":
+                elts = annotation.slice.elts if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
+                for elt in elts:
+                    if isinstance(elt, ast.Constant) and elt.value is None:
+                        continue
+                    resolved = self._resolve_annotation_to_class(mod, elt)
+                    if resolved:
+                        return resolved
+            return None
+        if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+            for side in (annotation.left, annotation.right):
+                if isinstance(side, ast.Constant) and side.value is None:
+                    continue
+                resolved = self._resolve_annotation_to_class(mod, side)
+                if resolved:
+                    return resolved
+            return None
+        chain = flatten_attr_chain(annotation)
+        if not chain:
+            return None
+        return self._resolve_dotted_to_class(mod, chain)
 
     def _resolve_constructor(self, mod: ModuleInfo, value: ast.AST) -> Optional[str]:
         if not isinstance(value, ast.Call):
