@@ -14,12 +14,20 @@ repo verified by hand this session, BEFORE this tool existed:
      RegulatoryDeck(...) (confirmed by reading sentinel_worker.py and
      regulatory_deck.py directly, and by git log showing the commits
      that wired this in: 6357f28, f8a407e, 010478f).
-  3. The Dockerfile CMD is `python3 api_server_resilient.py`, and
-     neither docker-compose.yml, docker-compose-prod.yml, nor
-     k8s/deployment.yaml override it with a different command --
-     confirmed by reading all four files directly. sentinel_worker.py
-     and api_server_v2.py are real, valid entry points on their own,
-     but are not what a deployed container actually runs.
+  3. As of the "Wire the governed mortgage lane into docker-compose"
+     commit (669796f), the Dockerfile's own CMD is
+     `python3 api_server_v2.py`, and docker-compose.yml runs THREE
+     separate entry points as three services, each with its own
+     explicit `command:` override: `iceberg` -> api_server_resilient.py
+     (the pre-existing IVR-era server, named explicitly since it no
+     longer matches the Dockerfile's bare default), `ingress` ->
+     api_server_v2.py, `worker` -> sentinel_worker.py. All three are
+     real, valid entry points on their own AND all three are actually
+     deployed -- confirmed by reading docker-compose.yml directly and
+     by running deploy_config.detect_deployed_entry_points() against
+     this repo. (k8s/deployment.yaml still has no command override of
+     its own, so it inherits the Dockerfile's api_server_v2.py default
+     -- untouched here, tracked separately.)
   4. gallm_coordinator.py was removed from the repo (git log:
      "Remove dead gallm_coordinator.py and its self-referencing test",
      ede912c) -- only a stale .pyc remains. It must not exist anywhere
@@ -115,25 +123,25 @@ def test_regulatory_deck_reachable_from_sentinel_worker_main(graph):
     )
 
 
-def test_deployed_entry_point_is_api_server_resilient(graph):
+def test_deployed_entry_points_match_compose_services(graph):
     report = dc.detect_deployed_entry_points(REPO_SRC_ROOT)
     assert report.dockerfile_cmd is not None, "Dockerfile CMD should be found"
-    assert report.dockerfile_cmd.py_file == "api_server_resilient.py"
+    assert report.dockerfile_cmd.py_file == "api_server_v2.py"
 
-    deployed_files = report.deployed_py_files()
-    assert "api_server_resilient.py" in deployed_files
-    assert "sentinel_worker.py" not in deployed_files
-    assert "api_server_v2.py" not in deployed_files
+    deployed_files = set(report.deployed_py_files())
+    expected = {"api_server_resilient.py", "api_server_v2.py", "sentinel_worker.py"}
+    assert deployed_files == expected, (
+        f"expected docker-compose.yml's three services to deploy exactly {expected}, got {deployed_files}"
+    )
 
-    deployed_entry = rc.resolve_entry_point(graph, "api_server_resilient.py")
-    assert deployed_entry.resolved
+    by_source = {e.source: e.py_file for e in report.entries}
+    assert by_source.get("docker-compose.yml:service=iceberg") == "api_server_resilient.py"
+    assert by_source.get("docker-compose.yml:service=ingress") == "api_server_v2.py"
+    assert by_source.get("docker-compose.yml:service=worker") == "sentinel_worker.py"
 
-    for other_spec in ("sentinel_worker.py", "api_server_v2.py"):
-        other_entry = rc.resolve_entry_point(graph, other_spec)
-        assert other_entry.resolved, f"{other_spec} should still be a VALID standalone entry point on its own"
-        assert other_spec not in deployed_files, (
-            f"{other_spec} is a valid entry point but must NOT be reported as part of what's deployed"
-        )
+    for spec in expected:
+        entry = rc.resolve_entry_point(graph, spec)
+        assert entry.resolved, f"{spec} should resolve as a real entry point: {entry.note}"
 
 
 def test_gallm_coordinator_not_found(graph):
