@@ -27,8 +27,12 @@ RUN useradd --create-home --uid 1000 iceberg \
     && chown -R iceberg:iceberg /app
 USER iceberg
 
-# Expose metrics port
-EXPOSE 9090
+# Port follows the default CMD (see the end of this file): the image's
+# default program is now api_server_v2.py, the governed ingress, which
+# listens on INGRESS_PORT (default 8000). api_server_resilient.py still
+# serves 9090 -- docker-compose.yml's legacy `iceberg` service names that
+# program and that port explicitly, so nothing there depends on this line.
+EXPOSE 8000
 
 # Health check: previously this always exited 0 regardless of whether the
 # app was actually up (`python3 -c "import sys; sys.exit(0)"`), which is a
@@ -48,14 +52,28 @@ EXPOSE 9090
 # HTTPS (-k: the cert is self-signed, curl has no CA to validate it
 # against) first, fall back to HTTP -- correct whichever mode the app
 # actually started in, instead of assuming one.
+#
+# Port follows the default CMD as of the governed-lane wiring: probing
+# 9090 while the default program serves 8000 would report unhealthy
+# forever against a perfectly working app -- the exact failure the
+# protocol fallback above was added to fix, in a different disguise.
+# Every docker-compose.yml service declares its own healthcheck, so this
+# line only governs a bare `docker run`.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD curl -fsk https://localhost:${PORT:-9090}/health || curl -fs http://localhost:${PORT:-9090}/health || exit 1
+  CMD curl -fsk https://localhost:${INGRESS_PORT:-8000}/health || curl -fs http://localhost:${INGRESS_PORT:-8000}/health || exit 1
 
 # Run the persistent API server. Previously this ran run_adaptive.py,
 # a one-shot demo/batch script that prints a report and exits -- it never
 # binds to a port or serves /health, which is why the healthcheck above
 # had to be a no-op stub that always passed. api_server_resilient.py is
 # the actual long-running service (uvicorn, /health, /metrics, /status,
-# TLS handling) that EXPOSE 9090 and docker-compose-prod.yml's healthcheck
+# TLS handling) that port 9090 and docker-compose-prod.yml's healthcheck
 # were written for.
-CMD ["python3", "api_server_resilient.py"]
+#
+# Changed to api_server_v2.py: the image's default program is what a bare
+# `docker run` starts, and that should be the governed mortgage lane
+# (ingress -> queue -> sentinel_worker -> GovernanceHarness + Reg B lens),
+# not the IVR-era server. api_server_resilient.py is still built into the
+# image and is still started by docker-compose.yml's `iceberg` service,
+# which now names it explicitly rather than inheriting it from this line.
+CMD ["python3", "api_server_v2.py"]
