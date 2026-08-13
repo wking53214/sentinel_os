@@ -27,6 +27,16 @@ spec:
       - name: iceberg
         image: iceberg:latest
         imagePullPolicy: IfNotPresent
+        # Named explicitly, matching docker-compose.yml's `iceberg` service:
+        # the Dockerfile's own default CMD is api_server_v2.py (the governed
+        # ingress, port 8000 by default) as of the governed-lane wiring, and
+        # without this override the pod would silently inherit that instead
+        # of the api_server_resilient.py this manifest's containerPort,
+        # liveness/readiness probes, and PORT=9090 below (and
+        # k8s/service.yaml's port 9090) were actually written for --
+        # every probe would fail against a process listening on the wrong
+        # port, and the Service would never see a healthy endpoint.
+        command: ["python3", "api_server_resilient.py"]
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
