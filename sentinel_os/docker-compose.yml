@@ -68,8 +68,22 @@ services:
       POSTGRES_DB: iceberg_ledger
       POSTGRES_USER: iceberg
       POSTGRES_PASSWORD: change_me_in_prod
+    # Bind-mounted one level up, outside this directory (the Docker
+    # build context for the iceberg/ingress/worker services below,
+    # since they all `build: .` from here). Postgres's data dir is
+    # owned by uid 70 (the container's internal postgres user) with
+    # mode 0700 -- unreadable by the host user. .dockerignore alone
+    # doesn't help: this docker/docker-compose version walks the
+    # entire build context before applying ignore rules, so having
+    # this directory under the context at all made every build here
+    # fail outright with "error checking context: can't stat
+    # 'ledger_data'" / "permission denied", regardless of the
+    # exclusion already listed there. Moving it out of the context
+    # (not just ignoring it) is the actual fix; docker-compose-prod.yml
+    # sidesteps this differently, via a named volume instead of a
+    # bind mount.
     volumes:
-      - ./ledger_data:/var/lib/postgresql/data
+      - ../ledger_data:/var/lib/postgresql/data
     restart: always
     healthcheck:
       # Previously no healthcheck at all: depends_on only waited for this
