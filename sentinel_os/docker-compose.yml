@@ -4,6 +4,11 @@ services:
   iceberg:
     build: .
     container_name: iceberg-main
+    # Stated explicitly as of the governed-lane wiring: the Dockerfile's
+    # default CMD is now api_server_v2.py (the governed ingress), so this
+    # service would otherwise silently start the wrong program. Naming it
+    # here also makes the file say out loud which lane each service is.
+    command: ["python3", "api_server_resilient.py"]
     ports:
       - "9090:9090"
     environment:
@@ -78,6 +83,112 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+
+  # --- governed mortgage lane -------------------------------------------
+  # ingress (api_server_v2) -> redis queue -> sentinel_worker ->
+  # GovernanceHarness(MortgageCassette) + CFPB/ECOA Reg B lens -> ledger.
+  # Before this, none of these services existed in any deploy config:
+  # `docker compose up` started only the IVR-era server above, so the
+  # governed lane ran nowhere unless someone launched the worker by hand.
+
+  redis:
+    image: redis:7-alpine
+    container_name: iceberg-queue
+    # No volume, deliberately. Redis holds in-flight work, not the record
+    # of it -- the ledger is the durable side. A redis restart drops
+    # queued-but-unclaimed jobs; claimed jobs are already leased and are
+    # reaped by the worker's own lease/heartbeat path.
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  ingress:
+    build: .
+    container_name: sentinel-ingress
+    command: ["python3", "api_server_v2.py"]
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONUNBUFFERED: 1
+      TRANSMISSION_REDIS_URL: redis://redis:6379/0
+      # SENTINEL_QUEUE_ID is the ONE identifier this service and the
+      # worker below must agree on: the ingress derives its keyspace as
+      # sq:$SENTINEL_QUEUE_ID, the worker derives sq:$queue_name from the
+      # same variable. TRANSMISSION_NAMESPACE is deliberately NOT set --
+      # setting it here alone would override that derivation on this side
+      # only, and the two processes would use different Redis keyspaces:
+      # submissions accepted with 202, never processed, no error anywhere.
+      SENTINEL_QUEUE_ID: v12
+      INGRESS_PORT: 8000
+      # api_server_v2 attaches its auth guard (and, only alongside auth,
+      # its rate limiter) when keys are configured, and refuses to start
+      # if keys are required but absent. Port 8000 is published to the
+      # host here, so this lane requires keys and takes them from the
+      # operator's environment -- no placeholder key is committed to a
+      # public repo. The :? below stops `docker compose up` with that
+      # message when the variable is unset, before anything starts.
+      ICEBERG_REQUIRE_API_KEYS: "true"
+      ICEBERG_API_KEYS: ${ICEBERG_API_KEYS:?set ICEBERG_API_KEYS=yourkey:name before starting the governed lane}
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # api_server_v2 serves TLS only when SSL_CERTFILE/SSL_KEYFILE are
+      # set, which this service does not set -- plain HTTP is correct
+      # here. /health takes no auth guards by design, so this check does
+      # not depend on the API key above being valid.
+      test: ["CMD-SHELL", "curl -fs http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    build: .
+    container_name: sentinel-worker
+    command: ["python3", "sentinel_worker.py"]
+    environment:
+      PYTHONUNBUFFERED: 1
+      SENTINEL_REDIS_URL: redis://redis:6379/0
+      SENTINEL_QUEUE_ID: v12
+      POSTGRES_HOST: ledger
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: iceberg_ledger
+      POSTGRES_USER: iceberg
+      POSTGRES_PASSWORD: change_me_in_prod
+      # Required, and easy to miss: these two are read by the ledger
+      # itself, not by sentinel_worker's own config function, so they do
+      # not appear anywhere in the worker's source. The ledger refuses to
+      # boot without a declared non-owner runtime identity (fail-closed,
+      # no privileged fallback) -- same pair the iceberg service sets.
+      ICEBERG_LEDGER_RUNTIME_USER: ledger_reader
+      ICEBERG_LEDGER_RUNTIME_PASSWORD: change_me_in_prod_too
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+      ledger:
+        condition: service_healthy
+    healthcheck:
+      # This service has no HTTP surface, so it cannot answer the
+      # image's baked-in /health probe -- inheriting it would report
+      # unhealthy forever against a worker doing its job correctly.
+      # Process-liveness instead, using the interpreter already in the
+      # image (no added package): PID 1 is the worker's own command line.
+      # Honest about its limit -- it proves the process did not die, not
+      # that it is making progress. Catching a hung-but-alive worker
+      # needs a periodic heartbeat the worker does not yet write.
+      test: ["CMD-SHELL", "python3 -c \"import sys; sys.exit(0 if b'sentinel_worker' in open('/proc/1/cmdline','rb').read() else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 volumes:
   ledger_data:

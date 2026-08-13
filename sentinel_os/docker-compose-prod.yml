@@ -21,6 +21,13 @@ services:
 
   iceberg:
     build: .
+    # Stated explicitly as of the governed-lane wiring: the Dockerfile's
+    # default CMD is now api_server_v2.py (the governed ingress, port
+    # 8000). This service publishes 9090 and healthchecks 9090, so
+    # inheriting that default would start the wrong program on the wrong
+    # port and report unhealthy forever. Naming the program here keeps
+    # this file's behavior byte-identical to what it was before.
+    command: ["python3", "api_server_resilient.py"]
     container_name: iceberg-api
     environment:
       POSTGRES_HOST: postgres
