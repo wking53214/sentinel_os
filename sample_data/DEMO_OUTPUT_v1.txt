@@ -1,0 +1,293 @@
+========================================================================
+STEP 1-2: AI GENERATES, LEGAL APPROVES
+========================================================================
+
+AI proposed 6 scenarios. None are runnable yet:
+  [PROPOSED] proxy_correlation: Applicant ZIP correlates 0.71 with a protected class. Flag the m...
+  [PROPOSED] proxy_correlation: Correlation is 0.48, below threshold, but the field is only used...
+  [PROPOSED] geographic_scope: Property sits in a county the lender entered mid-year. Include i...
+  [PROPOSED] geographic_scope: Applicant address is out of state; property is in state. Which g...
+  [PROPOSED] thin_file_applicants: Applicant has 2 tradelines. Does the cohort test apply?...
+  [PROPOSED] thin_file_applicants: No credit history at all; decision made on cash flow only....
+
+Legal approved 6 and locked the expected answers.
+
+========================================================================
+STEP 3-4: MONTHLY DRIFT CHECK (most recent year shown)
+========================================================================
+
+# Drift check: DEMO-FAIR-LENDING
+
+Interpretation v1 | run run-2026 | 2026-08-06T20:44:42.937834+00:00
+
+**Risk: HIGH** | Overall alignment: 60.0%
+
+## Needs attention (2)
+
+- **proxy_correlation**: 50.0% (+0.0%), 1 scenario(s) answered differently than locked. Examples: scn-02c37c518444
+- **thin_file_applicants**: 0.0% (-50.0%), 1 scenario(s) answered differently than locked. Examples: scn-b71beac869bd
+
+## All zones
+
+| Zone | State | Alignment | Change | Decided | Declined | Errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| proxy_correlation | [BREACH] | 50.0% | +0.0% | 2 | 0 | 0 |
+| thin_file_applicants | [BREACH] | 0.0% | -50.0% | 1 | 1 | 0 |
+| geographic_scope | [ OK ] | 100.0% | +0.0% | 2 | 0 | 0 |
+
+---
+
+*Alignment is measured against scenarios Sentinel took a position on. Declined scenarios are counted separately and are never scored as passes or failures. This report shows whether Sentinel still applies the reading Legal locked in; it does not assess whether that reading is correct.*
+
+========================================================================
+STEP 5-6: ANNUAL REALIGNMENT (five years of history in hand)
+========================================================================
+
+# Annual realignment: DEMO-FAIR-LENDING
+
+Record REC-2026 | Interpretation v1 | Meeting 2026-01-15 | Trigger ANNUAL
+
+## Decision
+
+| | |
+| --- | --- |
+| Legal sign-off | **REQUIRES_REVIEW** |
+| Decision | **REQUIRES_REVIEW** |
+| Risk level | **HIGH** |
+| Flagged zones | proxy_correlation, thin_file_applicants |
+| Interpretation active from | 2022-01-01 |
+| Record sealed | yes |
+
+Flagged zones require review before sign-off.
+
+## Why (narrative)
+
+**Context.** Strict reading chosen at 2022 kickoff to match a conservative lending posture.
+
+**Business rationale.** No change in lending strategy. Volume steady.
+
+**Legal assessment.** Drift observed. Reading may no longer describe practice.
+
+## Evidence: zone alignment
+
+Overall alignment: 60.0%
+
+| Zone | State | Alignment | Change | Decided | Declined | Errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| proxy_correlation | [BREACH] | 50.0% | +0.0% | 2 | 0 | 0 |
+| thin_file_applicants | [BREACH] | 0.0% | -50.0% | 1 | 1 | 0 |
+| geographic_scope | [ OK ] | 100.0% | +0.0% | 2 | 0 | 0 |
+
+## Multi-year trend
+
+| Date | Version | Decision | Overall alignment | Risk | Sealed |
+| --- | --- | --- | --- | --- | --- |
+| 2022-01-15 | v1 | KEEP | 100.0% | LOW | yes |
+| 2023-01-15 | v1 | KEEP | 100.0% | LOW | yes |
+| 2024-01-15 | v1 | REQUIRES_REVIEW | 83.3% | HIGH | yes |
+| 2025-01-15 | v1 | REQUIRES_REVIEW | 66.7% | HIGH | yes |
+| 2026-01-15 | v1 | REQUIRES_REVIEW | 60.0% | HIGH | yes |
+
+Zones lower now than at their first recorded realignment. Each may sit inside its yearly tolerance while still sliding across years:
+
+- **proxy_correlation**: 100.0% (2022-01-15) to 50.0% (2026-01-15)
+- **thin_file_applicants**: 100.0% (2022-01-15) to 0.0% (2026-01-15)
+
+## Tolerance calibration
+
+Based on 5 observation periods. These are descriptions of past behavior, not a judgment that past behavior was acceptable. Setting a threshold is a business decision and is recorded with an owner and a rationale.
+
+| Zone | Observed floor | Observed mean | Suggested watch | Suggested breach |
+| --- | --- | --- | --- | --- |
+| geographic_scope | 100.0% | 100.0% | 100.0% | 100.0% |
+| proxy_correlation | 50.0% | 70.0% | 70.0% | 50.0% |
+| thin_file_applicants | 0.0% | 70.0% | 70.0% | 0.0% |
+
+## Approvals
+
+| Name | Title | Date |
+| --- | --- | --- |
+| A. Counsel | General Counsel | 2026-01-15 |
+
+Record hash: `7d89a2e8538fa4609c02d59db2829f7de54f7a9c07281b56aa29d7abc40689ba`
+
+---
+
+*This record states whether Sentinel still applies the reading this organization chose. It is not a compliance determination and does not assess whether that reading satisfies the regulation.*
+
+========================================================================
+OPTION C VIEW: THE SAME RECORDS, READ LONGITUDINALLY
+========================================================================
+
+{
+  "regulation_id": "DEMO-FAIR-LENDING",
+  "record_count": 5,
+  "history": [
+    {
+      "realignment_date": "2022-01-15",
+      "record_id": "REC-2022",
+      "interpretation_version": "v1",
+      "decision": "KEEP",
+      "risk_level": "LOW",
+      "overall_alignment": 1.0,
+      "sealed": true
+    },
+    {
+      "realignment_date": "2023-01-15",
+      "record_id": "REC-2023",
+      "interpretation_version": "v1",
+      "decision": "KEEP",
+      "risk_level": "LOW",
+      "overall_alignment": 1.0,
+      "sealed": true
+    },
+    {
+      "realignment_date": "2024-01-15",
+      "record_id": "REC-2024",
+      "interpretation_version": "v1",
+      "decision": "REQUIRES_REVIEW",
+      "risk_level": "HIGH",
+      "overall_alignment": 0.8333333333333334,
+      "sealed": true
+    },
+    {
+      "realignment_date": "2025-01-15",
+      "record_id": "REC-2025",
+      "interpretation_version": "v1",
+      "decision": "REQUIRES_REVIEW",
+      "risk_level": "HIGH",
+      "overall_alignment": 0.6666666666666666,
+      "sealed": true
+    },
+    {
+      "realignment_date": "2026-01-15",
+      "record_id": "REC-2026",
+      "interpretation_version": "v1",
+      "decision": "REQUIRES_REVIEW",
+      "risk_level": "HIGH",
+      "overall_alignment": 0.6,
+      "sealed": true
+    }
+  ],
+  "zone_trends": {
+    "geographic_scope": [
+      {
+        "date": "2022-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      },
+      {
+        "date": "2023-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      },
+      {
+        "date": "2024-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      },
+      {
+        "date": "2025-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      },
+      {
+        "date": "2026-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      }
+    ],
+    "proxy_correlation": [
+      {
+        "date": "2022-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      },
+      {
+        "date": "2023-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      },
+      {
+        "date": "2024-01-15",
+        "alignment": 0.5,
+        "state": "BREACH"
+      },
+      {
+        "date": "2025-01-15",
+        "alignment": 0.5,
+        "state": "BREACH"
+      },
+      {
+        "date": "2026-01-15",
+        "alignment": 0.5,
+        "state": "BREACH"
+      }
+    ],
+    "thin_file_applicants": [
+      {
+        "date": "2022-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      },
+      {
+        "date": "2023-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      },
+      {
+        "date": "2024-01-15",
+        "alignment": 1.0,
+        "state": "OK"
+      },
+      {
+        "date": "2025-01-15",
+        "alignment": 0.5,
+        "state": "BREACH"
+      },
+      {
+        "date": "2026-01-15",
+        "alignment": 0.0,
+        "state": "BREACH"
+      }
+    ]
+  },
+  "integrity": {
+    "unsealed_records": []
+  }
+}
+
+========================================================================
+TOLERANCE CALIBRATION SUGGESTION (after 5 years of evidence)
+========================================================================
+
+{
+  "__status__": {
+    "ready": true,
+    "periods_observed": 5
+  },
+  "geographic_scope": {
+    "observed_min": 1.0,
+    "observed_mean": 1.0,
+    "periods": 5,
+    "suggested_watch_below": 1.0,
+    "suggested_breach_below": 1.0,
+    "note": "Suggested watch line sits at the observed mean and the breach line at the observed floor. Both are descriptions of past behavior, not a judgment that past behavior was acceptable."
+  },
+  "proxy_correlation": {
+    "observed_min": 0.5,
+    "observed_mean": 0.7,
+    "periods": 5,
+    "suggested_watch_below": 0.7,
+    "suggested_breach_below": 0.5,
+    "note": "Suggested watch line sits at the observed mean and the breach line at the observed floor. Both are descriptions of past behavior, not a judgment that past behavior was acceptable."
+  },
+  "thin_file_applicants": {
+    "observed_min": 0.0,
+    "observed_mean": 0.7,
+    "periods": 5,
+    "suggested_watch_below": 0.7,
+    "suggested_breach_below": 0.0,
+    "note": "Suggested watch line sits at the observed mean and the breach line at the observed floor. Both are descriptions of past behavior, not a judgment that past behavior was acceptable."
+  }
+}
