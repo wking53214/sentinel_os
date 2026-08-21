@@ -34,6 +34,7 @@ from queue_staffing_bayes_integration import (
 )
 from operational_resilience import setup_logging
 from circuit_breaker import CircuitBreaker
+from governance_loop_guard import PipelineStateEngine
 from cassette_forensics import (
     compute_cassette_code_hash, compute_cassette_hash,
     serialize_cassette_for_ledger,
@@ -142,6 +143,14 @@ class IcebergProductionHarness:
         self.ledger_breaker = CircuitBreaker(
             name="postgres_ledger", failure_threshold=3, reset_timeout_s=15,
         )
+
+        # Catches a different failure mode than claude_breaker above: a
+        # syntactically successful, correctly-parsed governor response
+        # that repeats a PRIOR call's exact reasoning text verbatim --
+        # not an API/transport error (claude_breaker would never see
+        # this), a plausible signal of a stuck or degenerate response
+        # instead. See governance_loop_guard.py for provenance.
+        self.claude_loop_guard = PipelineStateEngine()
 
         self._init_optional_components()
     
@@ -586,6 +595,36 @@ class IcebergProductionHarness:
                                 r.get("reasoning", "")
                             ).startswith("transport_error:"),
                         )
+
+                        # Loop guard: only meaningful for a response that
+                        # actually reached and was parsed by a real model.
+                        # model_identity is None on every fail-closed path
+                        # (no client configured, JSON parse failure,
+                        # transport error) -- see claude_governance_api.py,
+                        # every one of those return dicts sets it to None
+                        # explicitly. Skipping those avoids false-tripping
+                        # the loop guard on their fixed, always-repeating
+                        # reasoning text (e.g. "No API client configured"),
+                        # which isn't a governor loop, it's the same
+                        # non-decision every time by design.
+                        if claude_decision.get("model_identity"):
+                            loop_state = self.claude_loop_guard.process_lifecycle(
+                                claude_decision.get("reasoning", "")
+                            )
+                            if loop_state == "BLOCKED_LOOP":
+                                gov_span.set_attribute("decision.loop_blocked", True)
+                                claude_decision = {
+                                    "safe": False,
+                                    "governed": False,
+                                    "parse_failed": False,
+                                    "reasoning": (
+                                        "Governor returned reasoning identical to a "
+                                        "prior call -- possible stuck/degenerate "
+                                        "response, blocked by the loop guard"
+                                    ),
+                                    "confidence": 0.0,
+                                }
+
                         gov_span.set_attribute("decision.approved", bool(claude_decision.get("safe")))
                     except Exception as e:
                         # CircuitOpenError (breaker OPEN) lands here too --
