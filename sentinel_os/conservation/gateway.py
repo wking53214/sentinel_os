@@ -39,6 +39,39 @@ class ConservationGatewayError(Exception):
     pass
 
 
+class ArtifactResolverError(Exception):
+    """Raised when artifact cannot be resolved."""
+    pass
+
+
+class ArtifactResolver:
+    """Resolves artifact IDs to actual SentinelArtifact objects from canonical store."""
+
+    def __init__(self, artifact_store: Dict[str, SentinelArtifact]):
+        """Initialize with artifact store (maps artifact_id → SentinelArtifact)."""
+        self.store = artifact_store
+
+    def resolve(self, artifact_id: str) -> SentinelArtifact:
+        """
+        Resolve artifact ID to actual artifact.
+
+        Raises ArtifactResolverError if artifact not found (fail-closed).
+        """
+        if artifact_id not in self.store:
+            raise ArtifactResolverError(
+                f"Artifact {artifact_id} not found in canonical store. "
+                f"Cannot fabricate artifact. Failing closed."
+            )
+        return self.store[artifact_id]
+
+    def resolve_batch(self, artifact_ids: List[str]) -> List[SentinelArtifact]:
+        """Resolve multiple artifact IDs. Fails if any artifact is missing."""
+        artifacts = []
+        for artifact_id in artifact_ids:
+            artifacts.append(self.resolve(artifact_id))
+        return artifacts
+
+
 class SentinelConservationGateway:
     """
     Gateway managing artifact flow through Conservation Kernel.
@@ -50,16 +83,19 @@ class SentinelConservationGateway:
     - Failing closed on rejection
     """
 
-    def __init__(self, kernel_instance: Optional[Any] = None):
+    def __init__(self, kernel_instance: Optional[Any] = None, resolver: Optional[ArtifactResolver] = None):
         """
         Initialize gateway.
 
         Args:
             kernel_instance: ConservationKernel instance. If None, will be
                            lazily imported on first use.
+            resolver: ArtifactResolver for resolving input artifact IDs to actual artifacts.
+                     If None, input artifacts must be provided directly.
         """
         self._kernel = kernel_instance
         self._kernel_lazy_loaded = False
+        self.resolver = resolver or ArtifactResolver({})
 
     @property
     def kernel(self) -> Any:
@@ -128,32 +164,28 @@ class SentinelConservationGateway:
                 },
             )
 
+            # Resolve real input artifacts from canonical store (fail-closed if not found)
+            input_artifacts: Sequence[Artifact] = ()
+            if input_artifact_ids:
+                try:
+                    resolved_inputs = self.resolver.resolve_batch(input_artifact_ids)
+                    input_artifacts = tuple(
+                        self._to_kernel_artifact(resolved_artifact)
+                        for resolved_artifact in resolved_inputs
+                    )
+                except ArtifactResolverError as e:
+                    raise ConservationGatewayError(
+                        f"Cannot submit artifact: {e}. Failing closed."
+                    ) from e
+
             # Convert to Conservation Kernel format
             kernel_artifact = self._to_kernel_artifact(artifact)
             kernel_record = self._to_transformation_record(
-                artifact_id=artifact_id,
+                artifact=artifact,
                 input_ids=input_artifact_ids or [],
+                input_artifacts=input_artifacts,
                 transformation_declared=transformation_declared,
             )
-
-            # Submit to Kernel with properly typed objects
-            # input_artifacts: use empty tuple if no inputs (Kernel requires Artifact objects, not None)
-            input_artifacts: Sequence[Artifact] = ()
-            if input_artifact_ids:
-                # Reconstruct input artifacts from IDs (simplified version)
-                # In production, these would come from artifact store
-                input_artifacts = tuple(
-                    Artifact(
-                        artifact_id=iid,
-                        content="[input artifact reconstructed from id]",
-                        propositions=(),
-                        producer=Actor(
-                            actor_id="system",
-                            kind=ActorKind.SYSTEM,
-                        ),
-                    )
-                    for iid in input_artifact_ids
-                )
 
             kernel_result = self.kernel.submit(
                 input_artifacts=input_artifacts,
@@ -161,8 +193,8 @@ class SentinelConservationGateway:
                 record=kernel_record,
             )
 
-            # Wrap result in receipt
-            receipt = self._result_to_receipt(kernel_result, artifact_id)
+            # Wrap result in receipt with actual artifact content
+            receipt = self._result_to_receipt(kernel_result, artifact_id, artifact, input_artifact_ids or [])
 
             return receipt
 
@@ -197,9 +229,13 @@ class SentinelConservationGateway:
         # derivation_method required for ESTIMATED and SIMULATED statuses
         needs_derivation = mapped_epistemic in [KernelEpistemicStatus.ESTIMATED, KernelEpistemicStatus.SIMULATED]
 
+        # Proposition text should be a meaningful summary, not truncated full content
+        # If content is small enough, use it; otherwise create a proper summary
+        proposition_text = content_str if len(content_str) <= 500 else f"{content_str[:497]}..."
+
         proposition = Proposition(
             proposition_id=f"prop-{artifact.artifact_id}-0",
-            text=content_str[:500],  # Proposition text (summary)
+            text=proposition_text,  # Proposition text (summary, not truncated full content)
             epistemic_status=mapped_epistemic,
             origin=self._map_origin_status(artifact.metadata.origin_status),
             authority=self._map_authority_status(artifact.metadata.authority_source),
@@ -250,18 +286,19 @@ class SentinelConservationGateway:
 
     def _to_transformation_record(
         self,
-        artifact_id: str,
+        artifact: SentinelArtifact,
         input_ids: List[str],
+        input_artifacts: Sequence[Artifact],
         transformation_declared: Optional[str] = None,
     ) -> TransformationRecord:
-        """Create a TransformationRecord (typed object) for Kernel submission."""
-        # Compute output hash (SHA256 of artifact content)
-        # This is a placeholder since we don't have the actual content here
-        output_hash = "placeholder-hash"
+        """Create a TransformationRecord (typed object) for Kernel submission with REAL hashes."""
+        # Compute REAL output hash from actual artifact content
+        content_str = json.dumps(artifact.content) if isinstance(artifact.content, dict) else str(artifact.content)
+        output_hash = sha256(content_str.encode("utf-8")).hexdigest()
 
         # Create transformer Actor (Sentinel system)
         transformer = Actor(
-            actor_id="sentinel-governance",
+            actor_id=artifact.metadata.producer or "sentinel-governance",
             kind=ActorKind.SYSTEM,
             label="Sentinel OS Governance",
         )
@@ -270,7 +307,7 @@ class SentinelConservationGateway:
         declared_changes = ()
         if transformation_declared:
             declared_change = DeclaredChange(
-                subject_id=artifact_id,
+                subject_id=artifact.artifact_id,
                 dimension=Dimension.AUTHORITY,
                 from_value="unverified",
                 to_value="sentinel_verified",
@@ -278,14 +315,21 @@ class SentinelConservationGateway:
             )
             declared_changes = (declared_change,)
 
-        # Create input hashes (placeholder for each input)
-        input_hashes = tuple(f"input-hash-{i}" for i in range(len(input_ids)))
+        # Compute REAL input hashes from actual input artifacts
+        input_hashes = tuple(
+            sha256(
+                json.dumps(input_artifact.content).encode("utf-8")
+                if isinstance(input_artifact.content, dict)
+                else input_artifact.content.encode("utf-8")
+            ).hexdigest()
+            for input_artifact in input_artifacts
+        )
 
         # Create TransformationRecord
         record = TransformationRecord(
-            transformation_id=f"sentinel-{artifact_id}-{datetime.utcnow().timestamp()}",
+            transformation_id=f"sentinel-{artifact.artifact_id}-{datetime.utcnow().timestamp()}",
             input_artifact_ids=tuple(input_ids),
-            output_artifact_id=artifact_id,
+            output_artifact_id=artifact.artifact_id,
             transformer=transformer,
             transformation_type="sentinel_governance",
             declared_changes=declared_changes,
@@ -300,6 +344,8 @@ class SentinelConservationGateway:
         self,
         kernel_result: Any,
         artifact_id: str,
+        artifact: SentinelArtifact,
+        input_artifact_ids: List[str],
     ) -> ConservationReceipt:
         """Convert Kernel VerificationResult to ConservationReceipt."""
         # Normalize kernel result to dict if it's an object
@@ -317,10 +363,15 @@ class SentinelConservationGateway:
                 "checked_dimensions": [],
             }
 
+        # Prepare artifact content for receipt (for return path)
+        artifact_content_str = json.dumps(artifact.content) if isinstance(artifact.content, dict) else str(artifact.content)
+
         return ConservationReceipt.from_kernel_result(
             result_dict,
             artifact_id=artifact_id,
             produced_by="Sentinel",
+            artifact_content=artifact_content_str,
+            producer=artifact.metadata.producer or "sentinel",
         )
 
 

@@ -88,9 +88,11 @@ class ConservationReceipt:
 
     # Content integrity
     content_hash: str = ""
+    artifact_content: str = ""  # Actual artifact content (for return path)
 
     # Producer information
     produced_by: str = "Sentinel"  # System that produced the artifact
+    producer: str = "sentinel"  # Actor ID of the original producer
     conserved_at: str = ""  # ISO8601 when kernel processed it
 
     # Verification details
@@ -137,7 +139,9 @@ class ConservationReceipt:
             "lineage": list(self.lineage),
             "evidence_refs": list(self.evidence_refs),
             "content_hash": self.content_hash,
+            "artifact_content": self.artifact_content,
             "produced_by": self.produced_by,
+            "producer": self.producer,
             "conserved_at": self.conserved_at,
             "observed_changes": [c.to_dict() for c in self.observed_changes],
             "violations": [v.to_dict() for v in self.violations],
@@ -171,6 +175,8 @@ class ConservationReceipt:
         kernel_result: Dict[str, Any],
         artifact_id: str,
         produced_by: str = "Sentinel",
+        artifact_content: str = "",
+        producer: str = "sentinel",
     ) -> "ConservationReceipt":
         """
         Create a receipt from a ConservationKernel.submit() result.
@@ -216,7 +222,9 @@ class ConservationReceipt:
             lineage=tuple(kernel_result.get("lineage", [])),
             evidence_refs=tuple(kernel_result.get("evidence_refs", [])),
             content_hash=kernel_result.get("content_hash", ""),
+            artifact_content=artifact_content,  # Actual artifact content for return path
             produced_by=produced_by,
+            producer=producer,  # Original producer actor ID
             conserved_at=datetime.utcnow().isoformat() + "Z",
             observed_changes=observed_changes,
             violations=violations,
