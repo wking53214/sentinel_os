@@ -1,180 +1,1136 @@
-# Sentinel OS
+Sentinel OS
 
 Problem
 
-Governance is fractured. How can a governance system remain stable while the business systems, regulations, models, and industries it governs continuously change?
+Governance is fractured.
+
+Automated systems change continuously. Models change. Business systems change. regulations change. Industries change. Jurisdictions change. The decisions being governed change.
+
+How can a governance system remain stable while everything it governs continuously changes?
+
+More importantly:
+
+How can an organization prove, after the fact, what happened, why it happened, what governance was in force, and whether the evidence itself can be trusted?
 
 Thesis
 
-Sentinel OS decouples governance from business systems so each can evolve independently while remaining verifiably connected.
+Sentinel OS decouples governance from the systems being governed so that both can evolve independently while remaining verifiably connected.
 
-## What Sentinel OS is
+The foundation remains stable.
 
-Sentinel OS exists to answer one question about an automated decision: why was it made and can that answer be proven? It sits beside a decision making system as a witness and judge. At the moment a decision happens, it records the inputs, the policy in force, the reasoning and the outcome, then binds them into tamper-evident evidence that an engineer, auditor or regulator can verify independently at any time.
+Governance knowledge evolves.
 
-The framework is domain-agnostic. Its founding scenario is an auditor asking a regulated company: "Can you tell me why the AI made this decision about xyz at that time?"{+£€%¥¥Sentinel OS is designed to be the system that answers that question, in any industry, without being rebuilt for each one.
+Business systems evolve.
 
+Regulatory requirements evolve.
 
-## What Sentinel OS is NOT
-Sentinel OS is not an
-- AI governance checklist
-- Static compliance document system
-- Implementation of a single regulation
-- Replacement for legal interpretation
-- Commercial service platform.
+The connection between them remains explicit, versioned, and evidence-bearing.
 
-## Research Mode Features
+That separation is the architecture.
 
-Some capabilities in this codebase are research-only and disabled by default pending IP/privacy attorney review before production deployment:
+⸻
 
-- **BISG demographic inference** (`bisg_estimator.py`, `obligation_sweep.py` geographic equity testing): Bayesian Improved Surname Geocoding is disabled unless `SENTINEL_BISG_RESEARCH_MODE=true` is explicitly set. When disabled, geographic cohort equity tests report skips rather than attempting demographic inference. The underlying regulatory checks remain available; only the BISG-specific inference is gated.
+What Sentinel OS is
 
-The default posture is witness ##NOT actor. Sentinel judges decisions and records evidence; it does not reach into the acting system. 
+Sentinel OS is a domain-agnostic governance architecture for automated decisions.
 
-***The original reference implementation, a contact-center telephony deployment, does also operates in an acting mode where Sentinel DOES drive the decision. That is a distinct, optional operating mode, not the core of the architecture.
+It exists to answer a deceptively simple question:
 
-## Architectural Boundary
+Why was this decision made, what governance applied at the time, and can that answer be proven independently?
 
-Sentinel OS is designed to provide a governance layer, not to replace the systems being governed.
+Sentinel OS sits beside — and, in selected operating modes, can participate directly in — a decision-making system as a witness and judge.
 
-Sentinel OS does not attempt to make AI models more capable, replace agent architectures, or become the application that performs business operations. It does not assume that one model, one framework, or one implementation pattern will define the future of automated systems.
+At the moment a governed decision occurs, Sentinel can record the relevant inputs, the governance context, the policy and cassette versions in force, the model identity, the authorization context, the recorded reasoning, the resulting judgment, and the evidence necessary to verify what happened later.
 
-Instead, Sentinel OS focuses on the layer that remains necessary regardless of how those systems change:
+Those facts are bound into tamper-evident records.
 
-**How do we know what happened, why it happened, what governance applied, and whether the result can be independently verified?**
+The purpose is not merely to create a log.
 
-Sentinel OS is not:
+The purpose is to create a verifiable historical record of governance.
 
-- an AI model
-- an agent framework
-- a prompt management system
-- a model guardrail library
-- a policy checklist
-- a compliance document repository
-- a replacement for legal interpretation
-- a business workflow engine
+An engineer, auditor, regulator, or other authorized verifier should be able to examine that record independently rather than being required to trust the system that made the decision.
 
-Those systems may change over time. New models will emerge. New agent architectures will replace current ones. New regulations will appear. New industries will develop their own requirements.
+The framework is domain-agnostic.
 
-Sentinel OS is designed around the assumption that change is inevitable.
+The original proving ground was contact-center / IVR decisioning.
 
-The purpose of the architecture is not to prevent change. The purpose is to create a stable governance foundation that remains connected to changing systems without becoming tightly coupled to them.
+That implementation is a representative application of the architecture, not the boundary of the architecture.
+
+The same governance foundation is intended to support other decision domains without rebuilding the kernel.
+
+⸻
+
+What Sentinel OS is NOT
+
+Sentinel OS is not an:
+
+* AI governance checklist
+* static compliance document system
+* implementation of a single regulation
+* replacement for legal interpretation
+* AI model
+* agent framework
+* prompt management system
+* model guardrail library
+* business workflow engine
+* commercial service platform
+
+It does not attempt to make an AI model more capable.
+
+It does not attempt to replace the business system being governed.
+
+It does not assume that one model, one agent architecture, one industry, or one regulatory regime will define the future of automated decision systems.
+
+The architecture assumes the opposite:
+
+change is inevitable.
+
+⸻
+
+The Governance Boundary
+
+Sentinel OS is designed to provide a governance layer, not to become the system being governed.
 
 The separation is intentional:
 
-- Business systems decide and operate.
-- AI systems generate and assist.
-- Governance systems evaluate and provide evidence.
-- Human authorities interpret findings and make final determinations where required.
+* Business systems operate.
+* AI systems generate, predict, classify, recommend, or assist.
+* Governance systems evaluate, constrain, record, and provide evidence.
+* Human authorities interpret findings and make final determinations where required.
 
-This boundary allows Sentinel OS to evolve differently from the systems it governs.
+Sentinel OS therefore focuses on the layer that remains necessary even as everything underneath it changes:
 
-The systems underneath may change rapidly.
+How do we know what happened, why it happened, what governance applied, and whether the result can be independently verified?
 
-The governance foundation remains stable.
+That question survives changes in:
 
-The connection between them remains verifiable.
+* model architecture;
+* vendor;
+* agent framework;
+* business application;
+* industry;
+* jurisdiction;
+* regulation;
+* deployment environment.
 
-## The Governance Problem
+The governance foundation is designed to survive those changes as well.
 
-Governance is fractured. Requirements come from many regulators, differ by industry and jurisdiction, and change continuously. A lending rule is amended. A state adds a reporting obligation an adjacent state does not have. An industry that had no AI oversight last year gains it this year.
+⸻
 
-An organization cannot rebuild its governance architecture every time this happens. If governance logic is welded into the decision system, every regulatory change becomes an engineering project against production code, and every industry expansion becomes a rearchitecture.
+The Governance Problem
 
-The central architectural question is therefore: how can a governance system remain stable while continuously adapting to change?
+Governance requirements do not arrive as one coherent system.
 
-The answer that defines Sentinel OS: the kernel remains stable, governance knowledge evolves, and the architecture adapts. The kernel does not remain stable because nothing changes. It remains stable because change is isolated into controlled, replaceable layers, and the boundary between what changes and what does not is enforced by the architecture rather than by discipline.
+They arrive from multiple sources.
 
-## Why Existing Approaches Struggle
+A regulation changes.
 
-Checklist and document systems freeze understanding at the time of writing. They describe intended controls but cannot prove what actually happened at decision time.
+A state adds an obligation.
 
-Conventional logging records actions but not proof. Logs can be edited, can be incomplete, and are typically the system's own report about itself. A system asserting its own good behavior is the very thing under examination.
+A jurisdiction imposes a different requirement.
 
-Per-regulation builds do not compose. A system built to satisfy one regulation must be substantially rebuilt for the next one, and the parts worth keeping are entangled with the parts that must change.
+An industry develops new oversight.
 
-Sentinel OS responds to all three failures with the same move: separate what must be permanent, proven, and deterministic from what must be replaceable, and make evidence a structural property rather than a reporting feature.
+An organization establishes an internal policy.
 
-## Architectural Philosophy
+A decision system changes.
 
-Sentinel OS takes a deliberate design influence from COBOL-era mission-critical systems. This is an influence, not an identity claim. Those systems survived for decades because they prioritized durability, explicit rules, determinism, maintainability, and controlled evolution. Sentinel OS attempts to preserve those qualities while avoiding what eventually made such systems burdensome: accumulated complexity, opaque behavior, fragile dependencies, and reliance on institutional memory.
+A new model is deployed.
 
-The design tension is: how can a system achieve decades-long reliability while remaining simple enough to understand?
+If governance logic is welded directly into the decision system, each change becomes an engineering problem inside production code.
 
-The same influence shapes the governance checks themselves. The core checks are deliberately basic: membership in a declared list, comparison of a recomputed hash against a stored one, arithmetic over recorded facts. A check of this kind does not weaken as the models it governs grow more capable, because it never asks the model anything. It asks whether a past fact matches a declared rule, and no amount of model capability changes a past fact.
+That creates a dangerous coupling:
 
-## Core Architecture
+REGULATORY CHANGE
+       ↓
+GOVERNANCE CODE CHANGE
+       ↓
+APPLICATION CODE CHANGE
+       ↓
+REDEPLOYMENT
+       ↓
+NEW GOVERNANCE RISK
 
-**Stable kernel.** The kernel defines the permanent primitives: the episode record of a decision, the rules for judging an episode, and the manifest by which a governance module declares what it can and cannot do. The kernel carries no industry vocabulary and no regulation text.
+Sentinel OS takes a different approach:
 
-**Governance cassettes.** Cassettes are modular governance knowledge packages. All domain and regulatory knowledge lives in them, so governance requirements can evolve without redesigning the foundation. A cassette is identified by a content hash of its own code and configuration; a changed cassette hashes differently and must be a new version. Silent modification is refused rather than detected after the fact.
+                 STABLE KERNEL
+                      │
+          ┌───────────┴───────────┐
+          │                       │
+   ADAPTIVE GOVERNANCE      ADAPTIVE DOMAIN
+          │                       │
+   REGULATORY CASSETTES       INDUSTRY CASSETTES
+          │                       │
+          └───────────┬───────────┘
+                      │
+                GOVERNED DECISION
+                      │
+                      ▼
+                EVIDENCE LEDGER
+                      │
+                      ▼
+                 INDEPENDENT
+                    TWIN
 
-**Industry cassettes** carry domain-specific governance knowledge: what the decisions in that domain are, what outcomes mean, and over what horizon an outcome matures. Adding an industry means writing a cassette, not changing the foundation. The contact-center cassette is the reference implementation; it is a worked example, not a template.
+The kernel remains stable because change is isolated into controlled layers.
 
-**Regulatory cassettes** carry regulatory knowledge as a lens over decisions. They live in their own registry, separate from industry cassettes, so a lens can never load as operational policy. The default mode is observation: read-only review of the evidence record. Live evaluation is opt-in. Inserting or removing a lens is itself a first-class recorded event, and a live lens must disclose its findings to the evidence chain before any effect takes place. Lenses never alter the domain judgment.
+⸻
 
-**Evidence ledger.** Every governance-relevant event is written to an append-only, hash-chained ledger. Each entry binds the decision to the exact cassette version, model identity, and policy parameters in force when it was made.
+Stable Kernel and Adaptive Layers
 
-**Twin architecture.** Evidence is mirrored to an independent replica held under separate custody, where the party that produced the evidence does not hold the keys to its sealed contents. The twin verifies by recomputation and comparison, so a rewritten chain, a deleted record, or a forged snapshot on the primary becomes a detectable divergence rather than a silent loss. The twin also derives outcome obligations independently from the decision feed, so an operator cannot suppress an obligation without suppressing the decision itself.
+The central architectural distinction in Sentinel OS is between what must remain stable and what must remain adaptable.
 
-**Outcome verification.** Recording an action is not the same as verifying its result. A decision record closes permanently at decision time, but many decisions carry a durable obligation to learn how they turned out. Obligations are tracked separately, mature on a declared schedule, and resolve to explicit states. Cohort-level outcome review, comparing results across groups rather than judging single outcomes, is treated as governance; per-decision outcome tracking is business reporting and stays out of the governance chain, with one exception: an outcome showing the decision process itself failed is a governance event.
+Stable Kernel
 
-## Stable Kernel and Adaptive Layers
+The kernel defines the permanent primitives of governance.
 
-Kernel stability matters because everything downstream depends on the kernel's primitives meaning the same thing over time. Evidence written years apart must verify under the same rules. Every site that reconstructs a hash must agree exactly with every other. A verifier must be able to hold the whole verification model in their head. For these reasons, core primitives resist change, and predictable behavior is treated as a feature in itself rather than a limitation.
+It includes the concepts necessary to:
 
-The cassette layer is where change is expected and welcomed. New regulation, new industry, new institutional policy: each arrives as a new or revised cassette, versioned by content hash, bound into the ledger at load time. The kernel's stability and the cassette layer's mobility are the same design decision viewed from two sides.
+* represent a decision episode;
+* validate events;
+* record provenance;
+* represent outcomes and obligations;
+* define cassette interfaces;
+* declare cassette capabilities;
+* validate cassette structure;
+* load cassettes;
+* detect cassette integrity changes;
+* and establish the evidence boundary.
 
-## Evidence Model
+The kernel is deliberately domain-blind.
 
-Evidence is not logging. Evidence is demonstrable proof of what was decided, which controls applied, what reasoning was recorded, how it was validated, and what the outcome was. The distinction is enforced structurally.
+It does not contain IVR vocabulary.
 
-An actor's report about its own behavior is recorded but never trusted as proof. It is cross-checked against independently observed facts, and it never enters judgment as an input. Verification is recomputation, not trust: any verifier can rebuild each hash from the recorded fields and compare against the chain, and the twin performs this comparison from a separately held copy.
+It does not contain mortgage vocabulary.
 
-Every observation carries one of three stamps: verified, attested, or estimated. An estimate that will not name its method fails validation. The rule governing the whole model:
+It does not contain banking vocabulary.
 
-> Every claim is stamped verified, attested, or estimated, and they are not interchangeable. If it's unknown, Sentinel will timestamp why and what would close it.
+It does not contain regulatory text.
 
-The same discipline applies to what is not yet known. An unresolved outcome is never a flat "indeterminate" flag; it carries a typed reason, when it was opened, and the declared horizon by which it should resolve. Ambiguous outcomes are classified as ambiguous, not coerced into a verdict.
+That absence is intentional.
 
-## Extension Philosophy
+Adaptive Layers
 
-Extension happens at the edges, never in the core. A new industry is a new cassette. A new regulation is a new lens. The kernel does not change to accommodate either.
+Change belongs at the edges.
 
-Capabilities are declared, not assumed. A cassette states which capabilities it implements, and the architecture refuses a cassette at the door rather than letting it run with placeholder values for a capability it does not honestly have. Declaring the absence of a capability is treated as correct behavior, not as failure.
+A new industry becomes a cassette.
 
-Regulatory knowledge evolves on its own track. Only the regulating agency, or someone it explicitly designates, can author a lens with official standing. Lenses authored within this project, including the shipped consumer-lending reference lens, are permanently reference examples regardless of their accuracy. The intended future model, in which an agency publishes one official cassette that its auditors carry into any organization running the framework, is stated here as direction. It is not a current capability.
+A new regulatory regime becomes a regulatory lens/cassette.
 
-## Design Principles
+A new institutional governance requirement can be represented through an appropriate governance module.
 
-Stability over reinvention: the foundation earns trust by not changing.
+The foundation does not need to be rewritten simply because the world changed.
 
-Evidence over assertion: a claim without a verifiable record is not a governance fact.
+⸻
 
-Determinism over ambiguity: the same inputs produce the same judgment, checks fail closed, and the system refuses to guess rather than producing a plausible answer.
+Governance Cassettes
 
-Clarity over cleverness: a verifier who cannot understand the mechanism cannot trust its output.
+Cassettes are modular governance knowledge packages.
 
-Architecture over implementation tricks: guarantees come from structure, such as separate custody and content-hash binding, not from code paths that promise to behave.
+They provide the domain-specific knowledge required to evaluate a particular class of decisions while remaining behind the stable kernel’s interface.
 
-Maintainability over short-term optimization: the system is built to be operated by people who did not build it.
+A cassette declares what it can do.
 
-Modular evolution over replacement: the response to change is a new module, not a new system.
+It does not receive capabilities implicitly.
 
-## Truth Boundaries
+This creates an important rule:
 
-Sentinel OS screens; it does not adjudicate. Its findings flag decisions for human review against specific, recorded criteria. A finding is never a compliance determination, and every report says so.
+Capabilities are declared, not assumed.
 
-Sentinel OS does not interpret law. It structures evidence and applies declared checks. What a regulation requires remains a question for the regulator, counsel, and the courts.
+A cassette that does not declare a capability cannot silently receive placeholder behavior for that capability.
 
-Limitations are disclosed and remain disclosed. Pattern-based screens can be evaded by renaming a variable or rephrasing a narrative; mitigations exist for known evasions and are documented as mitigations that raise the bar, not as closures. A gap is acceptable only when it resolves to a flag or an explicit unknown, never to a silent pass.
+The architecture fails closed at the boundary rather than allowing an incomplete implementation to masquerade as a complete one.
 
-Provenance stamps are not interchangeable, in the framework's own claims as much as in its data. Nothing in this document describes a company, a product line, a partnership, or a managed service as a current capability.
+⸻
 
-## Long-Term Architectural Intent
+Industry Cassettes
 
-This document is written to remain valid for a decade. That is possible only because of what it deliberately excludes: no regulation text, no industry vocabulary, and no claim that depends on a particular module surviving. Those belong to the adaptive layers, where change is the design.
+Industry cassettes contain domain-specific governance knowledge.
 
-The long-term expectation is that oversight of automated decisions will broaden and harden as the systems being governed grow more capable, including in industries whose oversight is minimal today. The architecture anticipates this by keeping every industry-specific and regulation-specific assumption out of the kernel, and by grounding its guarantees in checks that do not degrade as models improve.
+They define things such as:
 
-The intended end state is a shared governance foundation in which every industry has its own cassette and every regulator's requirements can be expressed as one, added without touching the foundation. That end state is direction. What exists today is the framework itself: a stable kernel, working cassettes, a tamper-evident evidence chain, an independent witness, and a discipline for saying exactly what is known, what is claimed, and what is not.
+* what the decisions in that domain represent;
+* what domain-specific outcomes mean;
+* what capabilities are available;
+* and what obligations may mature after a decision.
+
+The repository currently contains multiple cassette implementations, including:
+
+* IVR/contact-center;
+* banking;
+* mortgage.
+
+The IVR implementation is the original reference implementation.
+
+The mortgage implementation demonstrates something particularly important:
+
+an industry cassette does not need to reproduce the surface of another industry.
+
+A mortgage cassette can use the same governance kernel without becoming an IVR system.
+
+That demonstrates the intended separation between:
+
+GOVERNANCE FOUNDATION
+
+and:
+
+DOMAIN APPLICATION
+
+⸻
+
+Regulatory Cassettes and Lenses
+
+Regulatory knowledge is maintained separately from industry knowledge.
+
+This distinction matters.
+
+A regulatory requirement is a lens over a decision, not necessarily the operational policy that makes the decision.
+
+Regulatory evaluation is therefore structurally separated from domain judgment.
+
+The intended default behavior is observation and evaluation over the evidence record.
+
+Regulatory lenses are not supposed to silently become operational policy.
+
+The architecture explicitly treats regulatory insertion and removal as recorded events.
+
+Where a regulatory lens is allowed to operate live, its findings must enter the evidence chain before any resulting effect.
+
+The regulatory layer does not silently rewrite the domain judgment.
+
+⸻
+
+Evidence Is Not Logging
+
+This is one of the central distinctions in Sentinel OS.
+
+A conventional log says:
+
+The system says this happened.
+
+Sentinel OS is designed to answer a stronger question:
+
+Can an independent verifier demonstrate that this happened?
+
+Evidence therefore includes the information required to reconstruct and verify the governance event.
+
+That can include:
+
+* the decision episode;
+* recorded events;
+* model identity;
+* authorizing identity;
+* policy parameters;
+* cassette identity;
+* cassette content hash;
+* governance findings;
+* outcomes;
+* obligations;
+* provenance stamps;
+* and cryptographic relationships between records.
+
+The distinction is structural.
+
+Evidence is not a report generated after the fact.
+
+Evidence is part of the architecture of the decision record itself.
+
+⸻
+
+The Evidence Ledger
+
+Governance-relevant events are written to an append-only, hash-chained ledger.
+
+The ledger binds the decision to the exact governance context in force when the decision occurred.
+
+Conceptually:
+
+DECISION
+   │
+   ├── MODEL IDENTITY
+   ├── AUTHORIZING IDENTITY
+   ├── CASSETTE VERSION
+   ├── CASSETTE CONTENT HASH
+   ├── POLICY PARAMETERS
+   ├── EVENTS
+   ├── GOVERNANCE FINDINGS
+   └── OUTCOME / OBLIGATION
+            │
+            ▼
+       HASH-CHAINED
+          LEDGER
+
+A later verifier can recompute the relevant cryptographic relationships rather than simply trusting an assertion from the application.
+
+⸻
+
+The Twin
+
+A primary evidence store is not sufficient if the same party controls both the system and the evidence.
+
+Sentinel OS therefore includes an independent witness architecture.
+
+The twin is a separately held replica of the evidence.
+
+Its purpose is not merely redundancy.
+
+Its purpose is independent verification.
+
+The twin is designed to detect divergence between the primary record and independently held evidence.
+
+Conceptually:
+
+                 DECISION
+                    │
+             ┌──────┴──────┐
+             ▼             ▼
+         PRIMARY          TWIN
+          LEDGER          REPLICA
+             │             │
+             └──────┬──────┘
+                    ▼
+              COMPARISON
+                    │
+                    ▼
+               DIVERGENCE
+                DETECTION
+
+The party that produced the primary evidence should not be able to silently rewrite history without creating a detectable discrepancy in the independently held copy.
+
+⸻
+
+Why the Twin Matters
+
+A system reporting on its own behavior is inherently self-interested evidence.
+
+That does not mean the report is false.
+
+It means the report should not automatically be treated as independent proof.
+
+Sentinel OS therefore distinguishes:
+
+SYSTEM ASSERTION
+
+from:
+
+INDEPENDENTLY VERIFIABLE EVIDENCE
+
+The twin exists to strengthen that distinction.
+
+⸻
+
+Provenance
+
+Every observation is not necessarily equally trustworthy.
+
+Sentinel OS therefore distinguishes provenance states rather than flattening them.
+
+The governing rule is:
+
+Every claim is stamped verified, attested, or estimated, and they are not interchangeable. If it’s unknown, Sentinel will timestamp why and what would close it.
+
+This principle applies to the evidence model as a whole.
+
+A system should not manufacture certainty simply because a field exists.
+
+An estimate must identify its method.
+
+An unresolved state must remain unresolved.
+
+An ambiguous outcome must remain ambiguous.
+
+⸻
+
+Unknown Is a State
+
+Sentinel OS treats the absence of knowledge as information.
+
+An unresolved outcome is not simply:
+
+INDETERMINATE
+
+It can carry:
+
+* why it remains unresolved;
+* when it became unresolved;
+* what horizon applies;
+* what information would resolve it;
+* and what state it eventually reaches.
+
+This creates a critical governance property:
+
+Unknown information does not silently become a favorable conclusion.
+
+⸻
+
+Outcome Verification
+
+A decision record and the result of that decision are not the same thing.
+
+The decision becomes immutable at decision time.
+
+Some decisions, however, have outcomes that mature later.
+
+Sentinel OS therefore separates:
+
+DECISION
+
+from:
+
+OUTCOME OBLIGATION
+
+The obligation can mature according to a declared schedule.
+
+This allows the system to distinguish:
+
+WHAT WAS DECIDED
+
+from:
+
+WHAT EVENTUALLY HAPPENED
+
+That distinction is essential for governance.
+
+⸻
+
+Decision Supersession
+
+A later decision may supersede an earlier decision.
+
+That does not mean the earlier decision should be rewritten.
+
+Sentinel OS therefore treats supersession as an explicit historical relationship.
+
+DECISION A
+    │
+    │ superseded by
+    ▼
+DECISION B
+
+Decision A remains immutable and provable.
+
+Decision B represents the later state.
+
+This prevents current state from rewriting historical state.
+
+⸻
+
+The Governance Chain
+
+Sentinel OS can therefore be understood as a chain:
+
+INPUT
+  ↓
+EVENT
+  ↓
+EPISODE
+  ↓
+DOMAIN JUDGMENT
+  ↓
+REGULATORY EVALUATION
+  ↓
+EVIDENCE
+  ↓
+OUTCOME OBLIGATION
+  ↓
+VERIFICATION
+
+Each layer has a distinct responsibility.
+
+The architecture does not require one component to perform all of them.
+
+⸻
+
+The Decision Boundary
+
+The default posture of Sentinel OS is:
+
+Witness, not actor.
+
+The governance layer observes and judges the decision process without becoming the system that performs the business action.
+
+This distinction is critical.
+
+A governance system must be capable of examining a decision without necessarily being responsible for executing it.
+
+The original reference implementation also demonstrates an optional acting mode in which Sentinel participates directly in the decision path.
+
+That is an implementation mode.
+
+It is not the architectural requirement.
+
+The underlying architecture remains the governance boundary.
+
+⸻
+
+The Architectural Relationship to the Governed System
+
+The intended relationship is:
+
+┌───────────────────────────────┐
+│       BUSINESS SYSTEM         │
+│                               │
+│  Models / Agents / Workflows  │
+└───────────────┬───────────────┘
+                │
+                │ decision + evidence
+                ▼
+┌───────────────────────────────┐
+│         SENTINEL OS           │
+│                               │
+│  Kernel                       │
+│  Cassettes                    │
+│  Regulatory Lenses            │
+│  Evidence Ledger              │
+│  Twin                         │
+│  Outcome Obligations          │
+└───────────────────────────────┘
+
+The governed system can change independently.
+
+The governance foundation can evolve independently.
+
+The evidence connection remains explicit.
+
+⸻
+
+Architectural Philosophy
+
+Sentinel OS takes a deliberate design influence from COBOL-era mission-critical systems.
+
+This is an architectural influence, not an identity claim.
+
+Those systems demonstrated that long-lived infrastructure can be built around:
+
+* explicit rules;
+* deterministic behavior;
+* durability;
+* maintainability;
+* controlled evolution;
+* and mechanisms that remain understandable long after their original authors are gone.
+
+Sentinel OS attempts to preserve those qualities without reproducing the historical weaknesses that accumulated in some long-lived systems:
+
+* opaque dependencies;
+* uncontrolled complexity;
+* fragile coupling;
+* and dependence on institutional memory.
+
+The design question is therefore:
+
+How can a governance system remain understandable and verifiable decades after the systems it governs have changed?
+
+⸻
+
+Why Simple Checks Matter
+
+The core governance checks are intentionally basic.
+
+Examples include:
+
+* membership in a declared list;
+* comparison of a recomputed hash against a stored hash;
+* arithmetic over recorded facts;
+* structural validation;
+* declared capability checks.
+
+A check becomes powerful precisely because it does not need the model it governs to explain itself.
+
+It asks:
+
+Does this recorded fact match the declared rule?
+
+The answer should not become less reliable because the underlying model becomes more capable.
+
+In fact, the separation becomes more valuable as model capability increases.
+
+⸻
+
+Determinism
+
+Sentinel OS favors deterministic governance mechanisms.
+
+The same evidence should produce the same governance evaluation.
+
+The architecture therefore favors:
+
+* explicit inputs;
+* declared capabilities;
+* deterministic checks;
+* fail-closed boundaries;
+* immutable records;
+* content-addressed versions;
+* and independently reproducible verification.
+
+The system should refuse to guess rather than manufacture a plausible governance result.
+
+⸻
+
+Extension Philosophy
+
+Extension happens at the edges.
+
+Not in the kernel.
+
+A new industry is a new cassette.
+
+A new regulatory regime is a new regulatory lens/cassette.
+
+A changed implementation is a new content-hashed version.
+
+This creates:
+
+STABLE CORE
+    │
+    ├── INDUSTRY A
+    ├── INDUSTRY B
+    ├── INDUSTRY C
+    │
+    ├── REGULATION A
+    ├── REGULATION B
+    └── REGULATION C
+
+rather than:
+
+ONE GIANT GOVERNANCE APPLICATION
+
+The architecture is modular because governance knowledge is expected to change.
+
+⸻
+
+Capabilities Are Declared
+
+A cassette does not get to imply that it supports something merely because a caller expects it.
+
+The cassette declares its capabilities.
+
+The kernel validates that declaration.
+
+Unsupported capabilities are not silently filled with placeholders.
+
+This is an architectural enforcement mechanism.
+
+The boundary says:
+
+Tell me what you actually support.
+
+not:
+
+Tell me what would make this invocation succeed.
+
+⸻
+
+Domain Independence
+
+The current repository demonstrates Sentinel OS through multiple domains.
+
+That matters because domain independence is not being claimed solely from the existence of a generic interface.
+
+It is demonstrated through separation of:
+
+KERNEL
+
+from:
+
+DOMAIN CASSETTES
+
+The same kernel primitives can therefore support different domain implementations.
+
+The contact-center implementation is the founding proving ground.
+
+It is not the definition of Sentinel OS.
+
+⸻
+
+Regulatory Independence
+
+The same principle applies to regulatory knowledge.
+
+Regulatory requirements change.
+
+They should therefore not be welded into the permanent kernel.
+
+Instead:
+
+KERNEL
+  │
+  ├── REGULATORY LENS A
+  ├── REGULATORY LENS B
+  └── REGULATORY LENS C
+
+The kernel provides the mechanism.
+
+The regulatory layer provides the changing knowledge.
+
+⸻
+
+The Architecture’s Core Separation
+
+Sentinel OS rests on several deliberate separations:
+
+Governance from operation
+
+The system governing a decision is not necessarily the system executing it.
+
+Evidence from assertion
+
+A system’s report about itself is not automatically treated as proof.
+
+Domain from kernel
+
+Industry-specific knowledge does not belong in the stable foundation.
+
+Regulation from domain judgment
+
+A regulatory lens evaluates a decision without becoming the domain’s operational policy.
+
+Current state from historical state
+
+A later decision does not rewrite the earlier one.
+
+Decision from outcome
+
+What was decided is distinct from what eventually happened.
+
+Primary evidence from independent verification
+
+The producer of evidence should not be the sole authority capable of verifying it.
+
+These separations are not documentation conventions.
+
+They are architectural boundaries.
+
+⸻
+
+Sentinel OS as a Governance Infrastructure
+
+At its deepest level, Sentinel OS is not a collection of compliance features.
+
+It is infrastructure for maintaining governance continuity under change.
+
+The architecture is designed to preserve a stable answer to:
+
+WHAT HAPPENED?
+WHY DID IT HAPPEN?
+WHAT GOVERNANCE APPLIED?
+WHAT VERSION WAS IN FORCE?
+WHO AUTHORIZED IT?
+WHAT WAS OBSERVED?
+WHAT WAS INFERRED?
+WHAT REMAINS UNKNOWN?
+WHAT HAPPENED AFTERWARD?
+CAN THE RECORD BE VERIFIED?
+
+Those questions remain relevant regardless of the application domain.
+
+⸻
+
+Sentinel OS and System Memory
+
+This distinction becomes important in the larger architecture.
+
+Sentinel OS is not itself a general-purpose cognitive memory system.
+
+Its evidence ledger nevertheless creates a specialized form of governance memory.
+
+It preserves the historical state of governed decisions and their governance context.
+
+That means the system can maintain distinctions such as:
+
+WHAT THE SYSTEM DID
+WHAT GOVERNANCE WAS IN FORCE
+WHAT THE SYSTEM REPORTED
+WHAT WAS INDEPENDENTLY VERIFIED
+WHAT LATER SUPERSEDED IT
+
+This is governance continuity.
+
+⸻
+
+Sentinel OS and the Larger Architecture
+
+Sentinel OS can therefore occupy a specific role within a larger governed AI architecture.
+
+Other systems may:
+
+* perceive;
+* interpret;
+* reason;
+* remember;
+* analyze;
+* or act.
+
+Sentinel OS provides the governance boundary and evidence substrate through which those activities can remain accountable.
+
+Conceptually:
+
+OBSERVE
+   ↓
+INTERPRET
+   ↓
+REASON
+   ↓
+ACT
+   ↓
+        SENTINEL OS
+   ┌─────────────────┐
+   │ GOVERNANCE      │
+   │ EVIDENCE        │
+   │ PROVENANCE      │
+   │ VERIFICATION    │
+   │ OUTCOMES        │
+   └─────────────────┘
+
+Sentinel does not need to perform every cognitive function.
+
+Its role is to ensure that governed action remains bounded, attributable, and provable.
+
+⸻
+
+Governance as a Stable Spine
+
+The deeper architectural proposition is that governance should behave differently from the systems it governs.
+
+Applications evolve.
+
+Models evolve.
+
+Industries evolve.
+
+Regulations evolve.
+
+Governance infrastructure should therefore be designed around controlled adaptation without loss of foundational meaning.
+
+That is why Sentinel OS has:
+
+STABLE KERNEL
+       +
+MODULAR GOVERNANCE KNOWLEDGE
+       +
+IMMUTABLE EVIDENCE
+       +
+INDEPENDENT WITNESS
+
+The architecture allows change without requiring the foundation itself to become unstable.
+
+⸻
+
+Truth Boundaries
+
+Sentinel OS screens.
+
+It evaluates.
+
+It records.
+
+It verifies.
+
+It does not itself become the final legal authority.
+
+A governance finding is not automatically a legal determination.
+
+Sentinel OS does not interpret law on behalf of courts or regulators.
+
+It structures evidence and applies declared checks.
+
+Human authorities remain responsible for interpretations and determinations that belong to humans.
+
+⸻
+
+Known Limitations
+
+The architecture deliberately distinguishes what exists from what is still incomplete.
+
+The repository’s current status identifies known open areas, including:
+
+* automatic cassette-tamper rejection at load time;
+* one scoped forged-policy-snapshot scenario not yet caught by the twin;
+* absence of a dedicated bias-testing mechanism in the core;
+* absence of a dedicated adverse-action specificity mechanism.
+
+These are disclosed limitations.
+
+They are not silently converted into claims of completeness.
+
+The distinction is important:
+
+A known limitation is acceptable as a documented limitation. An undisclosed limitation is a governance failure.
+
+⸻
+
+Research Mode
+
+Some capabilities in the repository are research-only and disabled by default pending appropriate review.
+
+For example, BISG demographic inference is explicitly gated behind:
+
+SENTINEL_BISG_RESEARCH_MODE=true
+
+When disabled, the relevant geographic cohort tests report skips rather than silently performing demographic inference.
+
+The underlying regulatory architecture remains distinct from that research capability.
+
+This reflects a broader design principle:
+
+Sensitive capabilities should be explicit, gated, and attributable rather than silently available.
+
+⸻
+
+Current Implementation Status
+
+The repository is an active production-oriented implementation and research platform.
+
+The documented system has included:
+
+* a governance kernel;
+* domain cassettes;
+* regulatory evaluation;
+* append-only hash-chained evidence;
+* independent twin custody;
+* model identity recording;
+* authorizing identity recording;
+* formal decision supersession;
+* structural prompt-injection defenses;
+* outcome obligations;
+* PostgreSQL-backed persistence;
+* Redis-backed infrastructure;
+* simulation;
+* API interfaces;
+* and automated testing.
+
+The repository’s July 2026 governance status recorded 270 tests passing against real PostgreSQL and Redis in GitHub Actions, while also explicitly documenting remaining gaps rather than presenting the system as finished.
+
+That distinction matters.
+
+Sentinel OS is a serious architectural foundation, not a claim that every future governance problem has already been solved.
+
+⸻
+
+Representative Application
+
+The original contact-center / IVR implementation should be understood correctly.
+
+It is not:
+
+“Sentinel OS is an IVR governance system.”
+
+It is:
+
+“IVR/contact-center decision governance is the original representative implementation used to demonstrate the Sentinel OS architecture.”
+
+The same architecture is subsequently demonstrated through additional domain cassettes.
+
+The application is therefore evidence of the architecture’s intended extensibility.
+
+It is not the architecture’s limit.
+
+⸻
+
+The Long-Term Architectural Intent
+
+This document is intentionally written around concepts that should remain valid even as implementations change.
+
+The kernel should not need to change because:
+
+* a new model arrives;
+* a new agent architecture appears;
+* a new industry adopts automated decisioning;
+* a new regulation is enacted;
+* a new jurisdiction adds obligations;
+* or a new application replaces the original proving ground.
+
+Those changes belong at the adaptive boundary.
+
+The long-term direction is a governance foundation in which:
+
+ONE STABLE KERNEL
+        │
+        ├── MANY INDUSTRIES
+        │
+        ├── MANY REGULATORY LENSES
+        │
+        ├── MANY BUSINESS SYSTEMS
+        │
+        └── MANY AI ARCHITECTURES
+
+while preserving:
+
+EVIDENCE
+PROVENANCE
+VERSIONING
+VERIFICATION
+ACCOUNTABILITY
+
+⸻
+
+The Central Architectural Proposition
+
+Sentinel OS is built around a simple proposition:
+
+Governance should not have to become the thing it governs in order to govern it.
+
+The systems underneath can change.
+
+The governance knowledge can change.
+
+The regulatory environment can change.
+
+The models can change.
+
+The industries can change.
+
+But the architecture should preserve a stable mechanism for determining:
+
+WHAT HAPPENED
+      +
+WHAT GOVERNANCE APPLIED
+      +
+WHAT WAS KNOWN
+      +
+WHAT WAS DECIDED
+      +
+WHAT HAPPENED AFTERWARD
+      +
+WHETHER THE RECORD CAN BE PROVEN
+
+That is the purpose of the Sentinel OS architecture.
+
+⸻
+
+Final Architectural Statement
+
+Sentinel OS is a domain-agnostic governance infrastructure architecture for automated decision systems.
+
+Its fundamental contribution is not a particular industry implementation, regulatory checklist, or model integration.
+
+Its contribution is the separation of:
+
+STABLE GOVERNANCE PRIMITIVES
+
+from:
+
+CHANGING GOVERNANCE KNOWLEDGE
+
+while binding governed decisions to:
+
+VERIFIABLE EVIDENCE
+
+and preserving an:
+
+INDEPENDENT WITNESS
+
+The architecture therefore provides a stable governance foundation beneath systems that are expected to change.
+
+The world changes.
+
+The systems change.
+
+The rules change.
+
+The models change.
+
+The governance foundation remains intelligible, modular, and verifiable.
+
+Sentinel OS
+
+Governance that remains stable while everything it governs changes.
