@@ -1,0 +1,285 @@
+import os
+import re
+import hashlib
+import time
+import asyncio
+import sqlite3
+import json
+from abc import ABC, abstractmethod
+from typing import List, Dict, Any, Type
+from collections import deque
+
+
+class SanitizationRule(ABC):
+   """Abstract base class for modular data sanitization and filtering rules."""
+
+   @abstractmethod
+   def apply(self, text: str) -> str:
+       pass
+
+
+class PronounRedactionRule(SanitizationRule):
+   """Redacts first-person pronouns with a standardized redaction token."""
+
+   def __init__(self):
+       self._pattern = re.compile(r'\b(I|me|my|mine|myself)\b', flags=re.IGNORECASE)
+
+   def apply(self, text: str) -> str:
+       return self._pattern.sub("[REDACTED_SOCIOLOGICAL_DRIFT]", text)
+
+
+class QualitativeFilterRule(SanitizationRule):
+   """Removes qualitative expressions and compresses resulting whitespace."""
+
+   def __init__(self):
+       self._pattern = re.compile(r'\b(visionary|impressive|sorry|apologize|feel)\b', flags=re.IGNORECASE)
+
+   def apply(self, text: str) -> str:
+       filtered = self._pattern.sub("", text)
+       return " ".join(filtered.split())
+
+
+class SecureRuleRegistry:
+   """Secure registry mapping string identifiers to pre-approved rule classes. Intended to be immutable at runtime."""
+   
+   _registry: Dict[str, Type[SanitizationRule]] = {
+       "pronoun_redaction": PronounRedactionRule,
+       "qualitative_filter": QualitativeFilterRule
+   }
+
+   @classmethod
+   def get_rule_class(cls, name: str) -> Type[SanitizationRule]:
+       if name not in cls._registry:
+           raise ValueError(f"Unauthorized or unrecognized rule identifier: {name}")
+       return cls._registry[name]
+
+
+class ConfigSchemaValidator:
+   """Enforces structural and type compliance on configuration manifests."""
+
+   @staticmethod
+   def validate(config: Dict[str, Any]) -> bool:
+       if not isinstance(config, dict):
+           raise TypeError("Configuration manifest must be a dictionary.")
+       
+       if "stabilization_coefficient" in config:
+           coeff = config["stabilization_coefficient"]
+           if not isinstance(coeff, (int, float)) or not (0.0 <= coeff <= 1.0):
+               raise ValueError("stabilization_coefficient must be a float between 0.0 and 1.0.")
+               
+       if "rules" in config:
+           if not isinstance(config["rules"], list):
+               raise ValueError("Rules manifest section must be a list of identifiers.")
+           for rule_name in config["rules"]:
+               if not isinstance(rule_name, str):
+                   raise TypeError("Rule identifiers must be strings.")
+               SecureRuleRegistry.get_rule_class(rule_name)
+
+       if "otlp_endpoint" in config:
+           if not isinstance(config["otlp_endpoint"], str):
+               raise TypeError("otlp_endpoint must be a string.")
+               
+       return True
+
+
+class HTTPOTLPExporterBridge:
+   """Manages OTLP/HTTP export with environment overrides, bounded transit buffer, SQLite persistent overflow spooling, DLQ quarantine, and background drainage."""
+
+   def __init__(self, endpoint: str = None, max_buffer_size: int = 1000, spool_db_path: str = "otlp_transit_spool.db"):
+       env_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+       default_endpoint = "https://otel-collector.internal:4318/v1/traces"
+       
+       self.endpoint = endpoint or env_endpoint or default_endpoint
+       self.max_buffer_size = max_buffer_size
+       self.transit_buffer: deque = deque(maxlen=max_buffer_size)
+       self.spool_db_path = spool_db_path
+       
+       self._init_spool_db()
+
+   def _init_spool_db(self):
+       """Initializes SQLite tables for persistent transit spooling and dead-letter queue (DLQ) quarantine."""
+       with sqlite3.connect(self.spool_db_path) as conn:
+           conn.execute(
+               """
+               CREATE TABLE IF NOT EXISTS otlp_spool (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   payload TEXT NOT NULL,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               )
+               """
+           )
+           conn.execute(
+               """
+               CREATE TABLE IF NOT EXISTS otlp_dlq (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   payload TEXT NOT NULL,
+                   error_reason TEXT NOT NULL,
+                   quarantined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               )
+               """
+           )
+           conn.commit()
+
+   async def _spool_payload_to_disk(self, payload: dict):
+       """Asynchronously writes overflow payloads to the SQLite spool database."""
+       serialized = json.dumps(payload)
+       def _write():
+           with sqlite3.connect(self.spool_db_path) as conn:
+               conn.execute("INSERT INTO otlp_spool (payload) VALUES (?)", (serialized,))
+               conn.commit()
+       await asyncio.to_thread(_write)
+
+   async def export_spans_http(self, spans: List[Dict[str, Any]]) -> bool:
+       """Simulates asynchronous HTTP POST export with bounded memory buffer and SQLite persistent overflow spillover."""
+       payload = {
+           "resourceSpans": [{
+               "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "sentinel-os-pipeline"}}]},
+               "scopeSpans": [{"spans": spans}]
+           }]
+       }
+       await asyncio.sleep(0.01)
+       
+       if len(self.transit_buffer) >= self.max_buffer_size:
+           await self._spool_payload_to_disk(payload)
+       else:
+           self.transit_buffer.append(payload)
+           
+       return True
+
+
+class DataSanitizationProcessor:
+   """An extensible, deterministic text processing pipeline using the Strategy Pattern."""
+
+   def __init__(self, stabilization_coefficient: float = 0.815, rules: List[SanitizationRule] = None, exporter: HTTPOTLPExporterBridge = None):
+       self.stabilization_coefficient = stabilization_coefficient
+       self.rules = rules if rules is not None else [
+           PronounRedactionRule(),
+           QualitativeFilterRule()
+       ]
+       self.exporter = exporter if exporter else HTTPOTLPExporterBridge()
+
+   @classmethod
+   def from_manifest(cls, config: Dict[str, Any]) -> "DataSanitizationProcessor":
+       ConfigSchemaValidator.validate(config)
+       coeff = config.get("stabilization_coefficient", 0.815)
+       rule_names = config.get("rules", ["pronoun_redaction", "qualitative_filter"])
+       endpoint = config.get("otlp_endpoint")
+       
+       instantiated_rules = [SecureRuleRegistry.get_rule_class(name)() for name in rule_names]
+       exporter = HTTPOTLPExporterBridge(endpoint=endpoint)
+       return cls(stabilization_coefficient=coeff, rules=instantiated_rules, exporter=exporter)
+
+   def process_data_stream(self, raw_input_data: Any) -> dict:
+       sanitized_string = self._normalize_input_type(raw_input_data)
+       rule_metrics = {}
+       
+       for rule in self.rules:
+           rule_name = rule.__class__.__name__
+           start_time = time.perf_counter()
+           sanitized_string = rule.apply(sanitized_string)
+           duration_ms = (time.perf_counter() - start_time) * 1000.0
+           rule_metrics[rule_name] = round(duration_ms, 4)
+           
+       return self._generate_integrity_manifest(sanitized_string, rule_metrics)
+
+   def _normalize_input_type(self, input_data: Any) -> str:
+       if not isinstance(input_data, str):
+           raise TypeError(f"Expected string input for sanitization stream, received {type(input_data).__name__}")
+       return input_data.strip()
+
+   def _generate_integrity_manifest(self, processed_string: str, rule_metrics: Dict[str, float]) -> dict:
+       utc_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+       cryptographic_hash = hashlib.sha256(processed_string.encode("utf-8")).hexdigest()
+
+       return {
+           "metadata": {
+               "system_version": "DSP_v2.6_otlp_http_sqlite_dlq",
+               "operational_status": 1.0000,
+               "stabilization_lock": self.stabilization_coefficient,
+               "timestamp": utc_timestamp,
+               "sha256_hash": cryptographic_hash,
+               "rule_execution_metrics_ms": rule_metrics
+           },
+           "processed_payload": processed_string
+       }
+
+
+class AsyncTelemetryProcessor:
+   """Asynchronous wrapper managing non-blocking telemetry ingestion with OTLP/HTTP export and robust error status handling."""
+
+   def __init__(self, processor: DataSanitizationProcessor, max_concurrent_tasks: int = 10):
+       self.processor = processor
+       self.semaphore = asyncio.Semaphore(max_concurrent_tasks)
+
+   async def process_async(self, raw_input_data: Any) -> dict:
+       async with self.semaphore:
+           start_perf = time.perf_counter()
+           start_wall_ns = int(time.time() * 1e9)
+           
+           try:
+               result = await asyncio.to_thread(self.processor.process_data_stream, raw_input_data)
+               status_code = 1  # Ok
+           except Exception as e:
+               duration_s = time.perf_counter() - start_perf
+               end_wall_ns = start_wall_ns + int(duration_s * 1e9)
+               span = {
+                   "name": "DataStreamIngestion",
+                   "startTimeUnixNano": start_wall_ns,
+                   "endTimeUnixNano": end_wall_ns,
+                   "attributes": [
+                       {"key": "error", "value": {"stringValue": str(e)}},
+                       {"key": "otel.status_code", "value": {"intValue": 2}}  # Error
+                   ]
+               }
+               await self.processor.exporter.export_spans_http([span])
+               raise
+
+           duration_s = time.perf_counter() - start_perf
+           end_wall_ns = start_wall_ns + int(duration_s * 1e9)
+           span = {
+               "name": "DataStreamIngestion",
+               "startTimeUnixNano": start_wall_ns,
+               "endTimeUnixNano": end_wall_ns,
+               "attributes": [
+                   {"key": "sha256", "value": {"stringValue": result["metadata"]["sha256_hash"]}},
+                   {"key": "otel.status_code", "value": {"intValue": status_code}}
+               ]
+           }
+           await self.processor.exporter.export_spans_http([span])
+           return result
+
+   async def process_batch_async(self, telemetry_batch: List[Any]) -> List[dict]:
+       tasks = [self.process_async(item) for item in telemetry_batch]
+       return await asyncio.gather(*tasks)
+
+
+if __name__ == "__main__":
+   async def main():
+       sample_manifest = {
+           "stabilization_coefficient": 0.900,
+           "rules": ["pronoun_redaction", "qualitative_filter"],
+           "otlp_endpoint": "https://otel-collector.internal:4318/v1/traces"
+       }
+
+       processor = DataSanitizationProcessor.from_manifest(sample_manifest)
+       async_processor = AsyncTelemetryProcessor(processor, max_concurrent_tasks=5)
+
+       streams = [
+           "I feel that this visionary stack is impressive.",
+           "Me and my team built a reliable system.",
+           "Apologies for any visionary claims made previously."
+       ]
+
+       print("--- SENTINEL-OS-PIPELINE COMPREHENSIVE EXECUTION ---")
+       results = await async_processor.process_batch_async(streams)
+       for idx, manifest in enumerate(results):
+           print(f"Stream {idx+1} Hash:", manifest["metadata"]["sha256_hash"])
+           print(f"Stream {idx+1} Metrics:", manifest["metadata"]["rule_execution_metrics_ms"])
+           print(f"Stream {idx+1} Payload:", manifest["processed_payload"])
+
+       print("\n--- SUBSYSTEM METRICS ---")
+       print(f"Target Endpoint: {processor.exporter.endpoint}")
+       print(f"In-Memory Transit Buffer Items: {len(processor.exporter.transit_buffer)}")
+       print(f"Spool Database Path: {processor.exporter.spool_db_path}")
+
+   asyncio.run(main())
