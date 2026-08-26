@@ -155,23 +155,27 @@ class TransformationRecordFactory:
         """
         Map authorized_by identifier to ActorKind using TYPED matching.
 
-        SECURITY: No substring inference. Explicit mapping from known
-        authorization patterns to ActorKind.
+        SECURITY: No substring inference, no case-folding. Exact match only.
+        Addresses HERALD HIGH-1 (case-sensitivity bypass).
         """
         if not authorized_by:
             return ActorKind.SYSTEM
 
-        normalized = authorized_by.strip().lower()
+        normalized = authorized_by.strip()
 
-        # Explicit typed mapping
-        if normalized == "human" or "human_" in normalized:
+        # Explicit typed mapping - exact matches only
+        if normalized == "human":
             return ActorKind.HUMAN
-        elif normalized.startswith("harness:"):
-            return ActorKind.SYSTEM
         elif normalized == "regulatory_system":
             return ActorKind.SYSTEM
+        elif normalized.startswith("human_"):
+            # Explicit pattern for human_* (exact prefix, case-sensitive)
+            return ActorKind.HUMAN
+        elif normalized.startswith("harness:"):
+            # Service identity pattern (case-sensitive)
+            return ActorKind.SYSTEM
         else:
-            # Default to SYSTEM for service accounts
+            # Default to SYSTEM for unknown service accounts
             return ActorKind.SYSTEM
 
     @staticmethod

@@ -32,9 +32,13 @@ class OriginStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
-@dataclass
+@dataclass(frozen=True)
 class ArtifactMetadata:
-    """Metadata about an artifact from Sentinel perspective."""
+    """Metadata about an artifact from Sentinel perspective.
+
+    FROZEN: Prevents post-creation mutation of authority and other critical fields.
+    Addresses HERALD vulnerability CRITICAL-2 (metadata authority escalation).
+    """
     artifact_id: str
     producer: str  # e.g., "Sentinel"
     created_at: str  # ISO8601
@@ -76,9 +80,14 @@ class ArtifactMetadata:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SentinelArtifact:
-    """Artifact as produced by Sentinel, ready for conservation."""
+    """Artifact as produced by Sentinel, ready for conservation.
+
+    FROZEN: Prevents field reassignment after creation.
+    Addresses HERALD vulnerability CRITICAL-1 (post-validation mutation).
+    Note: Content dict itself remains mutable; use immutable wrapper at storage layer.
+    """
     artifact_id: str
     content: Dict[str, Any]
     metadata: ArtifactMetadata

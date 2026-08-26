@@ -335,6 +335,7 @@ class SentinelConservationGateway:
         """
         # Explicit whitelist of known, verified actor identities.
         # Add entries only after verifying the actor against the registry.
+        # SECURITY: Exact-match only, case-sensitive. Addresses HERALD HIGH-1.
         VERIFIED_AUTHORITIES = {
             "human": KernelAuthorityStatus.HUMAN_AUTHORIZED,
             "governor_claude_api": KernelAuthorityStatus.HUMAN_AUTHORIZED,  # API governed by human policy
@@ -342,10 +343,11 @@ class SentinelConservationGateway:
             "harness:governance": KernelAuthorityStatus.HUMAN_AUTHORIZED,  # Fail-closed decisions by harness
         }
 
-        # Normalize but do NOT infer - exact match only
-        normalized = authority_source.strip().lower() if authority_source else ""
+        # Exact match - no normalization, no case-folding
+        # Any deviation (case, whitespace, typo) fails to authenticate
+        normalized = authority_source.strip() if authority_source else ""
 
-        # Return only if explicitly known and verified
+        # Return only if explicitly known and verified (exact match)
         if normalized in VERIFIED_AUTHORITIES:
             return VERIFIED_AUTHORITIES[normalized]
 
@@ -358,25 +360,31 @@ class SentinelConservationGateway:
         """
         Map authority source to ActorKind using TYPED matching (not substring).
 
-        SECURITY: No string inference. Uses explicit typed mapping from
-        known authority identities to their corresponding ActorKind.
+        SECURITY: No string inference, no case-folding. Uses explicit typed mapping.
+        Exact match only - case-sensitive. Addresses HERALD HIGH-1.
         """
-        # Normalize but do NOT infer - exact match only
-        normalized = authority_source.strip().lower() if authority_source else ""
+        # Exact match - strip whitespace only, preserve case
+        normalized = authority_source.strip() if authority_source else ""
 
-        # Explicit typed mapping
+        # Explicit typed mapping - exact match only
         actor_kind_map = {
             "governor_claude_api": ActorKind.MODEL,      # Claude API governor
             "human": ActorKind.HUMAN,                      # Human-authorized decision
             "regulatory_system": ActorKind.SYSTEM,         # Regulatory system
         }
 
-        # For service identities like "harness:production", map by prefix
+        # Check exact matches first
+        if normalized in actor_kind_map:
+            return actor_kind_map[normalized]
+
+        # For service identities like "harness:governance", exact prefix match
+        # (but not case-insensitive - "HARNESS:" would NOT match)
         if normalized.startswith("harness:"):
             return ActorKind.SYSTEM
 
-        # Return known type, or SYSTEM as default for service accounts
-        return actor_kind_map.get(normalized, ActorKind.SYSTEM)
+        # Return SYSTEM as default for unknown service accounts
+        # (not inferring from substrings)
+        return ActorKind.SYSTEM
 
     def _to_transformation_record(
         self,
