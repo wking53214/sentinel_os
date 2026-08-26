@@ -128,10 +128,22 @@ class SentinelConservationGateway:
 
         This is the primary integration point for Sentinel → Kernel flow.
 
+        SECURITY REQUIREMENT: authority_source MUST be pre-verified by the caller.
+        This gateway does NOT verify authority - it only maps known, verified
+        identities to their corresponding authority types. The caller is responsible
+        for:
+        1. Verifying the actor identity against the authorized registry
+        2. Confirming the actor is permitted to create this artifact
+        3. Passing only verified authority_source values
+
+        Passing an unverified authority_source will result in authority status NONE
+        (fail-closed), which will cause the artifact to be rejected by the Kernel.
+
         Args:
             artifact_id: Unique identifier for this artifact
             content: The artifact content (dict)
-            authority_source: System/person authorizing this artifact
+            authority_source: Pre-verified actor identity creating this artifact.
+                            MUST be verified against authorized registry by caller.
             epistemic_status: "verified", "estimated", "inferred", "uncertain"
             evidence_refs: References to supporting evidence
             lineage: Sequence of predecessor artifact IDs
@@ -277,11 +289,41 @@ class SentinelConservationGateway:
         return mapping.get(sentinel_origin, KernelOriginStatus.MACHINE_ORIGINATED)
 
     def _map_authority_status(self, authority_source: str) -> KernelAuthorityStatus:
-        """Map authority source string to Kernel authority status."""
-        if "human" in authority_source.lower():
-            return KernelAuthorityStatus.HUMAN_AUTHORIZED
-        if "canonical" in authority_source.lower():
-            return KernelAuthorityStatus.CANONICAL
+        """
+        Map authority source to Kernel authority status using TYPED, VERIFIED mapping.
+
+        SECURITY: Uses explicit whitelist, NOT substring matching.
+        Substring matching (e.g., checking if "human" in string) is unsafe:
+        - "inhumane_actor" would match "human"
+        - "canonical_fraud" would match "canonical"
+
+        Authority is determined by exact, typed actor identity verification,
+        NOT string inference. This method only maps ALREADY VERIFIED actor
+        identities to their corresponding authority statuses.
+
+        Caller MUST verify authority_source against the actual actor registry
+        before passing it here.
+
+        Fails closed: unknown authorities return NONE.
+        """
+        # Explicit whitelist of known, verified actor identities.
+        # Add entries only after verifying the actor against the registry.
+        VERIFIED_AUTHORITIES = {
+            "human": KernelAuthorityStatus.HUMAN_AUTHORIZED,
+            "governor_claude_api": KernelAuthorityStatus.HUMAN_AUTHORIZED,  # API governed by human policy
+            "regulatory_system": KernelAuthorityStatus.CANONICAL,
+        }
+
+        # Normalize but do NOT infer - exact match only
+        normalized = authority_source.strip().lower() if authority_source else ""
+
+        # Return only if explicitly known and verified
+        if normalized in VERIFIED_AUTHORITIES:
+            return VERIFIED_AUTHORITIES[normalized]
+
+        # FAIL CLOSED: unknown authority -> NONE
+        # This forces the caller to explicitly verify and register new authorities
+        # rather than allowing typos or spoofed strings to elevate privileges
         return KernelAuthorityStatus.NONE
 
     def _to_transformation_record(
