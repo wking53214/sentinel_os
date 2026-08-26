@@ -54,13 +54,14 @@ class ArtifactFactory:
         # Determine epistemic status from decision
         epistemic_status = ArtifactFactory._determine_epistemic_status(decision_record)
 
-        # Build metadata
-        metadata = ArtifactMetadata(
-            producer=decision_record.node or "sentinel-governance",
-            epistemic_status=epistemic_status,
+        # Build metadata using factory method
+        metadata = ArtifactMetadata.from_sentinel_artifact(
+            artifact_id=artifact_id,
+            content=content,
             authority_source=authority_source,
-            lineage=parent_artifact_ids or [],
-            evidence_refs=[]  # Could be populated from decision if available
+            epistemic_status=epistemic_status.value,
+            evidence_refs=[],
+            lineage=parent_artifact_ids or []
         )
 
         artifact = SentinelArtifact(
