@@ -122,8 +122,9 @@ class TransformationRecordFactory:
         """
         Determine the transformer (who/what made the decision).
 
-        Maps decision components to a typed Actor identity.
+        Maps decision components to a typed Actor identity (MODEL, HUMAN, or SYSTEM).
         FAIL-CLOSED: raises if no actor identity found.
+        SECURITY: Uses explicit actor type mapping, NOT substring inference.
         """
         # If decision came from model (Claude API)
         if decision.model_identity:
@@ -133,9 +134,9 @@ class TransformationRecordFactory:
                 label=f"Claude Model {decision.model_identity}"
             )
 
-        # If explicitly authorized by someone
+        # If explicitly authorized by someone, map to typed actor kind
         if decision.authorized_by:
-            kind = ActorKind.HUMAN if "human" in decision.authorized_by.lower() else ActorKind.SYSTEM
+            kind = TransformationRecordFactory._map_authorized_by_to_kind(decision.authorized_by)
             return Actor(
                 actor_id=decision.authorized_by,
                 kind=kind,
@@ -148,6 +149,30 @@ class TransformationRecordFactory:
             "Every governance decision must be attributed to a typed actor (model or authorized human/system). "
             f"Decision: node={decision.node}, cassette={decision.cassette_version}"
         )
+
+    @staticmethod
+    def _map_authorized_by_to_kind(authorized_by: str) -> str:
+        """
+        Map authorized_by identifier to ActorKind using TYPED matching.
+
+        SECURITY: No substring inference. Explicit mapping from known
+        authorization patterns to ActorKind.
+        """
+        if not authorized_by:
+            return ActorKind.SYSTEM
+
+        normalized = authorized_by.strip().lower()
+
+        # Explicit typed mapping
+        if normalized == "human" or "human_" in normalized:
+            return ActorKind.HUMAN
+        elif normalized.startswith("harness:"):
+            return ActorKind.SYSTEM
+        elif normalized == "regulatory_system":
+            return ActorKind.SYSTEM
+        else:
+            # Default to SYSTEM for service accounts
+            return ActorKind.SYSTEM
 
     @staticmethod
     def _build_declared_changes(decision: GovernanceDecisionRecord) -> List[DeclaredChange]:

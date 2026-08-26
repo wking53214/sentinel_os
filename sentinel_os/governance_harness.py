@@ -325,6 +325,17 @@ class GovernanceHarness:
     def _write_decision(self, episode: Episode, params, issue_count: int,
                         decision: Dict[str, Any]) -> None:
         from governance.ledger_postgres import GovernanceDecisionRecord
+
+        # TYPED ACTOR: Every decision must have an actor (model or authorized system).
+        # If model_identity is set (Claude API), use it.
+        # If not (refusal/fail-closed), the harness itself is the decision-maker.
+        model_id = decision.get("model_identity")
+        authorized_by = None
+        if model_id is None:
+            # Fail-closed decisions (safe=False): harness is the actor
+            # Pattern per ledger_postgres.py:70-72: service identity, never raw key/PII
+            authorized_by = "harness:governance"
+
         record = GovernanceDecisionRecord(
             action_type="governance_decision",
             node=self.cassette.get_config().domain,
@@ -337,7 +348,8 @@ class GovernanceHarness:
             policy_parameters=serialize_cassette_for_ledger(params),
             reasoning=decision.get("reasoning") or "",
             output={"approved": bool(decision.get("safe"))},
-            model_identity=decision.get("model_identity"),
+            model_identity=model_id,
+            authorized_by=authorized_by,
             ai_cost=decision.get("cost"),
             outcome_obligation=self._outcome_obligation_declaration(),
         )

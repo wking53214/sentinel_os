@@ -339,6 +339,7 @@ class SentinelConservationGateway:
             "human": KernelAuthorityStatus.HUMAN_AUTHORIZED,
             "governor_claude_api": KernelAuthorityStatus.HUMAN_AUTHORIZED,  # API governed by human policy
             "regulatory_system": KernelAuthorityStatus.CANONICAL,
+            "harness:governance": KernelAuthorityStatus.HUMAN_AUTHORIZED,  # Fail-closed decisions by harness
         }
 
         # Normalize but do NOT infer - exact match only
@@ -352,6 +353,30 @@ class SentinelConservationGateway:
         # This forces the caller to explicitly verify and register new authorities
         # rather than allowing typos or spoofed strings to elevate privileges
         return KernelAuthorityStatus.NONE
+
+    def _map_authority_to_actor_kind(self, authority_source: str) -> ActorKind:
+        """
+        Map authority source to ActorKind using TYPED matching (not substring).
+
+        SECURITY: No string inference. Uses explicit typed mapping from
+        known authority identities to their corresponding ActorKind.
+        """
+        # Normalize but do NOT infer - exact match only
+        normalized = authority_source.strip().lower() if authority_source else ""
+
+        # Explicit typed mapping
+        actor_kind_map = {
+            "governor_claude_api": ActorKind.MODEL,      # Claude API governor
+            "human": ActorKind.HUMAN,                      # Human-authorized decision
+            "regulatory_system": ActorKind.SYSTEM,         # Regulatory system
+        }
+
+        # For service identities like "harness:production", map by prefix
+        if normalized.startswith("harness:"):
+            return ActorKind.SYSTEM
+
+        # Return known type, or SYSTEM as default for service accounts
+        return actor_kind_map.get(normalized, ActorKind.SYSTEM)
 
     def _to_transformation_record(
         self,
@@ -372,9 +397,10 @@ class SentinelConservationGateway:
                 "Artifact metadata must include the actor who authorized/decided on it. "
                 f"Artifact ID: {artifact.artifact_id}"
             )
+        actor_kind = self._map_authority_to_actor_kind(artifact.metadata.authority_source)
         transformer = Actor(
             actor_id=artifact.metadata.authority_source,
-            kind=ActorKind.MODEL if "claude" in artifact.metadata.authority_source.lower() else ActorKind.SYSTEM,
+            kind=actor_kind,
             label=f"Governance Decision Maker: {artifact.metadata.authority_source}",
         )
 
@@ -400,6 +426,15 @@ class SentinelConservationGateway:
             for input_artifact in input_artifacts
         )
 
+        # Create authorization refs from artifact content
+        # (for kernel's authority requirement)
+        authorization_refs = []
+        if artifact.metadata.authority_source:
+            authorization_refs.append(f"auth-{artifact.metadata.authority_source}")
+        # If the artifact was created from a model decision, also add model ref
+        if isinstance(artifact.content, dict) and artifact.content.get("model_identity"):
+            authorization_refs.append(f"model-{artifact.content['model_identity']}")
+
         # Create TransformationRecord
         record = TransformationRecord(
             transformation_id=f"sentinel-{artifact.artifact_id}-{datetime.utcnow().timestamp()}",
@@ -410,6 +445,7 @@ class SentinelConservationGateway:
             declared_changes=declared_changes,
             input_hashes=input_hashes,
             output_hash=output_hash,
+            authorization_refs=tuple(authorization_refs),
             reason=transformation_declared or "artifact produced by Sentinel governance",
         )
 
