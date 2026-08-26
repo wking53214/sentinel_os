@@ -47,9 +47,27 @@ class ArtifactResolverError(Exception):
 class ArtifactResolver:
     """Resolves artifact IDs to actual SentinelArtifact objects from canonical store."""
 
-    def __init__(self, artifact_store: Dict[str, SentinelArtifact]):
-        """Initialize with artifact store (maps artifact_id → SentinelArtifact)."""
-        self.store = artifact_store
+    def __init__(self, artifact_store: Optional[Any] = None):
+        """
+        Initialize with artifact store.
+
+        Args:
+            artifact_store: Can be:
+                - Dict[str, SentinelArtifact] for testing
+                - ArtifactStore instance for production
+                - None to use the canonical ArtifactStore singleton
+        """
+        if artifact_store is None:
+            # Use the canonical artifact store
+            from conservation.artifact_store import get_artifact_store
+            self.store_backend = get_artifact_store()
+            self.is_dict = False
+        elif isinstance(artifact_store, dict):
+            self.store_dict = artifact_store
+            self.is_dict = True
+        else:
+            self.store_backend = artifact_store
+            self.is_dict = False
 
     def resolve(self, artifact_id: str) -> SentinelArtifact:
         """
@@ -57,12 +75,21 @@ class ArtifactResolver:
 
         Raises ArtifactResolverError if artifact not found (fail-closed).
         """
-        if artifact_id not in self.store:
-            raise ArtifactResolverError(
-                f"Artifact {artifact_id} not found in canonical store. "
-                f"Cannot fabricate artifact. Failing closed."
-            )
-        return self.store[artifact_id]
+        if self.is_dict:
+            if artifact_id not in self.store_dict:
+                raise ArtifactResolverError(
+                    f"Artifact {artifact_id} not found in store. "
+                    f"Cannot fabricate artifact. Failing closed."
+                )
+            return self.store_dict[artifact_id]
+        else:
+            artifact = self.store_backend.get_artifact(artifact_id)
+            if artifact is None:
+                raise ArtifactResolverError(
+                    f"Artifact {artifact_id} not found in canonical store. "
+                    f"Cannot fabricate artifact. Failing closed."
+                )
+            return artifact
 
     def resolve_batch(self, artifact_ids: List[str]) -> List[SentinelArtifact]:
         """Resolve multiple artifact IDs. Fails if any artifact is missing."""
