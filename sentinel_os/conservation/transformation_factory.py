@@ -167,7 +167,7 @@ class TransformationRecordFactory:
                     from_value="pending_governance_review",
                     to_value="approved" if approved else "rejected",
                     reason=decision.reasoning or "Governance decision",
-                    transition_kind=TransitionKind.APPROVAL if approved else TransitionKind.REJECTION,
+                    transition_kind=None,  # Not specifying transition type
                 )
             )
 
