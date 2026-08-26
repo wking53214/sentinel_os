@@ -341,6 +341,54 @@ class GovernanceHarness:
             ai_cost=decision.get("cost"),
             outcome_obligation=self._outcome_obligation_declaration(),
         )
+
+        # MANDATORY CONSERVATION BOUNDARY: Submit decision through Conservation Kernel
+        # before persisting to ledger. If kernel rejects, fail-closed (don't persist).
+        try:
+            from conservation.artifact_factory import create_governance_artifact_from_decision
+            from conservation.transformation_factory import create_governance_transformation
+            from conservation.gateway import SentinelConservationGateway
+            from conservation.artifact_store import get_artifact_store
+
+            # Create artifact from decision
+            artifact = create_governance_artifact_from_decision(record)
+
+            # Store artifact in canonical store
+            artifact_store = get_artifact_store()
+            artifact_store.store_artifact(artifact)
+
+            # Create transformation record
+            transformation = create_governance_transformation(record, artifact)
+
+            # Submit through conservation gateway (mandatory boundary)
+            gateway = SentinelConservationGateway()
+            receipt = gateway.submit_artifact(
+                artifact_id=artifact.artifact_id,
+                content=artifact.content,
+                authority_source=artifact.metadata.authority_source,
+                epistemic_status=str(artifact.metadata.epistemic_status),
+                evidence_refs=artifact.metadata.evidence_refs,
+                lineage=artifact.metadata.lineage
+            )
+
+            # Verify receipt indicates acceptance
+            is_valid, reason = receipt.validate_for_handoff()
+            if not is_valid:
+                # Fail-closed: Conservation Kernel rejected this decision
+                raise RuntimeError(
+                    f"Conservation Kernel rejected decision: {reason}. "
+                    f"Not persisting to ledger (fail-closed)."
+                )
+
+        except Exception as exc:
+            # Fail-closed: If Conservation Kernel boundary fails for ANY reason,
+            # do not persist the decision to the ledger.
+            # This is the core invariant: no durable state without conservation verification.
+            raise RuntimeError(
+                f"Conservation Kernel boundary failed, decision not persisted: {exc}"
+            ) from exc
+
+        # Only if Conservation Kernel accepted: persist to ledger
         self.ledger.append_decision(record, governance_params=params)
 
     # ---- housekeeping ----
