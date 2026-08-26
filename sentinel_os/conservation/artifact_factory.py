@@ -122,6 +122,7 @@ class ArtifactFactory:
         Determine authority source from governance decision.
 
         Maps decision components to authority identity.
+        FAIL-CLOSED: raises if no actor identity found.
         """
         # If explicitly authorized by someone, use that
         if decision.authorized_by:
@@ -129,10 +130,15 @@ class ArtifactFactory:
 
         # If model made the decision (Claude API)
         if decision.model_identity:
-            return "governor_claude_api"
+            return decision.model_identity
 
-        # Default: system governance
-        return "sentinel-governance"
+        # FAIL-CLOSED: no actor identity means reject the artifact
+        raise ValueError(
+            "Cannot create artifact for governance decision without actor identity. "
+            "Neither model_identity nor authorized_by is set. "
+            "Every governance decision must have a typed actor. "
+            f"Decision: node={decision.node}, cassette={decision.cassette_version}"
+        )
 
     @staticmethod
     def _determine_epistemic_status(decision: GovernanceDecisionRecord) -> EpistemicStatus:

@@ -123,13 +123,14 @@ class TransformationRecordFactory:
         Determine the transformer (who/what made the decision).
 
         Maps decision components to a typed Actor identity.
+        FAIL-CLOSED: raises if no actor identity found.
         """
         # If decision came from model (Claude API)
         if decision.model_identity:
             return Actor(
-                actor_id=decision.model_identity or "claude-governor",
+                actor_id=decision.model_identity,
                 kind=ActorKind.MODEL,
-                label=f"Claude Model ({decision.model_identity or 'unknown'})"
+                label=f"Claude Model {decision.model_identity}"
             )
 
         # If explicitly authorized by someone
@@ -141,11 +142,11 @@ class TransformationRecordFactory:
                 label=f"Authorized by {decision.authorized_by}"
             )
 
-        # Default: system governance
-        return Actor(
-            actor_id="sentinel-governance",
-            kind=ActorKind.SYSTEM,
-            label="Sentinel OS Governance System"
+        # FAIL-CLOSED: no actor identity means reject the decision
+        raise ValueError(
+            "Governance decision lacks actor identity: neither model_identity nor authorized_by is set. "
+            "Every governance decision must be attributed to a typed actor (model or authorized human/system). "
+            f"Decision: node={decision.node}, cassette={decision.cassette_version}"
         )
 
     @staticmethod

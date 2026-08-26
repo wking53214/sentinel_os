@@ -365,11 +365,17 @@ class SentinelConservationGateway:
         content_str = json.dumps(artifact.content) if isinstance(artifact.content, dict) else str(artifact.content)
         output_hash = sha256(content_str.encode("utf-8")).hexdigest()
 
-        # Create transformer Actor (Sentinel system)
+        # Create transformer Actor from artifact authority source (the actual decision-maker)
+        if not artifact.metadata.authority_source:
+            raise ValueError(
+                "Cannot create TransformationRecord: artifact has no authority_source. "
+                "Artifact metadata must include the actor who authorized/decided on it. "
+                f"Artifact ID: {artifact.artifact_id}"
+            )
         transformer = Actor(
-            actor_id=artifact.metadata.producer or "sentinel-governance",
-            kind=ActorKind.SYSTEM,
-            label="Sentinel OS Governance",
+            actor_id=artifact.metadata.authority_source,
+            kind=ActorKind.MODEL if "claude" in artifact.metadata.authority_source.lower() else ActorKind.SYSTEM,
+            label=f"Governance Decision Maker: {artifact.metadata.authority_source}",
         )
 
         # Create declared changes (empty if no specific transformation declared)

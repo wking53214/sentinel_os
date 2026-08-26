@@ -41,7 +41,7 @@ class TestArtifactFactory:
         assert artifact.artifact_id is not None
         assert artifact.content["decision_type"] == "governance_decision"
         assert artifact.content["node"] == "test_domain"
-        assert artifact.metadata.authority_source == "governor_claude_api"
+        assert artifact.metadata.authority_source == "claude-3"  # Direct model identity
         assert artifact.metadata.epistemic_status.value == "estimated"
 
     def test_decision_artifact_idempotency(self):
@@ -54,6 +54,7 @@ class TestArtifactFactory:
             policy_parameters={},
             reasoning="Test",
             output={"approved": True},
+            model_identity="claude-opus-4",
         )
 
         artifact1 = create_governance_artifact_from_decision(decision)
@@ -77,6 +78,7 @@ class TestArtifactStore:
             policy_parameters={},
             reasoning="test",
             output={"approved": True},
+            model_identity="claude-opus-4",
         )
 
         artifact = create_governance_artifact_from_decision(decision)
@@ -99,6 +101,7 @@ class TestArtifactStore:
             policy_parameters={},
             reasoning="test",
             output={"approved": True},
+            model_identity="claude-opus-4",
         )
 
         artifact = create_governance_artifact_from_decision(decision)
@@ -176,6 +179,7 @@ class TestMandatoryConservationBoundary:
             policy_parameters={},
             reasoning="test",
             output={"approved": True},
+            model_identity="claude-opus-4",
         )
 
         artifact = create_governance_artifact_from_decision(decision)
@@ -208,6 +212,7 @@ class TestMandatoryConservationBoundary:
             policy_parameters={},
             reasoning="test",
             output={"approved": True},
+            model_identity="claude-opus-4",
         )
 
         artifact = create_governance_artifact_from_decision(decision)
@@ -239,6 +244,7 @@ class TestFailClosedBehavior:
             policy_parameters={},
             reasoning="test",
             output={"approved": True},
+            model_identity="claude-opus-4",
         )
 
         artifact = create_governance_artifact_from_decision(decision)
@@ -303,6 +309,86 @@ class TestEndToEndFlow:
         except Exception as e:
             if "conservation_kernel" not in str(e).lower():
                 raise
+
+
+class TestTypedActorModel:
+    """Test typed actor model enforcement (fail-closed without actor identity)."""
+
+    def test_artifact_creation_fails_without_actor_identity(self):
+        """FAIL-CLOSED: Decision without actor identity raises ValueError."""
+        decision = GovernanceDecisionRecord(
+            action_type="governance_decision",
+            node="test_domain",
+            cassette_version="test_v1",
+            input_data={},
+            policy_parameters={},
+            reasoning="Test decision",
+            output={"approved": True},
+            # MISSING: both model_identity and authorized_by
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            create_governance_artifact_from_decision(decision)
+
+        error_msg = str(excinfo.value)
+        assert "actor identity" in error_msg.lower()
+        assert "model_identity" in error_msg or "authorized_by" in error_msg
+
+    def test_transformation_creation_fails_without_actor_identity(self):
+        """FAIL-CLOSED: Transformation cannot be created without actor identity."""
+        decision = GovernanceDecisionRecord(
+            action_type="governance_decision",
+            node="test_domain",
+            cassette_version="test_v1",
+            input_data={},
+            policy_parameters={},
+            reasoning="Test decision",
+            output={"approved": True},
+            # MISSING: both model_identity and authorized_by
+        )
+
+        # Create artifact will fail, so transformation will fail too
+        with pytest.raises(ValueError):
+            artifact = create_governance_artifact_from_decision(decision)
+            create_governance_transformation(decision, artifact)
+
+    def test_typed_actor_model_with_model_identity(self):
+        """PASS: Decision with model_identity has typed MODEL actor."""
+        decision = GovernanceDecisionRecord(
+            action_type="governance_decision",
+            node="test_domain",
+            cassette_version="test_v1",
+            input_data={},
+            policy_parameters={},
+            reasoning="Decided by Claude",
+            output={"approved": True},
+            model_identity="claude-opus-4",
+        )
+
+        artifact = create_governance_artifact_from_decision(decision)
+        transformation = create_governance_transformation(decision, artifact)
+
+        assert transformation.transformer.actor_id == "claude-opus-4"
+        assert transformation.transformer.kind == "MODEL"
+
+    def test_typed_actor_model_with_authorized_by(self):
+        """PASS: Decision with authorized_by has typed HUMAN/SYSTEM actor."""
+        decision = GovernanceDecisionRecord(
+            action_type="governance_decision",
+            node="test_domain",
+            cassette_version="test_v1",
+            input_data={},
+            policy_parameters={},
+            reasoning="Authorized by human reviewer",
+            output={"approved": True},
+            authorized_by="human_reviewer_alice",
+        )
+
+        artifact = create_governance_artifact_from_decision(decision)
+        transformation = create_governance_transformation(decision, artifact)
+
+        assert transformation.transformer.actor_id == "human_reviewer_alice"
+        assert transformation.transformer.kind == "HUMAN"
 
 
 class TestArtifactMetadata:
