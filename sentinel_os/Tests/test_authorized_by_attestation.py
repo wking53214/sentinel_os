@@ -609,6 +609,69 @@ def test_broken_previous_keys_file_refuses_ledger_start(monkeypatch):
         PostgreSQLLedger(**_PG)
 
 
+def _abs_column_len(pg):
+    import psycopg2
+    conn = psycopg2.connect(connect_timeout=2, **pg)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT character_maximum_length FROM information_schema.columns "
+            "WHERE table_schema='public' AND table_name='ledger_entries' "
+            "AND column_name='authorized_by_sig';")
+        return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_upgrade_widens_authorized_by_sig_from_64_to_96(test_ledger, monkeypatch):
+    """The migration's ELSE branch: a ledger created before v2 has the column
+    at VARCHAR(64); construction must widen it in place and a v2 envelope
+    (~86 chars) must then store cleanly. test_ledger itself always creates the
+    column fresh at 96, so this simulates the pre-v2 state first."""
+    import psycopg2
+    from governance.ledger_postgres import PostgreSQLLedger
+
+    # simulate a pre-v2 ledger
+    conn = psycopg2.connect(connect_timeout=2, **_PG)
+    conn.autocommit = True
+    conn.cursor().execute(
+        "ALTER TABLE ledger_entries "
+        "ALTER COLUMN authorized_by_sig TYPE VARCHAR(64);")
+    conn.close()
+    assert _abs_column_len(_PG) == 64
+
+    # a fresh construction runs _initialize_schema again -> widens
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(ENV_KEY, _KEY_STR)
+    upgraded = PostgreSQLLedger(**_PG)
+    try:
+        assert _abs_column_len(_PG) == 96
+        # a second construction must NOT re-issue the ALTER (still 96, no error)
+        PostgreSQLLedger(**_PG).close()
+        assert _abs_column_len(_PG) == 96
+        # and a v2 signature round-trips through the widened column
+        assert upgraded.append_decision(
+            _record(authorized_by="harness:production"),
+            governance_params=_governance_params())
+        sig = _last_row(upgraded)[SIGNATURE_FIELD]
+        assert sig.startswith("abv2.") and len(sig) > 64
+        assert upgraded.verify_chain()["ok"]
+    finally:
+        upgraded.close()
+
+
+def test_broken_primary_key_file_raises_at_construction_even_without_enforcement(
+        monkeypatch):
+    # bb70516 surfaced this only on the first write; attestation_keyset() in
+    # __init__ now surfaces it at construction, enforcement on or off.
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(ENV_KEY_FILE, "/no/such/attestation/key/file")
+    with pytest.raises(RuntimeError, match="could not be read"):
+        PostgreSQLLedger(**_PG)
+
+
 def test_verify_chain_after_a_rotation_is_clean(test_ledger, monkeypatch):
     for v in _ATT_ENV_VARS:
         monkeypatch.delenv(v, raising=False)

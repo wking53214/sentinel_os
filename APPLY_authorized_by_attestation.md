@@ -1,11 +1,17 @@
 # Apply document — keyed attestation for `authorized_by`
 
-Deliverable: `authorized_by_attestation.patch` (unified diff, `git apply` from the
-repository root — the directory that contains `sentinel_os/`). Nothing has been
-committed, branched, or pushed.
+Delivered as **PR #28** (`wking53214/sentinel_os`), branch
+`authorized-by-attestation`, three commits:
 
-Patch verified to apply cleanly against the current `main`
-(`git apply --check` in a fresh worktree at HEAD).
+1. `4ee0065` — the core keyed attestation.
+2. `bb70516` — `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` + deploy wiring (open
+   question 1).
+3. `080c935` — key rotation: verification key set + per-signature fingerprint
+   (open question 2).
+
+`authorized_by_attestation.patch` in the repo root is the full diff of all
+three against `origin/main`, verified to apply cleanly in a fresh worktree.
+Nothing is merged. `main` is untouched.
 
 ---
 
@@ -28,7 +34,7 @@ optional hashed field was added most recently.
 
 After this, **no existing test fails in any configuration** — default (no key)
 or with `ICEBERG_LEDGER_ATTESTATION_KEY` set. A with-key sweep of 11 ledger
-test files (229 tests) passes.
+test files (237 tests) passes.
 
 ---
 
@@ -125,8 +131,13 @@ contract to the whole row) folds it into the hash automatically.
   is widened in place (guarded on current length; catalog-only in PG 9.2+, no
   table rewrite); existing 64-char digests are untouched and still verify.
 - `__init__` also builds `attestation_keyset()` once at startup so a broken
-  `..._KEYS_PREVIOUS`/`_RETIRED` file surfaces at construction, not on first
-  verify. No-op when nothing is configured.
+  key-source *file* (`_KEY_FILE`, `..._KEYS_PREVIOUS_FILE`,
+  `..._KEYS_RETIRED_FILE` — set but unreadable) surfaces at construction, not
+  on first verify. No-op when nothing is configured. This is a small behaviour
+  change from `bb70516`, where a broken primary `_KEY_FILE` with enforcement
+  *off* would only have surfaced on the first write; it now raises at
+  construction. Correct (fail fast on a misconfigured secret mount) and only
+  affects a deployment that set the var. Tested both ways.
 - New helper `_authorized_by_sig(authorized_by, previous_hash, record_kind)`:
   computes the signature; when enforcement is on and a present claim could not
   be signed, refuses the write. Note this self-check is **not reachable
@@ -167,13 +178,14 @@ at the repository owner's explicit request (this is the one deviation from
 
 ### `sentinel_os/Tests/test_authorized_by_attestation.py` — NEW
 
-35 tests: the 8 required properties; key-file resolution / precedence /
-broken-file failure modes; cross-record-kind drift; and key rotation — the
-v2 envelope and its fingerprint, the current/previous/retired key set, a
-clean `verify_chain` across a rotation, `unknown_key` failing with enforcement
-off, `retired_key` failing only with enforcement on, and legacy bare-digest
-rows still verifying via try-all-keys. Tampering is simulated as pure-function
-tests on row dicts (the
+37 tests: the 8 required properties; key-file resolution / precedence /
+broken-file failure modes; cross-record-kind drift; the `VARCHAR(64)→(96)`
+in-place widen on upgrade; and key rotation — the v2 envelope and its
+fingerprint, the current/previous/retired key set, a clean `verify_chain`
+across a rotation, `unknown_key` failing with enforcement off, `retired_key`
+failing only with enforcement on, and legacy bare-digest rows still verifying
+via try-all-keys. Tampering is simulated as pure-function tests on row dicts
+(the
 `ledger_entries` table carries an `UPDATE`-blocking immutability trigger, so
 an in-place edit of a live row is not possible — this mirrors how
 `twin_custody.deep_verify_row` is already tested).
@@ -207,33 +219,42 @@ until an operator supplies a key.
 Full suite: `python3 -m pytest Tests/ --continue-on-collection-errors`
 (Postgres is available in this environment, so the ledger tests run for real).
 
+**Note on the baseline.** During this work `main` advanced ~11 commits from a
+concurrent process (a "conservation gateway" / PERCEIVE integration effort —
+all new files, no overlap with anything here). The branch was **rebased onto
+the current `origin/main`** (clean, zero conflicts — the only near-touch is
+`governance/__init__.py`, which that work adds and this does not modify). The
+numbers below are against that rebased base:
+
 | | passed | failed | skipped | errors |
 |---|---|---|---|---|
-| before | 746 | 16 | 22 | 26 |
-| after  | 781 | 16 | 22 | 26 |
+| `origin/main` (7c830db) | 736 | 26 | 22 | 26 |
+| this branch on top      | 777 | 22 | 22 | 26 |
 
-`+35` passed = the new test file (8 required properties + 5 key-file
-resolution + 14 key rotation + 8 misc coverage). The failed / skipped /
-errored sets are **byte-identical** before and after (`diff` of the sorted
-`FAILED`/`ERROR` lines is empty). The two twin-recompute tests brought onto
-`SHIPPED_COLUMNS` (§0) were already passing at the default configuration and
-still pass; they now also pass with an attestation key set, which they did not
-before. A with-key sweep of 11 ledger test files (237 tests) passes.
+`+41` passed / `−4` failed. Breakdown:
 
-All 16 pre-existing failures and all 26 errors share one pre-existing,
-unrelated root cause: `ModuleNotFoundError: No module named
-'observe_perceive_core'` (a module absent from this checkout; imported by
-`production_harness.py`). This is an environment gap, not caused by this work,
-and is present identically before and after. Note it is a *different* gap from
-the three the task named (Postgres / Redis / `runuser`) — in this environment
-Postgres and `redis-server` are both present and `runuser` is absent; the
-counts above already account for that.
+- **`+37`** — the new `test_authorized_by_attestation.py` (8 required
+  properties + 5 key-file resolution + 2 migration/startup + 14 key rotation +
+  8 misc coverage).
+- **`+4` / `−4`** — `test_tls_security.py`'s four cert tests, which flip
+  pass↔fail between runs depending on whether an earlier test in the run
+  generated `certs/`. Pure run-order nondeterminism in the pre-existing
+  suite; **not caused by this branch** (they were failing on the
+  `origin/main` run and passing on the branch run purely by collection
+  order). No test's outcome changed because of a code change here.
 
-Scope note: the baseline was taken over `Tests/`. A handful of `test_*.py`
-files sit at the code root rather than under `Tests/` (`test_twin_custody.py`,
-`test_twin_live.py`, `test_twin_snapshot_forgery.py`); they were outside the
-baseline. `test_twin_custody.py::test_recompute_catches_field_edit` fails on
-the clean tree, before any change here (verified by stashing).
+**No new failures or errors introduced.** The 22 failures and 26 errors on the
+branch are all pre-existing: `ModuleNotFoundError: No module named
+'observe_perceive_core'` (a module absent from this checkout, imported by
+`production_harness.py`) plus the concurrent work's own conservation-test
+failures. Confirmed by diffing the sorted `FAILED`/`ERROR` lists — the only
+delta is the flaky TLS quartet above.
+
+Scope note: the baseline is over `Tests/`. A few `test_*.py` sit at the code
+root (`test_twin_custody.py`, `test_twin_live.py`,
+`test_twin_snapshot_forgery.py`) and were outside it;
+`test_twin_custody.py::test_recompute_catches_field_edit` fails on a clean
+tree, before any change here.
 
 ---
 
@@ -329,11 +350,13 @@ default=str))` over the same canonical form; the signature enters that form
 only as one more optional hashed field. No API signature changed incompatibly
 (the new helper is internal; no public parameter was added — `verify_chain`
 and `verify_authorized_by_signature` kept their signatures, the latter now
-also accepting a `KeySet`). No new dependency. No column was renamed, retyped,
-or dropped — `authorized_by_sig` is *widened* `VARCHAR(64)`→`VARCHAR(96)`,
-which the task's "no existing column retyped" is read here as not prohibiting:
-it is a lossless catalog-only change, every existing value stays valid, and it
-was the owner's directed answer to open question 2.
+also accepting a `KeySet`). No new dependency. **No pre-existing column was
+renamed, retyped, or dropped.** The only column whose type changed is
+`authorized_by_sig`, which this PR itself introduces — it started life at
+`VARCHAR(64)` in commit `4ee0065` and this commit widens it to `VARCHAR(96)`
+for the v2 envelope, a lossless catalog-only change (PG 9.2+). A ledger that
+ran the earlier commit is widened in place at next construction; a test
+exercises that path (`test_upgrade_widens_authorized_by_sig_from_64_to_96`).
 
 The "no identity or key-management system beyond a single environment-supplied
 secret" stop condition is the one to weigh. What was added is deliberately the
@@ -386,6 +409,16 @@ recompute stays correct, but it holds no attestation key and does not run
 `verify_authorized_by_signature`. Giving the customer-DR witness the signing
 key is a custody question outside this change; the primary's `verify_chain` is
 where the keyed check runs.
+
+**v1 legacy rows report `invalid`, not `unknown_key`, when their signing key
+is dropped entirely.** A v1 bare-digest signature carries no key id, so
+verification can only try every held key and return `invalid` on total
+failure — it reads as tampering even when the real cause is "we no longer
+hold that key." v2 rows do not have this problem (they name their key).
+Impact is minimal: v1 rows exist only where the intermediate commit ran with
+a key configured, i.e. essentially nobody for an unmerged PR. The mitigation
+is a policy one — move a key that ever signed v1 rows to `RETIRED` rather than
+dropping it — and it is documented in the module docstring.
 
 **`bind_cassette_version` and the regulatory/contract/supersession paths** now
 sign too, not just `append_decision`. This is slightly broader than the
