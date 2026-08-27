@@ -233,6 +233,15 @@ SHIPPED_COLUMNS = [
     # row a human_selection row is reviewing. Its own field, same posture
     # as shadow_run_hash -- see canonical_fields.py.
     "decision_hash",
+    # Keyed attestation over the row's authorized_by claim (hex
+    # HMAC-SHA256). Shipped so the witness holds the customer's honest
+    # copy and so recompute_current_hash can verify any row that carries
+    # it -- it enters the hash via the shared OPTIONAL_HASHED_FIELDS
+    # contract like every other optional field here (the shipped column
+    # name already matches the canonical key). Legacy rows carry NULL and
+    # recompute exactly as before. See
+    # governance/authorized_by_attestation.py.
+    "authorized_by_sig",
 ]
 
 

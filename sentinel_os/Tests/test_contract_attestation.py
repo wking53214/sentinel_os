@@ -37,6 +37,7 @@ from contract_cassette import (
 )
 from contract_egress import EGRESS_AUTHORIZED, EgressRequest, request_egress
 from twin_custody import (
+    SHIPPED_COLUMNS,
     generate_signing_keypair,
     recompute_current_hash,
 )
@@ -351,27 +352,21 @@ def test_twin_recomputes_every_contract_kind_identically(test_ledger):
                             password="iceberg")
     conn.autocommit = True
     cur = conn.cursor()
-    cur.execute("""
-        SELECT record_kind, cassette_version, data, decision_output,
-               cassette_hash, authorized_by, previous_hash, current_hash,
-               action_type, node, previous_value, applied_value, reason
-        FROM ledger_entries
-        WHERE record_kind LIKE 'contract_%'
-        ORDER BY id ASC
-    """)
+    # Select exactly the columns the twin ships, in SHIPPED_COLUMNS order, so
+    # the row dict handed to recompute_current_hash carries every optional
+    # hashed field (authorized_by_sig included) -- a hand-picked subset would
+    # silently drop whichever field was added most recently.
+    cur.execute(
+        f"SELECT {', '.join(SHIPPED_COLUMNS)} FROM ledger_entries "  # nosec B608 -- SHIPPED_COLUMNS is a fixed, code-defined column list, never external input
+        f"WHERE record_kind LIKE 'contract_%' ORDER BY id ASC"
+    )
     fetched = cur.fetchall()
     conn.close()
 
     assert len(fetched) >= 8
     seen = set()
     for r in fetched:
-        row = {
-            "record_kind": r[0], "cassette_version": r[1], "data": r[2],
-            "decision_output": r[3], "cassette_hash": r[4],
-            "authorized_by": r[5], "previous_hash": r[6], "current_hash": r[7],
-            "action_type": r[8], "node": r[9], "previous_value": r[10],
-            "applied_value": r[11], "reason": r[12],
-        }
+        row = dict(zip(SHIPPED_COLUMNS, r))
         assert recompute_current_hash(row) == row["current_hash"], \
             f"twin disagrees with the writer on {row['record_kind']}"
         seen.add(row["record_kind"])
