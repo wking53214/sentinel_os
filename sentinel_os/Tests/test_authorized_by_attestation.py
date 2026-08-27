@@ -29,12 +29,21 @@ from governance import authorized_by_attestation as att
 from governance.authorized_by_attestation import (
     ENV_KEY,
     ENV_KEY_FILE,
+    ENV_KEYS_PREVIOUS,
+    ENV_KEYS_PREVIOUS_FILE,
+    ENV_KEYS_RETIRED,
+    ENV_KEYS_RETIRED_FILE,
     ENV_REQUIRE,
+    KeySet,
     SIGNATURE_FIELD,
     STATUS_INVALID,
     STATUS_OK,
+    STATUS_RETIRED_KEY,
     STATUS_UNATTESTED,
+    STATUS_UNKNOWN_KEY,
     STATUS_UNVERIFIABLE,
+    attestation_keyset,
+    key_fingerprint,
     sign_authorized_by,
     verify_authorized_by_signature,
 )
@@ -57,11 +66,14 @@ def _governance_params():
     return validate_cassette(IvrCassette())
 
 
+_sid_counter = iter(range(1, 10_000))
+
+
 def _record(**kw):
     base = dict(
         action_type="governance_decision", node="billing_queue",
         cassette_version="ivr:standard-ivr:2.0.2",
-        input_data={"call_sid": "ATTEST-0001"},
+        input_data={"call_sid": f"ATTEST-{next(_sid_counter):04d}"},
         policy_parameters={"governance_trigger": 2},
         reasoning="AI safety check: risk elevated on repeat contact",
         output={"safe": False, "risk_level": "high"})
@@ -110,19 +122,22 @@ def _twin_row(**over):
     return row
 
 
+_ATT_ENV_VARS = (ENV_KEY, ENV_KEY_FILE, ENV_KEYS_PREVIOUS, ENV_KEYS_PREVIOUS_FILE,
+                 ENV_KEYS_RETIRED, ENV_KEYS_RETIRED_FILE, ENV_REQUIRE)
+
+
 @pytest.fixture
 def key_env(monkeypatch):
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
     monkeypatch.setenv(ENV_KEY, _KEY_STR)
-    monkeypatch.delenv(ENV_KEY_FILE, raising=False)
-    monkeypatch.delenv(ENV_REQUIRE, raising=False)
     return _KEY
 
 
 @pytest.fixture
 def no_key_env(monkeypatch):
-    monkeypatch.delenv(ENV_KEY, raising=False)
-    monkeypatch.delenv(ENV_KEY_FILE, raising=False)
-    monkeypatch.delenv(ENV_REQUIRE, raising=False)
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -145,8 +160,13 @@ def test_1_valid_key_produces_a_verifying_signature(test_ledger, key_env):
 
     row = _last_row(test_ledger)
     assert row["authorized_by"] == "harness:production"
-    assert row[SIGNATURE_FIELD] is not None
-    assert len(row[SIGNATURE_FIELD]) == 64  # one HMAC-SHA256 hex digest
+    sig = row[SIGNATURE_FIELD]
+    assert sig is not None
+    # v2 envelope: abv2.<16-hex keyfp>.<64-hex digest>, naming the signing key
+    tag, keyfp, digest = sig.split(".")
+    assert tag == "abv2"
+    assert keyfp == key_fingerprint(key_env)
+    assert len(digest) == 64
 
     status, detail = verify_authorized_by_signature(row, key_env)
     assert status == STATUS_OK, detail
@@ -185,12 +205,28 @@ def test_2_altering_authorized_by_breaks_attestation_even_after_rehash():
     assert status == STATUS_INVALID, detail
 
 
-def test_2_wrong_key_is_also_reported_invalid():
+def test_2_unrelated_key_is_unknown_not_invalid():
+    # a v2 signature names its key. A verifier holding only some other,
+    # unrelated key can't even find the named key -> UNKNOWN_KEY, which is
+    # honestly different from "the signature is wrong" (INVALID).
     prev = "0" * 64
     sig = sign_authorized_by("cfo:approvals", prev, "governance_decision", _KEY)
     row = _twin_row(previous_hash=prev, authorized_by="cfo:approvals",
                     **{SIGNATURE_FIELD: sig})
     status, _ = verify_authorized_by_signature(row, b"a-different-key")
+    assert status == STATUS_UNKNOWN_KEY
+
+
+def test_2_v2_digest_tamper_under_the_named_key_is_invalid():
+    # flip the digest but keep the (correct) keyfp -> the verifier finds the
+    # named key, recomputes, and the HMAC does not match -> INVALID.
+    prev = "0" * 64
+    sig = sign_authorized_by("cfo:approvals", prev, "governance_decision", _KEY)
+    tag, keyfp, digest = sig.split(".")
+    flipped = digest[:-1] + ("0" if digest[-1] != "0" else "1")
+    row = _twin_row(previous_hash=prev, authorized_by="cfo:approvals",
+                    **{SIGNATURE_FIELD: f"{tag}.{keyfp}.{flipped}"})
+    status, _ = verify_authorized_by_signature(row, _KEY)
     assert status == STATUS_INVALID
 
 
@@ -460,3 +496,173 @@ def test_multiple_record_kinds_verify_with_a_key_set(test_ledger, key_env):
             assert ok, f"{row['record_kind']} row failed twin recompute: {detail}"
     finally:
         test_ledger.pool.putconn(conn)
+
+
+# ---------------------------------------------------------------------------
+# Question 2: key rotation. Verification key set = current + PREVIOUS +
+# RETIRED; UNKNOWN_KEY always fails verify_chain, RETIRED_KEY only under
+# enforcement.
+# ---------------------------------------------------------------------------
+
+_KEY_A = b"attestation-key-A-original-rotation-test"
+_KEY_B = b"attestation-key-B-post-rotation-rotation-test"
+_KEY_C = b"attestation-key-C-never-configured-here"
+
+
+def _sig_row(key, authorized_by="cfo:approvals", prev="0" * 64):
+    return _twin_row(
+        previous_hash=prev, authorized_by=authorized_by,
+        **{SIGNATURE_FIELD: sign_authorized_by(
+            authorized_by, prev, "governance_decision", key)})
+
+
+def test_v2_envelope_carries_the_signing_key_fingerprint():
+    sig = sign_authorized_by("x", "0" * 64, "governance_decision", _KEY_A)
+    tag, keyfp, digest = sig.split(".")
+    assert tag == "abv2"
+    assert keyfp == key_fingerprint(_KEY_A)
+    assert keyfp != key_fingerprint(_KEY_B)
+    assert len(digest) == 64
+
+
+def test_keyset_partitions_and_dedupes():
+    ks = KeySet(current=_KEY_A, previous=[_KEY_A, _KEY_B], retired=[_KEY_B, _KEY_C])
+    # _KEY_A appears once; _KEY_B is trusted (via previous) so it drops out of retired
+    assert ks.trusted == [_KEY_A, _KEY_B]
+    assert ks.retired == [_KEY_C]
+    assert ks.trusted_key(key_fingerprint(_KEY_A)) == _KEY_A
+    assert ks.retired_key(key_fingerprint(_KEY_C)) == _KEY_C
+    assert not ks.is_empty()
+    assert KeySet(None).is_empty()
+
+
+def test_rotation_old_key_in_previous_still_verifies_ok():
+    ks = KeySet(current=_KEY_B, previous=[_KEY_A])
+    assert verify_authorized_by_signature(_sig_row(_KEY_A), ks)[0] == STATUS_OK
+    assert verify_authorized_by_signature(_sig_row(_KEY_B), ks)[0] == STATUS_OK
+
+
+def test_retired_key_verifies_as_retired_not_ok():
+    ks = KeySet(current=_KEY_B, previous=[], retired=[_KEY_A])
+    status, detail = verify_authorized_by_signature(_sig_row(_KEY_A), ks)
+    assert status == STATUS_RETIRED_KEY, detail
+
+
+def test_unknown_key_when_fingerprint_matches_nothing():
+    ks = KeySet(current=_KEY_B, previous=[_KEY_A])  # never told about _KEY_C
+    status, _ = verify_authorized_by_signature(_sig_row(_KEY_C), ks)
+    assert status == STATUS_UNKNOWN_KEY
+
+
+def test_legacy_bare_digest_still_verifies_by_trying_every_key():
+    # a v1 row (no key id) written before rotation support: verification has
+    # to fall back to trying each held key.
+    prev = "0" * 64
+    legacy = att._hmac_hex(_KEY_A, att._payload("cfo:approvals", prev,
+                                                "governance_decision"))
+    assert "." not in legacy and len(legacy) == 64
+    row = _twin_row(previous_hash=prev, authorized_by="cfo:approvals",
+                    **{SIGNATURE_FIELD: legacy})
+    assert verify_authorized_by_signature(
+        row, KeySet(current=_KEY_B, previous=[_KEY_A]))[0] == STATUS_OK
+    # and a legacy row signed by a retired key reports RETIRED_KEY
+    assert verify_authorized_by_signature(
+        row, KeySet(current=_KEY_B, retired=[_KEY_A]))[0] == STATUS_RETIRED_KEY
+
+
+def test_previous_keys_read_from_comma_separated_env(monkeypatch):
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(ENV_KEY, _KEY_B.decode())
+    monkeypatch.setenv(ENV_KEYS_PREVIOUS,
+                       f"{_KEY_A.decode()},{_KEY_C.decode()}")
+    ks = attestation_keyset()
+    assert ks.trusted == [_KEY_B, _KEY_A, _KEY_C]
+
+
+def test_previous_keys_read_one_per_line_from_file(tmp_path, monkeypatch):
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(ENV_KEY, _KEY_B.decode())
+    f = tmp_path / "previous.keys"
+    f.write_text(f"{_KEY_A.decode()}\n\n{_KEY_C.decode()}\n")
+    monkeypatch.setenv(ENV_KEYS_PREVIOUS_FILE, str(f))
+    ks = attestation_keyset()
+    assert set(ks.trusted) == {_KEY_A, _KEY_B, _KEY_C}
+
+
+def test_broken_previous_keys_file_raises(monkeypatch):
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(ENV_KEY, _KEY_B.decode())
+    monkeypatch.setenv(ENV_KEYS_PREVIOUS_FILE, "/no/such/previous/keys/file")
+    with pytest.raises(RuntimeError, match="could not be read"):
+        attestation_keyset()
+
+
+def test_broken_previous_keys_file_refuses_ledger_start(monkeypatch):
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(ENV_KEY, _KEY_B.decode())
+    monkeypatch.setenv(ENV_KEYS_PREVIOUS_FILE, "/no/such/previous/keys/file")
+    with pytest.raises(RuntimeError):
+        PostgreSQLLedger(**_PG)
+
+
+def test_verify_chain_after_a_rotation_is_clean(test_ledger, monkeypatch):
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    # row signed under key A
+    monkeypatch.setenv(ENV_KEY, _KEY_A.decode())
+    assert test_ledger.append_decision(
+        _record(authorized_by="harness:production"),
+        governance_params=_governance_params())
+    # rotate: A -> previous, B -> current; new row signed under B
+    monkeypatch.setenv(ENV_KEY, _KEY_B.decode())
+    monkeypatch.setenv(ENV_KEYS_PREVIOUS, _KEY_A.decode())
+    assert test_ledger.append_decision(
+        _record(authorized_by="harness:production"),
+        governance_params=_governance_params())
+    # whole chain verifies: old row via A (previous), new row via B (current)
+    result = test_ledger.verify_chain()
+    assert result["ok"], result["violations"]
+
+
+def test_verify_chain_flags_unknown_key_even_without_enforcement(
+        test_ledger, monkeypatch):
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(ENV_KEY, _KEY_A.decode())
+    assert test_ledger.append_decision(
+        _record(authorized_by="harness:production"),
+        governance_params=_governance_params())
+    # operator later runs verify holding ONLY key B -- the row was signed by A,
+    # which is now configured in no role at all. enforcement is OFF.
+    monkeypatch.setenv(ENV_KEY, _KEY_B.decode())
+    monkeypatch.delenv(ENV_REQUIRE, raising=False)
+    result = test_ledger.verify_chain(mode="lenient")
+    assert result["ok"] is False
+    assert any("unrecognised key" in v for v in result["violations"]), result
+
+
+def test_verify_chain_flags_retired_key_only_under_enforcement(
+        test_ledger, monkeypatch):
+    for v in _ATT_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(ENV_KEY, _KEY_A.decode())
+    assert test_ledger.append_decision(
+        _record(authorized_by="harness:production"),
+        governance_params=_governance_params())
+    # key A moved to RETIRED (suspected compromise), B is current
+    monkeypatch.setenv(ENV_KEY, _KEY_B.decode())
+    monkeypatch.setenv(ENV_KEYS_RETIRED, _KEY_A.decode())
+
+    # enforcement OFF -> the retired-key row is reported but not a violation
+    monkeypatch.delenv(ENV_REQUIRE, raising=False)
+    assert test_ledger.verify_chain(mode="lenient")["ok"] is True
+
+    # enforcement ON -> it is a violation
+    monkeypatch.setenv(ENV_REQUIRE, "1")
+    result = test_ledger.verify_chain(mode="lenient")
+    assert result["ok"] is False
+    assert any("retired key" in v for v in result["violations"]), result
