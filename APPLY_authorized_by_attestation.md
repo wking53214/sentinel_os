@@ -433,6 +433,10 @@ leaves `NULL`, and the row is honestly unattested).
 
 ## 6. Open questions for the repository owner
 
+All three of the task's open questions were taken up during review and are now
+resolved — 1 and 2 built into this PR, 3 answered with a finding (no code
+change here).
+
 1. **Where should the signing key live in deployment? — ANSWERED, built in.**
    The owner chose to settle this now. `attestation_key()` takes the key from
    `ICEBERG_LEDGER_ATTESTATION_KEY` directly, or from a file named by
@@ -467,6 +471,39 @@ leaves `NULL`, and the row is honestly unattested).
    docker-compose and k8s (optional). No per-row re-signing (append-only +
    immutability triggers).
 
-3. **GSA-815** has its own independent governance kernel. Should it receive
-   the same mechanism, or is divergence acceptable here as it is elsewhere
-   between the two platforms? No change was made to GSA-815.
+3. **GSA-815 — ANSWERED after investigating; the premise needed correcting.**
+   The question assumed GSA-815 has an independent governance kernel that
+   could adopt this. What is actually there:
+
+   - **GSA-815's production audit trail *is* this ledger.** `GSA-815/
+     DEPENDENCIES.md` states it explicitly — GSA-815 is the IVR/Iceberg side
+     extracted from `sentinel_os` and depends on the kernel's `governance/`
+     (`ledger_postgres`, …), deliberately not vendored, "one copy of the
+     kernel, not two that can quietly drift apart." `GSA-815/
+     production_harness.py` calls `bind_cassette_version(...,
+     authorized_by=...)` against exactly this module. **When this PR merges,
+     GSA-815's real audit trail gets the attestation with no port.**
+   - **The "independent kernel"** is `GSA-815/gsa-governance-core/
+     GSA_Governance_Operating_Core_Enterprise.py`, a standalone ~4,900-line
+     file whose README claims "Immutable Audit Ledger ✓ / Module Attestation
+     ✓ / Cryptographic Sealing ✓". In the code, `GovernanceLedger` is an
+     in-memory `dict` (no persistence, resets on restart), `AttestationService
+     .attest()` SHA-256s a name string and then sets `verified=True`
+     unconditionally, and `CryptographicSealEngine.seal()` returns a dataclass
+     without sealing anything. It is imported only by its own `test_harness.py`.
+
+   **Recommendation: no port.** The production path is already covered.
+   Adding a real keyed HMAC to `gsa-governance-core` would be a good lock on a
+   cardboard door — and would lend that README's checkboxes credibility the
+   surrounding structure hasn't earned, which is the exact "declaration that
+   overstates what it guarantees" anti-pattern this PR's honesty requirement
+   targets. The honest-scope *discipline* does apply to that file (its
+   `verified=True` and "Immutable Audit Ledger" claims), but as a separate
+   GSA-815 cleanup owned by whoever owns it — flagged in a one-line pointer
+   added to `GSA-815/gsa-governance-core/README.md` (its own small PR), not
+   here.
+
+   Divergence, stated precisely: the two platforms do **not** diverge on
+   `authorized_by` attestation — they share the ledger. GSA-815 additionally
+   carries a prototype governance core with larger, unrelated integrity gaps,
+   and that prototype is not a candidate for this mechanism.
