@@ -14,7 +14,10 @@ from .human_selection_v1 import HUMAN_SELECTIONS
 from .authorized_by_attestation import (
     SIGNATURE_FIELD as _AUTHORIZED_BY_SIG_FIELD,
     STATUS_INVALID as _ATT_STATUS_INVALID,
+    STATUS_RETIRED_KEY as _ATT_STATUS_RETIRED_KEY,
+    STATUS_UNKNOWN_KEY as _ATT_STATUS_UNKNOWN_KEY,
     attestation_key,
+    attestation_keyset,
     enforcement_required,
     sign_authorized_by,
     verify_authorized_by_signature,
@@ -180,6 +183,11 @@ class PostgreSQLLedger:
                 "default key and no fallback -- see "
                 "governance/authorized_by_attestation.py."
             )
+        # Build the verification key set once at startup so a broken
+        # ATTESTATION_KEYS_PREVIOUS / _RETIRED file (set but unreadable) fails
+        # here, not silently on the first verify_chain. No-op when nothing is
+        # configured (the default): the set is simply empty.
+        attestation_keyset()
 
         # One-off privileged connection: create/migrate schema, then discard.
         # Never reused for ongoing reads/writes.
@@ -482,15 +490,35 @@ class PostgreSQLLedger:
             # row written while no ICEBERG_LEDGER_ATTESTATION_KEY is
             # configured -- keep NULL here and hash byte-identically to what
             # they hashed at write time (an absent optional field is omitted
-            # from the canonical form). 64 hex chars = one HMAC-SHA256 digest.
-            # No index: this column is never a query predicate, only read
-            # back alongside the row it attests. See
+            # from the canonical form). VARCHAR(96) holds the v2 signature
+            # envelope "abv2.<16-hex keyfp>.<64-hex digest>" (~86 chars) that
+            # carries the signing key's fingerprint for rotation; a legacy
+            # bare 64-hex digest still fits and still verifies. No index: this
+            # column is read back alongside the row it attests, and the
+            # rotation dashboard query filters on a LIKE 'abv2.%' prefix. See
             # governance/authorized_by_attestation.py.
             if "authorized_by_sig" not in existing_columns:
                 cursor.execute("""
                     ALTER TABLE ledger_entries
-                        ADD COLUMN IF NOT EXISTS authorized_by_sig VARCHAR(64);
+                        ADD COLUMN IF NOT EXISTS authorized_by_sig VARCHAR(96);
                 """)
+            else:
+                # A ledger created before v2 has this column at VARCHAR(64).
+                # Widening a varchar is a catalog-only change in PG 9.2+ (no
+                # table rewrite); guarded on the current length so a normal
+                # boot never issues the ALTER. Existing 64-char bare digests
+                # are untouched and still verify.
+                cursor.execute(
+                    "SELECT character_maximum_length FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = 'ledger_entries' "
+                    "AND column_name = 'authorized_by_sig';"
+                )
+                _abs_len = cursor.fetchone()
+                if _abs_len and _abs_len[0] is not None and _abs_len[0] < 96:
+                    cursor.execute(
+                        "ALTER TABLE ledger_entries "
+                        "ALTER COLUMN authorized_by_sig TYPE VARCHAR(96);"
+                    )
             # Item 10: timestamp column made timezone-aware. The original
             # TIMESTAMP (no zone) column stored CURRENT_TIMESTAMP under
             # whatever timezone the Postgres session happened to be
@@ -2576,20 +2604,24 @@ class PostgreSQLLedger:
         each row's current_hash matches a fresh recomputation from its contents.
         Detects in-place tampering (e.g., flipping decision_output.approved).
 
-        When ICEBERG_LEDGER_ATTESTATION_KEY is configured, ALSO checks the
-        keyed attestation on each row's authorized_by claim: a row whose
-        authorized_by string was altered after writing is reported as a
-        violation even if current_hash was recomputed to keep the unkeyed
-        SHA-256 chain self-consistent. This check attests writer-authenticity
-        and integrity of the claim string only -- NOT that the named party
-        held the authority claimed (see authorized_by_attestation.py). With
-        no key configured, this method behaves exactly as before.
+        When any attestation key is configured (current, PREVIOUS, or
+        RETIRED), ALSO checks the keyed attestation on each row's authorized_by
+        claim: a row whose authorized_by string was altered after writing is
+        reported as a violation even if current_hash was recomputed to keep the
+        unkeyed SHA-256 chain self-consistent. A row signed by a key this
+        deployment does not hold at all (UNKNOWN_KEY) is ALWAYS a violation; a
+        row signed by a deliberately retired key (RETIRED_KEY) is a violation
+        only when enforcement is on. This check attests writer-authenticity and
+        integrity of the claim string only -- NOT that the named party held the
+        authority claimed (see authorized_by_attestation.py). With no key
+        configured, this method behaves exactly as before.
         """
 
         conn = self.pool.getconn()
         try:
             cursor = conn.cursor()
-            _att_key = attestation_key()
+            _att_keys = attestation_keyset()
+            _att_enforced = enforcement_required()
             # Fetch all columns needed to reconstruct canonical forms
             cursor.execute("""
                 SELECT id, record_kind, previous_hash, current_hash,
@@ -2869,11 +2901,14 @@ class PostgreSQLLedger:
 
                     # Keyed attestation check on the authorized_by claim.
                     # Independent of the SHA-256 chain above: catches an
-                    # authorized_by edit even when current_hash was
-                    # recomputed to match. Only runs when a key is
-                    # configured; only STATUS_INVALID is a violation (a NULL
-                    # signature is a normal unattested row, never tampering).
-                    if _att_key is not None:
+                    # authorized_by edit even when current_hash was recomputed
+                    # to match. Only runs when this deployment holds at least
+                    # one attestation key. A NULL signature (unattested row) is
+                    # never a violation. INVALID (tampering) and UNKNOWN_KEY
+                    # (signed by a key we do not hold in any role) are always
+                    # violations; RETIRED_KEY (signed by a deliberately
+                    # distrusted key) is a violation only under enforcement.
+                    if not _att_keys.is_empty():
                         att_status, att_detail = verify_authorized_by_signature(
                             {
                                 "authorized_by": authorized_by,
@@ -2881,12 +2916,24 @@ class PostgreSQLLedger:
                                 "previous_hash": stored_prev,
                                 "record_kind": record_kind,
                             },
-                            _att_key,
+                            _att_keys,
                         )
                         if att_status == _ATT_STATUS_INVALID:
                             violations.append(
                                 f"Entry {row_id}: authorized_by attestation "
                                 f"invalid ({att_detail})"
+                            )
+                        elif att_status == _ATT_STATUS_UNKNOWN_KEY:
+                            violations.append(
+                                f"Entry {row_id}: authorized_by signed by an "
+                                f"unrecognised key ({att_detail})"
+                            )
+                        elif (att_status == _ATT_STATUS_RETIRED_KEY
+                              and _att_enforced):
+                            violations.append(
+                                f"Entry {row_id}: authorized_by signed by a "
+                                f"retired key and attestation is enforced "
+                                f"({att_detail})"
                             )
 
                 except Exception as e:
