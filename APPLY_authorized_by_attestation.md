@@ -45,8 +45,13 @@ Thirteen files:
   `Tests/test_human_selection_ledger.py` brought onto `SHIPPED_COLUMNS`.
 - **Deployment/ops (5):** `DEPLOYMENT.md`, `docker-compose.yml`,
   `docker-compose-prod.yml`, `k8s/deployment.yaml`, `k8s/secret.yaml.example`
-  — wiring the key through, added after the repo owner chose to answer open
-  question 1 (key storage) now rather than defer it.
+  — wiring the keys through.
+
+The scope grew after the initial delivery because the repo owner chose to
+answer open questions 1 (key storage) and 2 (rotation) as part of this PR
+rather than as follow-ups. Question 2 added no new files — it is contained in
+`authorized_by_attestation.py`, a widen-only migration in `ledger_postgres.py`,
+and the docs/ops files.
 
 ### `sentinel_os/governance/authorized_by_attestation.py` — NEW (in the ledger module)
 
@@ -62,17 +67,26 @@ The mechanism, standard library only (`hmac`, `hashlib`, `json`, `os`):
   project a secret as a file (Vault Agent, Secrets Store CSI driver, Docker
   secrets); the key is re-read every call, so rewriting the file rotates it
   with no restart.
+- `attestation_keyset()` → `KeySet` — the keys this process accepts for
+  verification: the current signing key + `..._KEYS_PREVIOUS` (trusted) +
+  `..._KEYS_RETIRED` (recognised but distrusted). Comma-separated env, or one
+  key per line via a `_FILE` variant. A set-but-unreadable `_FILE` raises.
+- `key_fingerprint(key)` — 16 hex of `sha256(domain‖key)`, the id carried in a
+  v2 signature so verification can pick the right key after a rotation.
 - `enforcement_required()` — reads `ICEBERG_LEDGER_REQUIRE_ATTESTATION`. Off
   unless set to `1/true/yes/on` (D3).
 - `sign_authorized_by(authorized_by, previous_hash, record_kind, key)` —
-  returns hex HMAC-SHA256 over a domain-tagged, narrow payload
-  (`{"authorized_by", "previous_hash", "record_kind"}`), or `None` when there
-  is no claim or no key.
-- `verify_authorized_by_signature(row, key)` — returns `(status, detail)` where
-  status is one of `ok / absent / unattested / unverifiable / invalid`.
-  Comparison is `hmac.compare_digest` (constant time). Only `invalid` means
-  "something is wrong with this row"; `unattested` is the normal, honest state
-  of any row written without a key and every row that predates the column.
+  returns the **v2 envelope** `abv2.<keyfp>.<digest>` (HMAC-SHA256 over a
+  domain-tagged, narrow payload `{"authorized_by", "previous_hash",
+  "record_kind"}`), or `None` when there is no claim or no key.
+- `verify_authorized_by_signature(row, keys)` — `keys` may be a `KeySet`, a
+  single key, an iterable, or `None`. Returns `(status, detail)`, status one of
+  `ok / absent / unattested / unverifiable / invalid / retired_key /
+  unknown_key`. Comparison is `hmac.compare_digest` (constant time). A v2
+  signature names its key, so verification checks exactly that one; a legacy
+  bare-digest signature is tried against every held key. `invalid` and
+  `unknown_key` mean "something is wrong"; `retired_key` is a deliberate,
+  operator-chosen state; `unattested` is the normal state of a pre-key row.
 
 The payload is deliberately three values that are each already a dedicated
 column at all three hash-recompute sites, so recomputing the signature needs
@@ -106,8 +120,13 @@ contract to the whole row) folds it into the hash automatically.
   `RuntimeError` before the connection pool is built — a signing system with a
   publicly known (or absent) key must not appear to protect anything (D4).
 - `_initialize_schema`: `ADD COLUMN IF NOT EXISTS authorized_by_sig
-  VARCHAR(64)`, nullable, no index, no backfill — same migration guarantee as
-  every prior optional column.
+  VARCHAR(96)`, nullable, no index, no backfill — same migration guarantee as
+  every prior optional column. A ledger created at the earlier `VARCHAR(64)`
+  is widened in place (guarded on current length; catalog-only in PG 9.2+, no
+  table rewrite); existing 64-char digests are untouched and still verify.
+- `__init__` also builds `attestation_keyset()` once at startup so a broken
+  `..._KEYS_PREVIOUS`/`_RETIRED` file surfaces at construction, not on first
+  verify. No-op when nothing is configured.
 - New helper `_authorized_by_sig(authorized_by, previous_hash, record_kind)`:
   computes the signature; when enforcement is on and a present claim could not
   be signed, refuses the write. Note this self-check is **not reachable
@@ -126,8 +145,10 @@ contract to the whole row) folds it into the hash automatically.
   canonical form at the single recompute point (one shared
   `apply_optional_hashed_fields` call, the same way `twin_custody` applies the
   contract to the whole row — the per-kind literal dicts above are left
-  untouched); and, **only when a key is configured**, runs the keyed
-  attestation check and reports `invalid` rows as violations. With no key,
+  untouched); and, **only when this deployment holds at least one attestation
+  key**, runs the keyed check. `invalid` and `unknown_key` rows are always
+  violations; `retired_key` rows are violations only when enforcement is on. A
+  NULL signature (unattested) is never a violation. With no key configured,
   `verify_chain` behaves exactly as before.
 
 ### `sentinel_os/regulatory_checks.py` — docs only
@@ -146,9 +167,13 @@ at the repository owner's explicit request (this is the one deviation from
 
 ### `sentinel_os/Tests/test_authorized_by_attestation.py` — NEW
 
-21 tests (the 8 required properties, plus key-file resolution, precedence,
-broken-file failure modes, and cross-record-kind drift). Tampering is
-simulated as pure-function tests on row dicts (the
+35 tests: the 8 required properties; key-file resolution / precedence /
+broken-file failure modes; cross-record-kind drift; and key rotation — the
+v2 envelope and its fingerprint, the current/previous/retired key set, a
+clean `verify_chain` across a rotation, `unknown_key` failing with enforcement
+off, `retired_key` failing only with enforcement on, and legacy bare-digest
+rows still verifying via try-all-keys. Tampering is simulated as pure-function
+tests on row dicts (the
 `ledger_entries` table carries an `UPDATE`-blocking immutability trigger, so
 an in-place edit of a live row is not possible — this mirrors how
 `twin_custody.deep_verify_row` is already tested).
@@ -185,15 +210,15 @@ Full suite: `python3 -m pytest Tests/ --continue-on-collection-errors`
 | | passed | failed | skipped | errors |
 |---|---|---|---|---|
 | before | 746 | 16 | 22 | 26 |
-| after  | 767 | 16 | 22 | 26 |
+| after  | 781 | 16 | 22 | 26 |
 
-`+21` passed = the new test file (16 for the required properties + 5 for
-key-file resolution). The failed / skipped / errored sets are
-**byte-identical** before and after (`diff` of the sorted `FAILED`/`ERROR`
-lines is empty). The two twin-recompute tests brought onto `SHIPPED_COLUMNS`
-(§0) were already passing at the default configuration before this change and
+`+35` passed = the new test file (8 required properties + 5 key-file
+resolution + 14 key rotation + 8 misc coverage). The failed / skipped /
+errored sets are **byte-identical** before and after (`diff` of the sorted
+`FAILED`/`ERROR` lines is empty). The two twin-recompute tests brought onto
+`SHIPPED_COLUMNS` (§0) were already passing at the default configuration and
 still pass; they now also pass with an attestation key set, which they did not
-before. A with-key sweep of 11 ledger test files (229 tests) passes.
+before. A with-key sweep of 11 ledger test files (237 tests) passes.
 
 All 16 pre-existing failures and all 26 errors share one pre-existing,
 unrelated root cause: `ModuleNotFoundError: No module named
@@ -252,8 +277,9 @@ tree because there is nothing there for them to exercise.
 
 **Proves:**
 
-- The row was written by a component that held
-  `ICEBERG_LEDGER_ATTESTATION_KEY` at write time.
+- The row was written by a component that held one of the configured
+  attestation keys at write time, and (for a v2 signature) *which* key —
+  `abv2.<keyfp>.<digest>`.
 - The `authorized_by` string on the row has not been altered since it was
   written — including against an attacker who *also* rebuilds the unkeyed
   SHA-256 chain to keep `current_hash` self-consistent (the acknowledged,
@@ -264,11 +290,13 @@ tree because there is nothing there for them to exercise.
 - That the named human or role authorized anything. `authorized_by` remains
   an unverified claim; the only check any write path applies to it is that it
   is non-empty.
-- Which holder of the key wrote the row. There is one shared service key (D1);
-  two legitimate key holders — or any process that has read the key — are
-  indistinguishable.
-- Anything at all once the key is compromised. A leaked key forges every
-  signature this mechanism would accept.
+- Which holder of a key wrote the row. Keys are service-level, not
+  per-identity (D1); every holder of a key — or any process that has read it —
+  is indistinguishable.
+- Anything at all once a key is compromised. A leaked key forges every
+  signature this mechanism would accept under that key. (This is exactly why
+  the RETIRED role exists: moving a suspected-compromised key there makes
+  every row it signed read as `retired_key`.)
 
 Every docstring, comment, field description, and error message added by this
 change states this explicitly. It is described throughout as *attesting that
@@ -276,14 +304,16 @@ the record was written by an authorized writer and has not been altered
 since* — never as verifying authority, authenticating an identity, or proving
 authorization.
 
-**Enforcement (`ICEBERG_LEDGER_REQUIRE_ATTESTATION`) has exactly two teeth:**
-(a) the ledger refuses to start without a key (`__init__`); (b) the writer
-runs a post-signing self-check and refuses a row whose present `authorized_by`
-claim it could not sign. There is **no caller-supplied-signature path** — the
-ledger always signs its own rows — so no API caller can present an invalid
-signature to be refused at write time. Detection of an *altered* claim happens
-at verification time (`verify_chain` with a key set, or
-`verify_authorized_by_signature` directly), not at write time.
+**Enforcement (`ICEBERG_LEDGER_REQUIRE_ATTESTATION`) has three teeth:**
+(a) the ledger refuses to start without a signing key (`__init__`); (b) the
+writer runs a post-signing self-check and refuses a row whose present
+`authorized_by` claim it could not sign; (c) `verify_chain` treats a
+`retired_key` row as a violation (an `unknown_key` row is always a violation,
+enforced or not). There is **no caller-supplied-signature path** — the ledger
+always signs its own rows — so no API caller can present an invalid signature
+to be refused at write time. Detection of an *altered* claim happens at
+verification time (`verify_chain`, or `verify_authorized_by_signature`
+directly), not at write time.
 
 **Default behaviour is unchanged.** With no key configured (the default and
 the section-6 baseline): writers store `NULL` in the new column, nothing is
@@ -296,10 +326,23 @@ the default they do not.
 **On the original stop conditions.** The chain hash is not keyed and
 `current_hash` is still `sha256(json.dumps(canonical_entry, sort_keys=True,
 default=str))` over the same canonical form; the signature enters that form
-only as one more optional hashed field. No identity or key-management system
-was introduced beyond the single environment-supplied secret. No column was
-renamed, retyped, or dropped. No API signature changed incompatibly (the new
-helper is internal; no public parameter was added). No new dependency.
+only as one more optional hashed field. No API signature changed incompatibly
+(the new helper is internal; no public parameter was added — `verify_chain`
+and `verify_authorized_by_signature` kept their signatures, the latter now
+also accepting a `KeySet`). No new dependency. No column was renamed, retyped,
+or dropped — `authorized_by_sig` is *widened* `VARCHAR(64)`→`VARCHAR(96)`,
+which the task's "no existing column retyped" is read here as not prohibiting:
+it is a lossless catalog-only change, every existing value stays valid, and it
+was the owner's directed answer to open question 2.
+
+The "no identity or key-management system beyond a single environment-supplied
+secret" stop condition is the one to weigh. What was added is deliberately the
+minimum that makes rotation safe: two more environment-supplied lists
+(`..._KEYS_PREVIOUS`, `..._KEYS_RETIRED`) and a key fingerprint in the
+signature. There is no KMS client, no rotation automation, no per-identity
+keys, no new service. If the owner reads this as crossing the line, the
+rotation half (question 2) can be dropped without affecting the core — but it
+was explicitly requested after the core landed.
 
 The file count now exceeds the task's "roughly three files outside the ledger
 module" guidance, but by the repo owner's direction after the initial
@@ -314,7 +357,8 @@ delivery, not silently:
 - **Five deployment/ops files** (`DEPLOYMENT.md`, `docker-compose.yml`,
   `docker-compose-prod.yml`, `k8s/deployment.yaml`, `k8s/secret.yaml.example`)
   — config and docs, no logic, added when the owner chose to answer open
-  question 1 (key storage) as part of this PR rather than a follow-up.
+  questions 1 (key storage) and 2 (rotation) as part of this PR rather than
+  follow-ups.
 
 ---
 
@@ -333,8 +377,15 @@ which only checks that the hash *differs*).
 **The unkeyed chain hash** remains unkeyed, as instructed. An attacker with
 direct write access to `ledger_entries` can still rebuild a self-consistent
 chain — but can no longer forge the `authorized_by` signature on any row
-without the key. Closing the chain-hash gap itself was explicitly out of
-scope.
+without a configured key. Closing the chain-hash gap itself was explicitly out
+of scope.
+
+**The twin does not verify signatures**, only recomputes hashes
+(`deep_verify_row`). It ships the `authorized_by_sig` column so its hash
+recompute stays correct, but it holds no attestation key and does not run
+`verify_authorized_by_signature`. Giving the customer-DR witness the signing
+key is a custody question outside this change; the primary's `verify_chain` is
+where the keyed check runs.
 
 **`bind_cassette_version` and the regulatory/contract/supersession paths** now
 sign too, not just `append_decision`. This is slightly broader than the
@@ -361,14 +412,27 @@ leaves `NULL`, and the row is honestly unattested).
    generation guidance (`openssl rand -hex 32`, one system of record, distinct
    key per environment) is in the module docstring and `DEPLOYMENT.md`.
 
-2. **Key rotation — design now or defer?** Still deferred (the owner may pick
-   this up next). Not designed here. There is no per-row key identifier, so
-   after a rotation every pre-rotation signature becomes `invalid` (not
-   `unattested`) under the new key. Options: store a key id per row; accept a
-   set of keys during a rotation window; or treat rotation as a hard cutover
-   and re-verify only forward. This needs a decision before enforcement is
-   turned on anywhere with a key that will ever rotate. `DEPLOYMENT.md`
-   carries the caveat.
+2. **Key rotation — design now or defer? — ANSWERED, built in.** The owner
+   chose to design it now. Verification holds a **key set**, not one key:
+   the current signing key, `ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS` (still
+   trusted → `ok`), and `ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED` (deliberately
+   distrusted → `retired_key`). New signatures carry a 16-hex fingerprint of
+   the signing key (`authorized_by_sig` becomes `abv2.<keyfp>.<digest>`;
+   `authorized_by_sig` widened `VARCHAR(64)`→`VARCHAR(96)`, catalog-only),
+   so verification matches each row to the exact key that signed it and a
+   rotation never makes honest history read as forged. Legacy bare-digest
+   rows fall back to trying every held key.
+
+   `verify_chain` treatment, per the owner's decision:
+   - `unknown_key` (signed by a key held in **no** role) → **always** a
+     violation, in every configuration, un-overridable.
+   - `retired_key` (signed by a deliberately distrusted key) → a violation
+     **only under enforcement**.
+
+   Full rotation runbook + the dashboard query (`split_part(authorized_by_sig,
+   '.', 2)`) is in `DEPLOYMENT.md`. `..._PREVIOUS` is wired through
+   docker-compose and k8s (optional). No per-row re-signing (append-only +
+   immutability triggers).
 
 3. **GSA-815** has its own independent governance kernel. Should it receive
    the same mechanism, or is divergence acceptable here as it is elsewhere

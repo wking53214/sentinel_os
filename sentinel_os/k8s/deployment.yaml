@@ -112,6 +112,16 @@ spec:
               name: iceberg-secrets
               key: ledger-attestation-key
               optional: true
+        # Keys retired from signing but still trusted for verification --
+        # where an old key goes after a rotation (comma-separated, or one per
+        # line via ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS_FILE). See
+        # DEPLOYMENT.md "Key rotation".
+        - name: ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS
+          valueFrom:
+            secretKeyRef:
+              name: iceberg-secrets
+              key: ledger-attestation-keys-previous
+              optional: true
         # Alternative to the env var above, for secret managers that project
         # a secret as a FILE rather than an env var (Vault Agent, the Secrets
         # Store CSI driver, sealed-secrets). Mount the secret as a file and
