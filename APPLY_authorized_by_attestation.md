@@ -1,17 +1,22 @@
 # Apply document — keyed attestation for `authorized_by`
 
-Delivered as **PR #28** (`wking53214/sentinel_os`), branch
-`authorized-by-attestation`, three commits:
+**Merged to `main` via PR #28** (`wking53214/sentinel_os`), merge commit
+`6236866`, on 2026-08-27. Five commits:
 
-1. `4ee0065` — the core keyed attestation.
-2. `bb70516` — `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` + deploy wiring (open
-   question 1).
-3. `080c935` — key rotation: verification key set + per-signature fingerprint
-   (open question 2).
+1. the core keyed attestation;
+2. `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` + deploy wiring — open question 1;
+3. key rotation: verification key set + per-signature key fingerprint — open
+   question 2;
+4. test the `VARCHAR` widen path + document the v1/v2 verify asymmetry;
+5. this apply doc's answer to open question 3 (GSA-815).
 
-`authorized_by_attestation.patch` in the repo root is the full diff of all
-three against `origin/main`, verified to apply cleanly in a fresh worktree.
-Nothing is merged. `main` is untouched.
+All three of the task's open questions were resolved (1 + 2 built in, 3
+answered with a finding — see §6). Companion change: `GSA-815` PR #1 added a
+`## Status` section to `gsa-governance-core/README.md`; no code there.
+
+This document is kept as the delivery record. The rest of it is written in the
+present tense of the review; take "this PR" / "this change" throughout as
+referring to what is now on `main`.
 
 ---
 
