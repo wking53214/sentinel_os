@@ -55,15 +55,32 @@ recomputed ``current_hash`` and break the chain.
 
 CONFIGURATION (locked decision D3 / D4)
 --------------------------------------
-* ``ICEBERG_LEDGER_ATTESTATION_KEY`` -- the service signing key, supplied by
-  the environment. No default. No fallback. If it is unset, rows are written
-  with a NULL signature and are honestly reported as unattested.
+* ``ICEBERG_LEDGER_ATTESTATION_KEY`` -- the service signing key, supplied
+  directly by the environment. No default. No fallback to a placeholder.
+* ``ICEBERG_LEDGER_ATTESTATION_KEY_FILE`` -- an alternative: a path to a file
+  whose contents are the key. Used only when ``ICEBERG_LEDGER_ATTESTATION_KEY``
+  is unset. This is the idiom for secret managers that project a secret as a
+  file rather than an env var -- Vault Agent, the Kubernetes Secrets Store CSI
+  driver, Docker/Compose secrets, sealed-secrets. The file's surrounding
+  whitespace (a trailing newline in particular) is stripped. Because the key
+  is re-read on every call, rewriting the file rotates the key with no
+  restart. If this variable is set but the file is missing, unreadable, or
+  empty, that is a misconfiguration and raises -- it is NOT silently treated
+  as "no key", which would degrade to unattested writes without anyone
+  noticing.
+
+  If neither variable is set, rows are written with a NULL signature and are
+  honestly reported as unattested.
 * ``ICEBERG_LEDGER_REQUIRE_ATTESTATION`` -- opt-in enforcement, OFF unless set
   to a truthy value ("1"/"true"/"yes"/"on"). When ON and no key is configured,
   the ledger refuses to start (see PostgreSQLLedger.__init__). When ON and a
   key is configured, a writer that cannot produce a signature for a present
   ``authorized_by`` claim refuses the write rather than recording an
   unattested claim.
+
+Generate the key with 32 bytes of CSPRNG output, e.g. ``openssl rand -hex 32``,
+store it in exactly one system of record, never commit it, and use a distinct
+key per environment so a leaked staging key cannot forge production rows.
 """
 
 from __future__ import annotations
@@ -75,8 +92,10 @@ import os
 from typing import Any, Dict, Optional, Tuple
 
 # Environment configuration. Names mirror the existing ICEBERG_* convention
-# (ICEBERG_LEDGER_RUNTIME_USER, ICEBERG_REQUIRE_API_KEYS).
+# (ICEBERG_LEDGER_RUNTIME_USER, ICEBERG_REQUIRE_API_KEYS); the _FILE fallback
+# mirrors CERT_FILE / KEY_FILE in api_server_resilient.py.
 ENV_KEY = "ICEBERG_LEDGER_ATTESTATION_KEY"
+ENV_KEY_FILE = "ICEBERG_LEDGER_ATTESTATION_KEY_FILE"
 ENV_REQUIRE = "ICEBERG_LEDGER_REQUIRE_ATTESTATION"
 
 # Domain-separation tag: keeps this HMAC from ever colliding with an HMAC
@@ -93,16 +112,44 @@ _TRUTHY = {"1", "true", "yes", "on"}
 
 
 def attestation_key() -> Optional[bytes]:
-    """The configured service signing key as bytes, or None if unset.
+    """The configured service signing key as bytes, or None if not configured.
 
-    An empty string is treated as unset -- there is no such thing as a
-    zero-length signing key here, and a blank env var must not be mistaken
-    for a configured one.
+    Resolution order:
+      1. ``ICEBERG_LEDGER_ATTESTATION_KEY`` -- used verbatim if set and non-empty.
+      2. ``ICEBERG_LEDGER_ATTESTATION_KEY_FILE`` -- a path; the file's contents,
+         with surrounding whitespace stripped, are the key.
+      3. otherwise None (no key configured -> rows written unattested).
+
+    An empty value is treated as unset -- there is no zero-length signing key,
+    and a blank env var or blank file must not be mistaken for a configured one.
+
+    Raises RuntimeError if ``..._KEY_FILE`` is set but the file cannot be read
+    or is empty. A named-but-broken key source is a misconfiguration, not the
+    same thing as "no key" -- failing loudly here is deliberate, so a
+    deployment that meant to sign does not silently write unattested rows.
     """
     raw = os.environ.get(ENV_KEY)
-    if not raw:
-        return None
-    return raw.encode("utf-8")
+    if raw:
+        return raw.encode("utf-8")
+
+    path = os.environ.get(ENV_KEY_FILE)
+    if path:
+        try:
+            contents = open(path, "r", encoding="utf-8").read().strip()
+        except OSError as exc:
+            raise RuntimeError(
+                f"{ENV_KEY_FILE}={path!r} is set but the file could not be "
+                f"read ({exc.__class__.__name__}: {exc}). Refusing to treat a "
+                f"broken key source as 'no key'."
+            ) from exc
+        if not contents:
+            raise RuntimeError(
+                f"{ENV_KEY_FILE}={path!r} is set but the file is empty. "
+                f"A zero-length signing key is not a key."
+            )
+        return contents.encode("utf-8")
+
+    return None
 
 
 def enforcement_required() -> bool:

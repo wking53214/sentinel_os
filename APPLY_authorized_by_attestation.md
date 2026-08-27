@@ -34,15 +34,34 @@ test files (229 tests) passes.
 
 ## 1. What changed and in which files
 
-Eight files. Three carry the ledger's hash contract, one is docs-only, two
-existing tests are brought onto `SHIPPED_COLUMNS`, two are new.
+Thirteen files:
+
+- **Ledger hash contract (4):** `governance/authorized_by_attestation.py`
+  (new), `governance/ledger_postgres.py`, `canonical_fields.py`,
+  `twin_custody.py`.
+- **Docs-only (1):** `regulatory_checks.py`.
+- **Tests (3):** `Tests/test_authorized_by_attestation.py` (new);
+  `Tests/test_contract_attestation.py` and
+  `Tests/test_human_selection_ledger.py` brought onto `SHIPPED_COLUMNS`.
+- **Deployment/ops (5):** `DEPLOYMENT.md`, `docker-compose.yml`,
+  `docker-compose-prod.yml`, `k8s/deployment.yaml`, `k8s/secret.yaml.example`
+  — wiring the key through, added after the repo owner chose to answer open
+  question 1 (key storage) now rather than defer it.
 
 ### `sentinel_os/governance/authorized_by_attestation.py` — NEW (in the ledger module)
 
 The mechanism, standard library only (`hmac`, `hashlib`, `json`, `os`):
 
-- `attestation_key()` — reads `ICEBERG_LEDGER_ATTESTATION_KEY` from the
-  environment. Empty or unset → `None`. No default, no fallback (D4).
+- `attestation_key()` — resolves the key: `ICEBERG_LEDGER_ATTESTATION_KEY`
+  (verbatim) if set; else the contents of the file at
+  `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` (whitespace stripped) if that is set;
+  else `None`. No default, no placeholder fallback (D4). A `..._KEY_FILE` path
+  that is set but unreadable or empty **raises** — a named-but-broken key
+  source is a misconfiguration, not "no key", and must not silently degrade to
+  unattested writes. The file form is the idiom for secret managers that
+  project a secret as a file (Vault Agent, Secrets Store CSI driver, Docker
+  secrets); the key is re-read every call, so rewriting the file rotates it
+  with no restart.
 - `enforcement_required()` — reads `ICEBERG_LEDGER_REQUIRE_ATTESTATION`. Off
   unless set to `1/true/yes/on` (D3).
 - `sign_authorized_by(authorized_by, previous_hash, record_kind, key)` —
@@ -127,10 +146,34 @@ at the repository owner's explicit request (this is the one deviation from
 
 ### `sentinel_os/Tests/test_authorized_by_attestation.py` — NEW
 
-16 tests. Tampering is simulated as pure-function tests on row dicts (the
+21 tests (the 8 required properties, plus key-file resolution, precedence,
+broken-file failure modes, and cross-record-kind drift). Tampering is
+simulated as pure-function tests on row dicts (the
 `ledger_entries` table carries an `UPDATE`-blocking immutability trigger, so
 an in-place edit of a live row is not possible — this mirrors how
 `twin_custody.deep_verify_row` is already tested).
+
+### Deployment / ops — key wiring (config + docs, no logic)
+
+- `sentinel_os/DEPLOYMENT.md` — the three env vars added to the table, plus a
+  new "Ledger `authorized_by` attestation" section (generate with
+  `openssl rand -hex 32`, env var vs `_KEY_FILE`, enforcement, the rotation
+  caveat).
+- `sentinel_os/docker-compose.yml` — `ICEBERG_LEDGER_ATTESTATION_KEY:
+  ${ICEBERG_LEDGER_ATTESTATION_KEY:-}` on the `iceberg` and `worker` services
+  (both construct the ledger), taken from the operator's environment, no
+  committed value.
+- `sentinel_os/docker-compose-prod.yml` — same, on its `iceberg` service.
+- `sentinel_os/k8s/deployment.yaml` — an **optional** `secretKeyRef` for
+  `ICEBERG_LEDGER_ATTESTATION_KEY` (key `ledger-attestation-key`), plus a
+  commented `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` block showing the
+  file-mount path for CSI/Vault.
+- `sentinel_os/k8s/secret.yaml.example` — `ledger-attestation-key: ""` added
+  with a note, and `openssl rand -hex 32` in the `kubectl create secret`
+  example.
+
+All five default to "unset → unattested", so applying them changes nothing
+until an operator supplies a key.
 
 ---
 
@@ -142,9 +185,10 @@ Full suite: `python3 -m pytest Tests/ --continue-on-collection-errors`
 | | passed | failed | skipped | errors |
 |---|---|---|---|---|
 | before | 746 | 16 | 22 | 26 |
-| after  | 762 | 16 | 22 | 26 |
+| after  | 767 | 16 | 22 | 26 |
 
-`+16` passed = the new test file. The failed / skipped / errored sets are
+`+21` passed = the new test file (16 for the required properties + 5 for
+key-file resolution). The failed / skipped / errored sets are
 **byte-identical** before and after (`diff` of the sorted `FAILED`/`ERROR`
 lines is empty). The two twin-recompute tests brought onto `SHIPPED_COLUMNS`
 (§0) were already passing at the default configuration before this change and
@@ -249,20 +293,28 @@ omitted from the canonical form). The only observable difference at the
 default configuration is that rows may now carry a signature value — and at
 the default they do not.
 
-**No stop condition was triggered.** The chain hash is not keyed and
+**On the original stop conditions.** The chain hash is not keyed and
 `current_hash` is still `sha256(json.dumps(canonical_entry, sort_keys=True,
 default=str))` over the same canonical form; the signature enters that form
 only as one more optional hashed field. No identity or key-management system
-was introduced beyond the single environment-supplied secret. Non-test files
-changed outside the ledger module: three (`canonical_fields.py`,
-`twin_custody.py` — the ledger's hash contract shared with the witness — and
-`regulatory_checks.py`, docs only). The new test file is required by section 6.
-Two existing tests were modified — narrowly, to select `SHIPPED_COLUMNS`
-instead of a hand-picked subset — **at the repository owner's explicit
-direction** (see §0); this is the single deviation from section 5's "no
-existing test modified". No column was renamed, retyped, or dropped. No API
-signature changed incompatibly (the new helper is internal; no public
-parameter was added). No new dependency.
+was introduced beyond the single environment-supplied secret. No column was
+renamed, retyped, or dropped. No API signature changed incompatibly (the new
+helper is internal; no public parameter was added). No new dependency.
+
+The file count now exceeds the task's "roughly three files outside the ledger
+module" guidance, but by the repo owner's direction after the initial
+delivery, not silently:
+
+- **Logic outside the ledger module: still three** — `canonical_fields.py`,
+  `twin_custody.py` (the hash contract shared with the witness), and
+  `regulatory_checks.py` (docs only).
+- **Two existing tests** (`test_contract_attestation.py`,
+  `test_human_selection_ledger.py`) narrowed to select `SHIPPED_COLUMNS` — see
+  §0.
+- **Five deployment/ops files** (`DEPLOYMENT.md`, `docker-compose.yml`,
+  `docker-compose-prod.yml`, `k8s/deployment.yaml`, `k8s/secret.yaml.example`)
+  — config and docs, no logic, added when the owner chose to answer open
+  question 1 (key storage) as part of this PR rather than a follow-up.
 
 ---
 
@@ -295,21 +347,28 @@ leaves `NULL`, and the row is honestly unattested).
 
 ---
 
-## 6. Open questions for the repository owner (not answered here)
+## 6. Open questions for the repository owner
 
-1. **Where should the signing key live in deployment?** This change reads it
-   from `ICEBERG_LEDGER_ATTESTATION_KEY` in the environment, mirroring
-   `ICEBERG_LEDGER_RUNTIME_USER/PASSWORD`. A secret manager may be the
-   intended answer; the module boundary (`attestation_key()`) is the single
-   place to change if so.
+1. **Where should the signing key live in deployment? — ANSWERED, built in.**
+   The owner chose to settle this now. `attestation_key()` takes the key from
+   `ICEBERG_LEDGER_ATTESTATION_KEY` directly, or from a file named by
+   `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` (the idiom for Vault Agent / CSI
+   driver / Docker secrets — anything that projects a secret as a file). The
+   ledger never talks to a secret manager itself; both delivery paths keep it
+   ignorant of the source. Wired through `docker-compose.yml`,
+   `docker-compose-prod.yml`, `k8s/deployment.yaml`, `k8s/secret.yaml.example`
+   (all optional / commented), and documented in `DEPLOYMENT.md`. Key
+   generation guidance (`openssl rand -hex 32`, one system of record, distinct
+   key per environment) is in the module docstring and `DEPLOYMENT.md`.
 
-2. **Key rotation — design now or defer?** Not designed here. There is no
-   per-row key identifier, so after a rotation every pre-rotation signature
-   becomes `invalid` (not `unattested`) under the new key. Options: store a
-   key id per row; accept a set of keys during a rotation window; or treat
-   rotation as a hard cutover and re-verify only forward. This needs a
-   decision before enforcement is turned on anywhere with a key that will
-   ever rotate.
+2. **Key rotation — design now or defer?** Still deferred (the owner may pick
+   this up next). Not designed here. There is no per-row key identifier, so
+   after a rotation every pre-rotation signature becomes `invalid` (not
+   `unattested`) under the new key. Options: store a key id per row; accept a
+   set of keys during a rotation window; or treat rotation as a hard cutover
+   and re-verify only forward. This needs a decision before enforcement is
+   turned on anywhere with a key that will ever rotate. `DEPLOYMENT.md`
+   carries the caveat.
 
 3. **GSA-815** has its own independent governance kernel. Should it receive
    the same mechanism, or is divergence acceptable here as it is elsewhere

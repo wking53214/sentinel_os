@@ -98,6 +98,31 @@ spec:
             secretKeyRef:
               name: iceberg-secrets
               key: claude-api-key
+        # Service signing key for the ledger's authorized_by attestation
+        # (governance/authorized_by_attestation.py). Optional: unset -> rows
+        # are written unattested (NULL signature), which is the default
+        # posture. Set ICEBERG_LEDGER_REQUIRE_ATTESTATION=1 below to make a
+        # present-but-unsigned authorized_by claim a hard failure -- with
+        # enforcement on and no key here, the ledger refuses to start.
+        # Generate with `openssl rand -hex 32`; use a distinct key per
+        # environment.
+        - name: ICEBERG_LEDGER_ATTESTATION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: iceberg-secrets
+              key: ledger-attestation-key
+              optional: true
+        # Alternative to the env var above, for secret managers that project
+        # a secret as a FILE rather than an env var (Vault Agent, the Secrets
+        # Store CSI driver, sealed-secrets). Mount the secret as a file and
+        # point this at it; the env var above then stays unset. The key is
+        # re-read on every write/verify, so rewriting the file rotates it
+        # with no pod restart.
+        #
+        # - name: ICEBERG_LEDGER_ATTESTATION_KEY_FILE
+        #   value: /var/run/secrets/attestation/key
+        #
+        # (and add the corresponding volume + volumeMount)
         resources:
           requests:
             cpu: 2
