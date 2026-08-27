@@ -12,6 +12,9 @@
 | `CLAUDE_API_KEY` | — | Required for live governance decisions; without it the governor runs in fail-closed no-client mode (see `claude_governance_api.py`) |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY` / `TWILIO_API_SECRET` | — | Only needed if ingesting real Twilio call logs |
 | `ICEBERG_API_KEYS` | — | Comma-separated API keys for the resilient API server (`api_server_resilient.py`) |
+| `ICEBERG_LEDGER_ATTESTATION_KEY` | — | Service signing key for the ledger `authorized_by` attestation. Unset → rows written unattested (default). See below. |
+| `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` | — | Path to a file holding the key; used only when `ICEBERG_LEDGER_ATTESTATION_KEY` is unset. For file-projecting secret managers (Vault Agent, CSI driver, Docker secrets). |
+| `ICEBERG_LEDGER_REQUIRE_ATTESTATION` | `false` | When truthy, an `authorized_by` claim without a valid signature is refused, and the ledger refuses to start if no key is configured. |
 | `PORT` | `9090` | API server port |
 | `CERT_FILE` / `KEY_FILE` | `./certs/cert.pem` / `./certs/key.pem` | TLS cert/key paths |
 
@@ -37,6 +40,34 @@ the cert is a throwaway self-signed placeholder, never used for any real
 deployment, and rewriting history would break every existing clone. If you
 ever *did* use that specific keypair for something real, treat it as
 compromised and regenerate; otherwise no action needed.
+
+## Ledger `authorized_by` attestation
+
+The ledger's `authorized_by` field records who a decision or ledger action is
+attributed to. Without a key it is an unverified string. Configure
+`ICEBERG_LEDGER_ATTESTATION_KEY` and every writer signs the claim with
+HMAC-SHA256; a verifier with the same key then confirms the row was written by
+a key holder and that the claim is unchanged. It does **not** prove the named
+party authorized anything — one shared key, and a leaked key forges
+signatures. See `governance/authorized_by_attestation.py`.
+
+- **Generate:** `openssl rand -hex 32`. One system of record, never committed,
+  a **distinct key per environment** (a leaked staging key must not forge
+  production rows).
+- **Deliver it** either as `ICEBERG_LEDGER_ATTESTATION_KEY` directly, or — for
+  Vault Agent / the Secrets Store CSI driver / Docker secrets, which project a
+  secret as a file — mount the file and set
+  `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` to its path (env var wins if both are
+  set; a set-but-unreadable file path is a hard error, never silently "no
+  key"). The key is re-read on every write/verify, so rewriting the file
+  rotates it with no restart.
+- **Enforcement:** set `ICEBERG_LEDGER_REQUIRE_ATTESTATION=1` to make an
+  unsigned `authorized_by` claim a hard failure. With enforcement on and no
+  key configured, the ledger refuses to start. Leave it off (default) to roll
+  the key out first and sign opportunistically.
+- **Rotation caveat:** signatures are not re-signed and carry no key
+  identifier, so after a rotation old rows verify as `invalid` under the new
+  key until a key-id/multi-key scheme is added (tracked separately).
 
 ## Local / single-machine
 

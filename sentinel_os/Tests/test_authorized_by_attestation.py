@@ -28,6 +28,7 @@ from canonical_fields import OPTIONAL_HASHED_FIELDS
 from governance import authorized_by_attestation as att
 from governance.authorized_by_attestation import (
     ENV_KEY,
+    ENV_KEY_FILE,
     ENV_REQUIRE,
     SIGNATURE_FIELD,
     STATUS_INVALID,
@@ -112,6 +113,7 @@ def _twin_row(**over):
 @pytest.fixture
 def key_env(monkeypatch):
     monkeypatch.setenv(ENV_KEY, _KEY_STR)
+    monkeypatch.delenv(ENV_KEY_FILE, raising=False)
     monkeypatch.delenv(ENV_REQUIRE, raising=False)
     return _KEY
 
@@ -119,6 +121,7 @@ def key_env(monkeypatch):
 @pytest.fixture
 def no_key_env(monkeypatch):
     monkeypatch.delenv(ENV_KEY, raising=False)
+    monkeypatch.delenv(ENV_KEY_FILE, raising=False)
     monkeypatch.delenv(ENV_REQUIRE, raising=False)
 
 
@@ -369,6 +372,59 @@ def test_signature_present_but_no_key_is_unverifiable_not_invalid():
 def test_row_with_no_claim_is_absent_not_unattested():
     row = _twin_row(authorized_by=None)
     assert verify_authorized_by_signature(row, _KEY)[0] == "absent"
+
+
+# ---------------------------------------------------------------------------
+# key resolution: ICEBERG_LEDGER_ATTESTATION_KEY_FILE (Option B)
+# ---------------------------------------------------------------------------
+
+def test_key_can_come_from_a_file(tmp_path, monkeypatch, test_ledger):
+    keyfile = tmp_path / "attestation.key"
+    keyfile.write_text(_KEY_STR + "\n")  # trailing newline, as `echo` / mounts produce
+    monkeypatch.delenv(ENV_KEY, raising=False)
+    monkeypatch.setenv(ENV_KEY_FILE, str(keyfile))
+
+    assert att.attestation_key() == _KEY  # newline stripped -> same bytes as env
+
+    assert test_ledger.append_decision(
+        _record(authorized_by="harness:production"),
+        governance_params=_governance_params())
+    row = _last_row(test_ledger)
+    assert row[SIGNATURE_FIELD] is not None
+    assert verify_authorized_by_signature(row, att.attestation_key())[0] == STATUS_OK
+    assert test_ledger.verify_chain()["ok"]
+
+
+def test_env_var_wins_over_key_file(tmp_path, monkeypatch):
+    keyfile = tmp_path / "attestation.key"
+    keyfile.write_text("the-file-key")
+    monkeypatch.setenv(ENV_KEY, "the-env-key")
+    monkeypatch.setenv(ENV_KEY_FILE, str(keyfile))
+    assert att.attestation_key() == b"the-env-key"
+
+
+def test_key_file_set_but_missing_raises(monkeypatch):
+    monkeypatch.delenv(ENV_KEY, raising=False)
+    monkeypatch.setenv(ENV_KEY_FILE, "/no/such/attestation/key/file")
+    with pytest.raises(RuntimeError, match="could not be read"):
+        att.attestation_key()
+
+
+def test_key_file_empty_raises(tmp_path, monkeypatch):
+    keyfile = tmp_path / "empty.key"
+    keyfile.write_text("   \n")
+    monkeypatch.delenv(ENV_KEY, raising=False)
+    monkeypatch.setenv(ENV_KEY_FILE, str(keyfile))
+    with pytest.raises(RuntimeError, match="empty"):
+        att.attestation_key()
+
+
+def test_enforcement_on_with_broken_key_file_refuses_to_start(monkeypatch):
+    monkeypatch.setenv(ENV_REQUIRE, "1")
+    monkeypatch.delenv(ENV_KEY, raising=False)
+    monkeypatch.setenv(ENV_KEY_FILE, "/no/such/attestation/key/file")
+    with pytest.raises(RuntimeError):
+        PostgreSQLLedger(**_PG)
 
 
 def test_multiple_record_kinds_verify_with_a_key_set(test_ledger, key_env):
