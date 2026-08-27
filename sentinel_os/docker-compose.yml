@@ -31,6 +31,16 @@ services:
       # is the only place the value needs to be set.
       ICEBERG_LEDGER_RUNTIME_USER: ledger_reader
       ICEBERG_LEDGER_RUNTIME_PASSWORD: change_me_in_prod_too
+      # Service signing key for the ledger's authorized_by attestation
+      # (governance/authorized_by_attestation.py). Unset -> rows are written
+      # unattested, which is the default. Taken from the operator's
+      # environment; no placeholder key is committed. Set
+      # ICEBERG_LEDGER_REQUIRE_ATTESTATION=1 to make an unsigned authorized_by
+      # claim a hard failure (the ledger then refuses to start without a key).
+      # KEYS_PREVIOUS holds keys retired from signing but still trusted for
+      # verification -- where an old key goes after a rotation (comma-separated).
+      ICEBERG_LEDGER_ATTESTATION_KEY: ${ICEBERG_LEDGER_ATTESTATION_KEY:-}
+      ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS: ${ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
     volumes:
       - ./data:/data
@@ -182,6 +192,10 @@ services:
       # no privileged fallback) -- same pair the iceberg service sets.
       ICEBERG_LEDGER_RUNTIME_USER: ledger_reader
       ICEBERG_LEDGER_RUNTIME_PASSWORD: change_me_in_prod_too
+      # See the iceberg service above. The worker also constructs the ledger,
+      # so the attestation keys belong here too for rows it writes.
+      ICEBERG_LEDGER_ATTESTATION_KEY: ${ICEBERG_LEDGER_ATTESTATION_KEY:-}
+      ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS: ${ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
     restart: always
     depends_on:

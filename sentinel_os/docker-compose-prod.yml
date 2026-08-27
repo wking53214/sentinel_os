@@ -36,6 +36,12 @@ services:
       POSTGRES_USER: iceberg
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iceberg_prod_password}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      # Service signing key for the ledger's authorized_by attestation
+      # (governance/authorized_by_attestation.py). Unset -> rows written
+      # unattested (the default). KEYS_PREVIOUS holds post-rotation old keys,
+      # still trusted for verification -- see DEPLOYMENT.md "Key rotation".
+      ICEBERG_LEDGER_ATTESTATION_KEY: ${ICEBERG_LEDGER_ATTESTATION_KEY:-}
+      ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS: ${ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS:-}
       PORT: 9090
     ports:
       - "9090:9090"
