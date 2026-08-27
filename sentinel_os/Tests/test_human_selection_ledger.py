@@ -192,7 +192,7 @@ def test_twin_recomputes_human_selection_identically(test_ledger):
     """Recompute site 3. If the witness disagrees with the writer, every
     honest row reads as DIVERGE on the twin -- indistinguishable from
     tampering, the highest-risk failure mode of adding a new record kind."""
-    from twin_custody import recompute_current_hash
+    from twin_custody import SHIPPED_COLUMNS, recompute_current_hash
     from Tests.conftest import PG_CONFIG
     import psycopg2
 
@@ -204,26 +204,19 @@ def test_twin_recomputes_human_selection_identically(test_ledger):
     conn = psycopg2.connect(connect_timeout=2, **PG_CONFIG)
     try:
         cur = conn.cursor()
-        cur.execute("""
-            SELECT record_kind, cassette_version, data, decision_output,
-                   authorized_by, decision_hash, previous_hash, current_hash,
-                   action_type, node, previous_value, applied_value, reason
-            FROM ledger_entries
-            WHERE record_kind = 'human_selection'
-            ORDER BY id ASC
-        """)
+        # Select exactly the columns the twin ships, in SHIPPED_COLUMNS order,
+        # so the row dict carries every optional hashed field (authorized_by_sig
+        # included) -- a hand-picked subset silently drops the newest field.
+        cur.execute(
+            f"SELECT {', '.join(SHIPPED_COLUMNS)} FROM ledger_entries "  # nosec B608 -- SHIPPED_COLUMNS is a fixed, code-defined column list, never external input
+            f"WHERE record_kind = 'human_selection' ORDER BY id ASC"
+        )
         fetched = cur.fetchall()
     finally:
         conn.close()
 
     assert fetched
     for r in fetched:
-        row = {
-            "record_kind": r[0], "cassette_version": r[1], "data": r[2],
-            "decision_output": r[3], "authorized_by": r[4], "decision_hash": r[5],
-            "previous_hash": r[6], "current_hash": r[7],
-            "action_type": r[8], "node": r[9], "previous_value": r[10],
-            "applied_value": r[11], "reason": r[12],
-        }
+        row = dict(zip(SHIPPED_COLUMNS, r))
         assert recompute_current_hash(row) == row["current_hash"], \
             "twin disagrees with the writer on human_selection"

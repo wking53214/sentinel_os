@@ -217,7 +217,10 @@ _CATEGORICAL_FLAG_TIERS = frozenset({T0_PROHIBITED, T5_UNDECLARED, T6_OPAQUE})
 # not alternatives (see module docstring). "undeclared" belongs to T5
 # only (there is no claim to grade). A-only claims get
 # attested-unsupported; +named owner (reusing the ledger's existing
-# authorized_by field) promotes to attested-accountable-unsupported;
+# authorized_by field -- a NAME the profile author supplied, not a
+# verified authority; naming a party does not establish that party
+# holds any authority or reviewed anything) promotes to
+# attested-accountable-unsupported;
 # +evidence (reusing cassette_schema.METADATA_SLOTS names --
 # approval_date / justification / last_reviewed) promotes further to
 # attested-accountable-evidenced; only an independently cross-checked
@@ -259,10 +262,14 @@ class TierDeclaration:
     metadata that entry doesn't need.
 
     tier            -- one of the TIERS constants.
-    authorized_by   -- named accountable person/role on record for this
-                       claim (same field name as the ledger's existing
-                       authorized_by column -- reused, not reinvented).
-                       None = a bare, unowned self-declaration.
+    authorized_by   -- the person/role the profile author NAMES as
+                       accountable for this claim (same field name as the
+                       ledger's existing authorized_by column -- reused, not
+                       reinvented). It is an unverified claim: nothing here
+                       confirms the named party exists, holds the authority
+                       implied, or reviewed anything -- it only records who
+                       the profile says to hold accountable. None = a bare,
+                       unowned self-declaration.
     approval_date / justification / last_reviewed -- evidence slots,
                        same names as cassette_schema.METADATA_SLOTS.
                        None = that slot was not supplied.
