@@ -11,6 +11,17 @@ from canonical_fields import (CONTRACT_CANONICAL_FIELDS,
                               CONTRACT_KINDS_WITH_FINDING,
                               apply_optional_hashed_fields)
 from .human_selection_v1 import HUMAN_SELECTIONS
+from .authorized_by_attestation import (
+    SIGNATURE_FIELD as _AUTHORIZED_BY_SIG_FIELD,
+    STATUS_INVALID as _ATT_STATUS_INVALID,
+    STATUS_RETIRED_KEY as _ATT_STATUS_RETIRED_KEY,
+    STATUS_UNKNOWN_KEY as _ATT_STATUS_UNKNOWN_KEY,
+    attestation_key,
+    attestation_keyset,
+    enforcement_required,
+    sign_authorized_by,
+    verify_authorized_by_signature,
+)
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -67,8 +78,19 @@ class GovernanceDecisionRecord:
     # Item 5: the model string the governor's API call actually resolved to
     #   (response.model), so "which model governed decision N" is in the chain.
     model_identity: Optional[str] = None
-    # Item 7: resolved authorizing identity -- an API-key NAME or service
-    #   identity (e.g. "harness:production"), never a raw key and never PII.
+    # Item 7: the identity the writer NAMES as accountable for this decision
+    #   -- an API-key NAME or service identity (e.g. "harness:production"),
+    #   never a raw key and never PII.
+    #   HONEST SCOPE: this is a claim, not a verified fact. Nothing here
+    #   confirms the named party exists, holds the authority implied, or was
+    #   involved at all -- the only check any write path applies is that the
+    #   string is non-empty. When ICEBERG_LEDGER_ATTESTATION_KEY is
+    #   configured, a companion authorized_by_sig column carries a keyed
+    #   HMAC attesting that this string was written by a component holding
+    #   the service signing key and has not changed since (see
+    #   governance/authorized_by_attestation.py). That still does not
+    #   establish that the named party authorized anything -- one shared key,
+    #   any holder indistinguishable from any other, a leaked key forges it.
     authorized_by: Optional[str] = None
     # Item 6: for a supersession row, the current_hash of the row it
     #   supersedes -- proving the reviewer saw the actual decision. NULL on
@@ -146,6 +168,26 @@ class PostgreSQLLedger:
                 "INSERT only, no UPDATE/DELETE/DDL) so the app connection itself "
                 "cannot UPDATE/DELETE/DROP TRIGGER even if compromised or misused."
             )
+
+        # Attestation enforcement is opt-in and OFF by default (D3). But if
+        # it has been turned ON, a signing key MUST be configured -- there is
+        # no default or fallback key (D4). A signing system with a publicly
+        # known key provides no security while appearing to, so refuse to
+        # start rather than proceed with enforcement that cannot be honoured.
+        if enforcement_required() and attestation_key() is None:
+            raise RuntimeError(
+                "ICEBERG_LEDGER_REQUIRE_ATTESTATION is set but "
+                "ICEBERG_LEDGER_ATTESTATION_KEY is not. The ledger refuses to "
+                "start: authorized_by attestation enforcement requires a real "
+                "service signing key supplied by the environment. There is no "
+                "default key and no fallback -- see "
+                "governance/authorized_by_attestation.py."
+            )
+        # Build the verification key set once at startup so a broken
+        # ATTESTATION_KEYS_PREVIOUS / _RETIRED file (set but unreadable) fails
+        # here, not silently on the first verify_chain. No-op when nothing is
+        # configured (the default): the set is simply empty.
+        attestation_keyset()
 
         # One-off privileged connection: create/migrate schema, then discard.
         # Never reused for ongoing reads/writes.
@@ -443,6 +485,40 @@ class PostgreSQLLedger:
                         ON ledger_entries(decision_hash)
                         WHERE decision_hash IS NOT NULL;
                 """)
+            # Keyed attestation over the authorized_by claim. Nullable, no
+            # backfill: rows written before this column existed -- and every
+            # row written while no ICEBERG_LEDGER_ATTESTATION_KEY is
+            # configured -- keep NULL here and hash byte-identically to what
+            # they hashed at write time (an absent optional field is omitted
+            # from the canonical form). VARCHAR(96) holds the v2 signature
+            # envelope "abv2.<16-hex keyfp>.<64-hex digest>" (~86 chars) that
+            # carries the signing key's fingerprint for rotation; a legacy
+            # bare 64-hex digest still fits and still verifies. No index: this
+            # column is read back alongside the row it attests, and the
+            # rotation dashboard query filters on a LIKE 'abv2.%' prefix. See
+            # governance/authorized_by_attestation.py.
+            if "authorized_by_sig" not in existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS authorized_by_sig VARCHAR(96);
+                """)
+            else:
+                # A ledger created before v2 has this column at VARCHAR(64).
+                # Widening a varchar is a catalog-only change in PG 9.2+ (no
+                # table rewrite); guarded on the current length so a normal
+                # boot never issues the ALTER. Existing 64-char bare digests
+                # are untouched and still verify.
+                cursor.execute(
+                    "SELECT character_maximum_length FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = 'ledger_entries' "
+                    "AND column_name = 'authorized_by_sig';"
+                )
+                _abs_len = cursor.fetchone()
+                if _abs_len and _abs_len[0] is not None and _abs_len[0] < 96:
+                    cursor.execute(
+                        "ALTER TABLE ledger_entries "
+                        "ALTER COLUMN authorized_by_sig TYPE VARCHAR(96);"
+                    )
             # Item 10: timestamp column made timezone-aware. The original
             # TIMESTAMP (no zone) column stored CURRENT_TIMESTAMP under
             # whatever timezone the Postgres session happened to be
@@ -568,6 +644,37 @@ class PostgreSQLLedger:
             raise
         finally:
             self.pool.putconn(conn)
+
+    def _authorized_by_sig(self, authorized_by: Optional[str],
+                           previous_hash: str,
+                           record_kind: str) -> Optional[str]:
+        """Compute the keyed attestation for a row's authorized_by claim.
+
+        Returns the hex HMAC (a component holding ICEBERG_LEDGER_ATTESTATION_KEY
+        wrote this claim and it has not changed since) or None when there is
+        no claim or no key configured -- in which case the row is written with
+        a NULL signature and is honestly unattested (D3/D4).
+
+        When enforcement is ON (ICEBERG_LEDGER_REQUIRE_ATTESTATION) and a
+        present authorized_by claim could not be signed, this refuses the
+        write rather than record an unattested authorization claim. The
+        ledger will not even start with enforcement on and no key (see
+        __init__), so in practice this fires only if signing itself fails.
+
+        This attests writer-authenticity and integrity of one string. It does
+        NOT verify that the named party holds the authority claimed -- see
+        governance/authorized_by_attestation.py.
+        """
+        sig = sign_authorized_by(authorized_by, previous_hash, record_kind,
+                                 attestation_key())
+        if authorized_by and enforcement_required() and not sig:
+            raise RuntimeError(
+                f"authorized_by attestation enforcement is on but no signature "
+                f"was produced for the authorized_by claim on this "
+                f"{record_kind} row. Refusing to record an unattested "
+                f"authorization claim."
+            )
+        return sig
 
     def append(self, action_type: str, node: str, previous_value: float,
                applied_value: float, reason: str, data: Dict) -> bool:
@@ -745,6 +852,8 @@ class PostgreSQLLedger:
             # fields NULL) hash exactly as before and stay verifiable, and
             # writer/witness cannot drift. cassette_hash is computed above
             # from governance_params; the rest ride on the record.
+            authorized_by_sig = self._authorized_by_sig(
+                record.authorized_by, previous_hash, "governance_decision")
             optional_source = {
                 "cassette_hash": cassette_hash,
                 "cassette_code_hash": record.cassette_code_hash,
@@ -754,6 +863,7 @@ class PostgreSQLLedger:
                 "outcome_obligation": record.outcome_obligation,
                 "replaces_hash": record.replaces_hash,
                 "ai_cost": record.ai_cost,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             }
             apply_optional_hashed_fields(canonical_entry, optional_source)
 
@@ -769,9 +879,9 @@ class PostgreSQLLedger:
                  decision_output, cassette_snapshot, cassette_hash, call_sid,
                  cassette_code_hash, model_identity, authorized_by,
                  supersedes_id, supersedes_hash, outcome_obligation, replaces_hash,
-                 ai_cost)
+                 ai_cost, authorized_by_sig)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s)
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (record.action_type, record.node, record.previous_value,
                   record.applied_value, record.reasoning,
                   previous_hash, current_hash, json.dumps(data),
@@ -786,7 +896,8 @@ class PostgreSQLLedger:
                   record.authorized_by,
                   getattr(record, "supersedes_id", None), record.supersedes_hash,
                   record.outcome_obligation, record.replaces_hash,
-                  json.dumps(record.ai_cost) if record.ai_cost else None))
+                  json.dumps(record.ai_cost) if record.ai_cost else None,
+                  authorized_by_sig))
             conn.commit()
             return True
         except Exception:
@@ -881,10 +992,13 @@ class PostgreSQLLedger:
             # cassette_hash + cassette_code_hash enter the hash via the SAME
             # shared contract used by decisions -- so a binding row's integrity
             # recomputes identically on the twin.
+            authorized_by_sig = self._authorized_by_sig(
+                authorized_by, previous_hash, "cassette_binding")
             apply_optional_hashed_fields(canonical_entry, {
                 "cassette_hash": cassette_hash,
                 "cassette_code_hash": cassette_code_hash,
                 "authorized_by": authorized_by,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             })
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -896,13 +1010,13 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, cassette_hash, cassette_code_hash,
-                 authorized_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 authorized_by, authorized_by_sig)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, ("cassette_binding", cassette_version, 0.0, 0.0,
                   "cassette version->content binding",
                   previous_hash, current_hash, json.dumps(data),
                   "cassette_binding", cassette_version, cassette_hash,
-                  cassette_code_hash, authorized_by))
+                  cassette_code_hash, authorized_by, authorized_by_sig))
             conn.commit()
             return {
                 "status": "created",
@@ -991,10 +1105,13 @@ class PostgreSQLLedger:
                 "regulation": str(regulation),
                 "previous_hash": previous_hash,
             }
+            authorized_by_sig = self._authorized_by_sig(
+                authorized_by, previous_hash, event)
             apply_optional_hashed_fields(canonical_entry, {
                 "cassette_hash": cassette_hash,
                 "cassette_code_hash": cassette_code_hash,
                 "authorized_by": authorized_by,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             })
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -1010,13 +1127,13 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, cassette_hash, cassette_code_hash,
-                 authorized_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 authorized_by, authorized_by_sig)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (event, str(regulation)[:100], 0.0, 0.0,
                   f"regulatory lens {verb} ({mode} mode)",
                   previous_hash, current_hash, json.dumps(data),
                   event, cassette_version, cassette_hash,
-                  cassette_code_hash, authorized_by))
+                  cassette_code_hash, authorized_by, authorized_by_sig))
             conn.commit()
             return {
                 "status": "created",
@@ -1101,9 +1218,12 @@ class PostgreSQLLedger:
                 "finding": finding,
                 "previous_hash": previous_hash,
             }
+            authorized_by_sig = self._authorized_by_sig(
+                authorized_by, previous_hash, "regulatory_disclosure")
             apply_optional_hashed_fields(canonical_entry, {
                 "cassette_hash": cassette_hash,
                 "authorized_by": authorized_by,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             })
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -1118,13 +1238,14 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, decision_output, cassette_hash,
-                 authorized_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 authorized_by, authorized_by_sig)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, ("regulatory_disclosure", str(check)[:100], 0.0, 0.0,
                   f"regulatory lens {action}: {check} ({str(regulation)[:120]})",
                   previous_hash, current_hash, json.dumps(data),
                   "regulatory_disclosure", cassette_version,
-                  json.dumps(finding), cassette_hash, authorized_by))
+                  json.dumps(finding), cassette_hash, authorized_by,
+                  authorized_by_sig))
             conn.commit()
             return {
                 "status": "created",
@@ -1203,8 +1324,11 @@ class PostgreSQLLedger:
                 "recommendation": recommendation,
                 "previous_hash": previous_hash,
             }
+            authorized_by_sig = self._authorized_by_sig(
+                authorized_by, previous_hash, "recommendation_shadow_run")
             apply_optional_hashed_fields(canonical_entry, {
                 "authorized_by": authorized_by,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             })
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -1218,14 +1342,15 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, input_data, decision_output,
-                 authorized_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 authorized_by, authorized_by_sig)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, ("recommendation_shadow_run", str(subject)[:100], 0.0, 0.0,
                   f"shadow recommendation ({recommendation_kind}) for {subject}, "
                   "never acted on -- predictive-accuracy measurement only",
                   previous_hash, current_hash, json.dumps(data),
                   "recommendation_shadow_run", cassette_version,
-                  json.dumps(inputs), json.dumps(recommendation), authorized_by))
+                  json.dumps(inputs), json.dumps(recommendation), authorized_by,
+                  authorized_by_sig))
             conn.commit()
             return {
                 "status": "created",
@@ -1291,9 +1416,12 @@ class PostgreSQLLedger:
                 "score": score,
                 "previous_hash": previous_hash,
             }
+            authorized_by_sig = self._authorized_by_sig(
+                authorized_by, previous_hash, "recommendation_shadow_score")
             apply_optional_hashed_fields(canonical_entry, {
                 "authorized_by": authorized_by,
                 "shadow_run_hash": shadow_run_hash,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             })
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -1306,13 +1434,14 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, shadow_run_hash, input_data, decision_output,
-                 authorized_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 authorized_by, authorized_by_sig)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, ("recommendation_shadow_score", shadow_run_hash[:100], 0.0, 0.0,
                   f"scored shadow recommendation {shadow_run_hash[:12]}",
                   previous_hash, current_hash, json.dumps(data),
                   "recommendation_shadow_score", shadow_run_hash,
-                  json.dumps(actual), json.dumps(score), authorized_by))
+                  json.dumps(actual), json.dumps(score), authorized_by,
+                  authorized_by_sig))
             conn.commit()
             return {"status": "created", "shadow_run_hash": shadow_run_hash,
                     "current_hash": current_hash}
@@ -1395,9 +1524,12 @@ class PostgreSQLLedger:
                 "recommendation_shown": recommendation_shown,
                 "previous_hash": previous_hash,
             }
+            authorized_by_sig = self._authorized_by_sig(
+                selected_by, previous_hash, "human_selection")
             apply_optional_hashed_fields(canonical_entry, {
                 "authorized_by": selected_by,
                 "decision_hash": decision_hash,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             })
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -1411,14 +1543,15 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, decision_hash, decision_output,
-                 authorized_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 authorized_by, authorized_by_sig)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, ("human_selection", decision_hash[:100], 0.0, 0.0,
                   f"human selection ({human_selection}) on decision "
                   f"{decision_hash[:12]}",
                   previous_hash, current_hash, json.dumps(data),
                   "human_selection", cassette_version, decision_hash,
-                  json.dumps(recommendation_shown), selected_by))
+                  json.dumps(recommendation_shown), selected_by,
+                  authorized_by_sig))
             conn.commit()
             return {
                 "status": "created",
@@ -1588,9 +1721,12 @@ class PostgreSQLLedger:
                 "finding": finding,
                 "previous_hash": previous_hash,
             }
+            authorized_by_sig = self._authorized_by_sig(
+                authorized_by, previous_hash, "outcome_harm_event")
             apply_optional_hashed_fields(canonical_entry, {
                 "cassette_hash": cassette_hash,
                 "authorized_by": authorized_by,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             })
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -1606,14 +1742,15 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, decision_output, cassette_hash,
-                 authorized_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 authorized_by, authorized_by_sig)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, ("outcome_harm_event", str(harm_kind)[:100], 0.0, 0.0,
                   f"outcome harm event: {str(harm_kind)[:80]} on decision "
                   f"{str(decision_hash)[:16]}",
                   previous_hash, current_hash, json.dumps(data),
                   "outcome_harm_event", cassette_version,
-                  json.dumps(finding), cassette_hash, authorized_by))
+                  json.dumps(finding), cassette_hash, authorized_by,
+                  authorized_by_sig))
             conn.commit()
             return {
                 "status": "created",
@@ -1921,9 +2058,12 @@ class PostgreSQLLedger:
             if finding is not None:
                 canonical_entry["finding"] = finding
             canonical_entry["previous_hash"] = previous_hash
+            authorized_by_sig = self._authorized_by_sig(
+                authorized_by, previous_hash, record_kind)
             apply_optional_hashed_fields(canonical_entry, {
                 "cassette_hash": cassette_hash,
                 "authorized_by": authorized_by,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             })
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -1936,13 +2076,13 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, decision_output, cassette_hash,
-                 authorized_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 authorized_by, authorized_by_sig)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (record_kind, node, 0.0, 0.0, reason,
                   previous_hash, current_hash, json.dumps(data),
                   record_kind, cassette_version,
                   json.dumps(finding) if finding is not None else None,
-                  cassette_hash, authorized_by))
+                  cassette_hash, authorized_by, authorized_by_sig))
             conn.commit()
             result = {"status": "created", "record_kind": record_kind,
                       "cassette_version": cassette_version,
@@ -2131,9 +2271,12 @@ class PostgreSQLLedger:
             # supersedes_hash (the original's current_hash) + authorized_by enter
             # the hash via the shared contract, so the link and the authorizing
             # identity are both tamper-evident and recompute identically on the twin.
+            authorized_by_sig = self._authorized_by_sig(
+                authority, previous_hash, "decision_supersession")
             apply_optional_hashed_fields(canonical_entry, {
                 "supersedes_hash": orig_hash,
                 "authorized_by": authority,
+                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             })
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -2145,13 +2288,13 @@ class PostgreSQLLedger:
                 (action_type, node, previous_value, applied_value, reason,
                  previous_hash, current_hash, data,
                  record_kind, cassette_version, decision_output,
-                 authorized_by, supersedes_id, supersedes_hash)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 authorized_by, supersedes_id, supersedes_hash, authorized_by_sig)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, ("decision_supersession", "supersession", 0.0, 0.0, reason,
                   previous_hash, current_hash, json.dumps(data),
                   "decision_supersession", version,
                   json.dumps(corrected_output),
-                  authority, supersedes_id, orig_hash))
+                  authority, supersedes_id, orig_hash, authorized_by_sig))
             conn.commit()
             return {
                 "status": "superseded",
@@ -2456,15 +2599,29 @@ class PostgreSQLLedger:
 
     def verify_chain(self, mode: str = "strict") -> Dict:
         """Verify ledger integrity: chain links AND content hash recomputation.
-        
+
         Checks both that previous_hash links form an unbroken chain AND that
         each row's current_hash matches a fresh recomputation from its contents.
         Detects in-place tampering (e.g., flipping decision_output.approved).
+
+        When any attestation key is configured (current, PREVIOUS, or
+        RETIRED), ALSO checks the keyed attestation on each row's authorized_by
+        claim: a row whose authorized_by string was altered after writing is
+        reported as a violation even if current_hash was recomputed to keep the
+        unkeyed SHA-256 chain self-consistent. A row signed by a key this
+        deployment does not hold at all (UNKNOWN_KEY) is ALWAYS a violation; a
+        row signed by a deliberately retired key (RETIRED_KEY) is a violation
+        only when enforcement is on. This check attests writer-authenticity and
+        integrity of the claim string only -- NOT that the named party held the
+        authority claimed (see authorized_by_attestation.py). With no key
+        configured, this method behaves exactly as before.
         """
-        
+
         conn = self.pool.getconn()
         try:
             cursor = conn.cursor()
+            _att_keys = attestation_keyset()
+            _att_enforced = enforcement_required()
             # Fetch all columns needed to reconstruct canonical forms
             cursor.execute("""
                 SELECT id, record_kind, previous_hash, current_hash,
@@ -2473,7 +2630,8 @@ class PostgreSQLLedger:
                        decision_output, cassette_hash,
                        cassette_code_hash, model_identity, authorized_by,
                        supersedes_id, supersedes_hash, outcome_obligation,
-                       replaces_hash, ai_cost, shadow_run_hash, decision_hash
+                       replaces_hash, ai_cost, shadow_run_hash, decision_hash,
+                       authorized_by_sig
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -2493,7 +2651,8 @@ class PostgreSQLLedger:
                  decision_output, cassette_hash,
                  cassette_code_hash, model_identity, authorized_by,
                  supersedes_id, supersedes_hash, outcome_obligation,
-                 replaces_hash, ai_cost, shadow_run_hash, decision_hash) = row
+                 replaces_hash, ai_cost, shadow_run_hash, decision_hash,
+                 authorized_by_sig) = row
                 
                 # Check chain link integrity
                 if stored_prev != prev_hash:
@@ -2713,12 +2872,25 @@ class PostgreSQLLedger:
                             "data": self._as_json(data),
                             "previous_hash": stored_prev,
                         }
-                    
+
+                    # authorized_by_sig rides in EVERY record kind's canonical
+                    # form via the shared OPTIONAL_HASHED_FIELDS contract
+                    # (D5). Applied here once, at the single recompute point,
+                    # rather than threaded through each per-kind source dict
+                    # above -- exactly how twin_custody.recompute_current_hash
+                    # applies the shared contract to the whole row. Absent
+                    # (legacy rows, rows written with no key) -> omitted ->
+                    # byte-identical recompute to before this field existed.
+                    apply_optional_hashed_fields(
+                        canonical_entry,
+                        {_AUTHORIZED_BY_SIG_FIELD: authorized_by_sig},
+                    )
+
                     # Recompute hash from canonical form
                     recomputed_hash = hashlib.sha256(
                         json.dumps(canonical_entry, sort_keys=True, default=str).encode()
                     ).hexdigest()
-                    
+
                     # Check for tampering
                     if recomputed_hash != stored_current:
                         violations.append(
@@ -2726,10 +2898,47 @@ class PostgreSQLLedger:
                             f"(stored={stored_current[:8]}..., "
                             f"recomputed={recomputed_hash[:8]}...)"
                         )
-                    
+
+                    # Keyed attestation check on the authorized_by claim.
+                    # Independent of the SHA-256 chain above: catches an
+                    # authorized_by edit even when current_hash was recomputed
+                    # to match. Only runs when this deployment holds at least
+                    # one attestation key. A NULL signature (unattested row) is
+                    # never a violation. INVALID (tampering) and UNKNOWN_KEY
+                    # (signed by a key we do not hold in any role) are always
+                    # violations; RETIRED_KEY (signed by a deliberately
+                    # distrusted key) is a violation only under enforcement.
+                    if not _att_keys.is_empty():
+                        att_status, att_detail = verify_authorized_by_signature(
+                            {
+                                "authorized_by": authorized_by,
+                                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
+                                "previous_hash": stored_prev,
+                                "record_kind": record_kind,
+                            },
+                            _att_keys,
+                        )
+                        if att_status == _ATT_STATUS_INVALID:
+                            violations.append(
+                                f"Entry {row_id}: authorized_by attestation "
+                                f"invalid ({att_detail})"
+                            )
+                        elif att_status == _ATT_STATUS_UNKNOWN_KEY:
+                            violations.append(
+                                f"Entry {row_id}: authorized_by signed by an "
+                                f"unrecognised key ({att_detail})"
+                            )
+                        elif (att_status == _ATT_STATUS_RETIRED_KEY
+                              and _att_enforced):
+                            violations.append(
+                                f"Entry {row_id}: authorized_by signed by a "
+                                f"retired key and attestation is enforced "
+                                f"({att_detail})"
+                            )
+
                 except Exception as e:
                     violations.append(f"Entry {row_id}: hash recomputation failed ({e})")
-                
+
                 prev_hash = stored_current
             
             ok = len(violations) == 0

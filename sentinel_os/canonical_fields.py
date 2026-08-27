@@ -54,7 +54,11 @@ OPTIONAL_HASHED_FIELDS = (
     "cassette_hash",       # Phase 1: parameter-snapshot integrity
     "cassette_code_hash",  # Item 3: decision-code integrity
     "model_identity",      # Item 5: which model produced the decision
-    "authorized_by",       # Item 7: resolved authorizing identity (role/key name)
+    "authorized_by",       # Item 7: the identity NAMED as accountable (role/key
+                           #   name). A claim, not a verified fact -- write
+                           #   paths only check it is non-empty. See
+                           #   authorized_by_sig below and
+                           #   governance/authorized_by_attestation.py.
     "supersedes_hash",     # Item 6: link from a supersession row to the row it supersedes
     "outcome_obligation",  # OutcomeV1: the maturation rule in force at decision time
     # Distinct from supersedes_hash on purpose: supersedes_hash is Item 6's
@@ -96,6 +100,18 @@ OPTIONAL_HASHED_FIELDS = (
     # it's a separate reviewer's verdict ON a decision, and needs a link
     # that means only that. See governance/human_selection_v1.py.
     "decision_hash",
+    # Keyed attestation over the row's authorized_by claim: a hex
+    # HMAC-SHA256, present only on rows that (a) carry an authorized_by
+    # value AND (b) were written while ICEBERG_LEDGER_ATTESTATION_KEY was
+    # configured. It attests that the row was written by a component
+    # holding the service signing key and that the authorized_by string
+    # has not changed since -- NOT that the named party holds any
+    # authority (see governance/authorized_by_attestation.py). It rides
+    # here, inside the chain, so a signature stripped from a row breaks
+    # that row's current_hash recomputation. NULL/absent on every row
+    # written without a key and every row predating this field -- same
+    # migration guarantee every optional field above already has.
+    "authorized_by_sig",
 )
 
 
