@@ -90,6 +90,17 @@ Three roles, each with an env var and a `_FILE` variant:
 2. Append the current key A to `ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS`
    (keep anything already there).
 3. Set `ICEBERG_LEDGER_ATTESTATION_KEY` = B. Roll the fleet.
+
+   > **Do step 2 before step 3, and let it propagate.** If B becomes the
+   > signing key while A is not yet in `..._KEYS_PREVIOUS` anywhere,
+   > verification stops recognising A: every pre-rotation row reports
+   > `unknown_key`. That is not fatal — `verify_ledger` / the `/verify`
+   > endpoint run in tolerant mode and *report* violations rather than
+   > crashing — but it lights up the entire back-catalogue until A is
+   > restored to the list. During a rolling deploy, instances that have B as
+   > current and A in `..._KEYS_PREVIOUS` verify cleanly; the danger window is
+   > only if step 3 lands before step 2.
+
 4. Confirm every writer has moved:
    ```sql
    SELECT split_part(authorized_by_sig,'.',2) AS keyfp, count(*), max(timestamp)

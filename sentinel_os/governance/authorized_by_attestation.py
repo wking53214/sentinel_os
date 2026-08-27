@@ -69,6 +69,15 @@ The fingerprint is ``sha256(domain || key)[:16]``. This is the JWK-thumbprint
 idea, truncated: it reveals 64 bits of a hash of the key, which gives an
 attacker no usable purchase on a properly generated key.
 
+ASYMMETRY, v1 vs v2: a v2 signature names its key, so verification can say
+STATUS_UNKNOWN_KEY ("signed by a key we do not hold") distinctly from
+STATUS_INVALID ("digest is wrong"). A v1 legacy signature carries no key id,
+so if the key that made it is dropped from every list, verification can only
+report STATUS_INVALID -- it looks like tampering even though it is really an
+unknown key. This is unavoidable without a per-row key id, only affects rows
+written by the pre-rotation code with a key configured, and is a reason not to
+fully drop a key that ever signed v1 rows: move it to RETIRED instead.
+
 KEY ROLES (rotation)
 --------------------
 * ``ICEBERG_LEDGER_ATTESTATION_KEY`` (+ ``_KEY_FILE``) -- the ONE current
