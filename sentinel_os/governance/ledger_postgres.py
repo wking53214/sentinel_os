@@ -9,7 +9,9 @@ import hashlib
 import os
 from canonical_fields import (CONTRACT_CANONICAL_FIELDS,
                               CONTRACT_KINDS_WITH_FINDING,
-                              apply_optional_hashed_fields)
+                              apply_optional_hashed_fields,
+                              event_v1_to_body,
+                              observed_event_canonical)
 from .human_selection_v1 import HUMAN_SELECTIONS
 from .authorized_by_attestation import (
     SIGNATURE_FIELD as _AUTHORIZED_BY_SIG_FIELD,
@@ -519,6 +521,28 @@ class PostgreSQLLedger:
                         "ALTER TABLE ledger_entries "
                         "ALTER COLUMN authorized_by_sig TYPE VARCHAR(96);"
                     )
+            # observed_event rows (the persisted EventV1 stream, written in
+            # the same transaction as the governance_decision they feed --
+            # see append_decision's observed_events arg). No new column: the
+            # event body lives in input_data JSONB. This partial unique index
+            # is the DB-level backstop against a re-delivered event being
+            # double-recorded -- event_id is stable-at-creation and contains
+            # the episode id, so it is globally unique in practice. Same
+            # posture as idx_unique_call_sid: the normal path never hits it
+            # (append_decision writes each episode's events exactly once),
+            # it only catches a retry race. Guarded on a catalog read so a
+            # normal boot never issues the CREATE.
+            cursor.execute(
+                "SELECT 1 FROM pg_indexes WHERE schemaname = 'public' "
+                "AND tablename = 'ledger_entries' "
+                "AND indexname = 'idx_unique_observed_event_id';"
+            )
+            if cursor.fetchone() is None:
+                cursor.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_observed_event_id
+                        ON ledger_entries ((input_data->>'event_id'))
+                        WHERE record_kind = 'observed_event';
+                """)
             # Item 10: timestamp column made timezone-aware. The original
             # TIMESTAMP (no zone) column stored CURRENT_TIMESTAMP under
             # whatever timezone the Postgres session happened to be
@@ -734,8 +758,9 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
     
-    def append_decision(self, record: GovernanceDecisionRecord, 
-                       governance_params: Optional[Any] = None) -> bool:
+    def append_decision(self, record: GovernanceDecisionRecord,
+                       governance_params: Optional[Any] = None,
+                       observed_events: "Optional[Any]" = None) -> bool:
         """Append one structured governance decision (transaction).
 
         TRIPWIRE: a decision without a cassette_version is an error,
@@ -747,6 +772,17 @@ class PostgreSQLLedger:
         NEW: governance_params (GovernanceParameters from cassette_schema.py)
         is required. We serialize and hash the cassette at decision time
         so regulators can reconstruct it and prove it hasn't been changed.
+
+        observed_events (optional): an iterable of EventV1 (event_v1.py) --
+        the raw observations this decision was assembled from. When given,
+        each event is written as its own observed_event row IN THE SAME
+        TRANSACTION AND UNDER THE SAME ADVISORY LOCK as the decision, chained
+        immediately AFTER the decision row (decision.current_hash -> event 1
+        -> event 2 -> ...). Chain position is not chronology: the
+        observations happened first, but the decision row references them by
+        id in input_data and the rows carry occurred_at. Default None keeps
+        every existing caller a no-op. A decision either commits with all its
+        events or not at all -- a half-written stream is never left behind.
 
         All forensic fields are inside the canonical form that gets
         hashed, so editing any of them after the fact breaks the chain.
@@ -771,6 +807,34 @@ class PostgreSQLLedger:
             raise ValueError("Governance decision rejected: input_data must be a dict")
         if not isinstance(record.output, dict) or not record.output:
             raise ValueError("Governance decision rejected: output must be a non-empty dict")
+
+        # observed_events: validate the whole batch BEFORE the transaction
+        # opens, same fail-early posture as the record checks above. One bad
+        # event rejects the decision -- a governed call whose observation
+        # stream will not validate is a finding, not something to silently
+        # record half of.
+        event_bodies: List[Dict[str, Any]] = []
+        if observed_events:
+            from event_v1 import validate_event  # lazy: keeps the cold path clean
+            events_list = list(observed_events)
+            seen_ids: set = set()
+            episode_ids: set = set()
+            for ev in events_list:
+                validate_event(ev)
+                if ev.event_id in seen_ids:
+                    raise ValueError(
+                        f"Governance decision rejected: duplicate observed event_id "
+                        f"{ev.event_id!r} in this batch"
+                    )
+                seen_ids.add(ev.event_id)
+                episode_ids.add(ev.episode_id)
+                event_bodies.append(event_v1_to_body(ev))
+            if len(episode_ids) > 1:
+                raise ValueError(
+                    f"Governance decision rejected: observed_events span multiple "
+                    f"episodes {sorted(episode_ids)!r} -- one decision's stream is "
+                    f"one episode"
+                )
 
         # NEW: Capture cassette snapshot for forensic reconstruction
         cassette_snapshot = None
@@ -898,6 +962,35 @@ class PostgreSQLLedger:
                   record.outcome_obligation, record.replaces_hash,
                   json.dumps(record.ai_cost) if record.ai_cost else None,
                   authorized_by_sig))
+
+            # observed_event rows: chained after the decision row, still
+            # inside this transaction and still holding the advisory lock, so
+            # the decision and its whole observation stream commit together
+            # or not at all. Each row hashes a FIXED canonical form (no
+            # optional fields -- every observed_event row is new) via the
+            # shared observed_event_canonical the verifier and witness use.
+            event_prev = current_hash
+            for body in event_bodies:
+                ev_canonical = observed_event_canonical(body, event_prev)
+                ev_hash = hashlib.sha256(
+                    json.dumps(ev_canonical, sort_keys=True, default=str).encode()
+                ).hexdigest()
+                cursor.execute("""
+                    INSERT INTO ledger_entries
+                    (action_type, node, reason, previous_hash, current_hash,
+                     data, record_kind, input_data)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    body["kind"], body["episode_id"],
+                    f"observed_event {body['event_id']} "
+                    f"({body['provenance']}) for episode {body['episode_id']}",
+                    event_prev, ev_hash,
+                    json.dumps({"record_kind": "observed_event",
+                                "parameter_changed": False}),
+                    "observed_event", json.dumps(body),
+                ))
+                event_prev = ev_hash
+
             conn.commit()
             return True
         except Exception:
@@ -2861,6 +2954,19 @@ class PostgreSQLLedger:
                             "authorized_by": authorized_by,
                             "decision_hash": decision_hash,
                         })
+                    elif record_kind == "observed_event":
+                        # The persisted EventV1 stream -- mirrors the
+                        # observed_event loop in append_decision(). The event
+                        # body is stored verbatim in input_data; the FIXED
+                        # canonical form (no optional fields) is built by the
+                        # shared observed_event_canonical the writer and the
+                        # twin also call, so all three sites stay
+                        # byte-identical. Without this branch these rows fall
+                        # through to the legacy path and fail their own
+                        # verification -- a false DIVERGE indistinguishable
+                        # from tampering.
+                        canonical_entry = observed_event_canonical(
+                            self._as_json(input_data) or {}, stored_prev)
                     else:
                         # Legacy path (append)
                         canonical_entry = {
@@ -2953,7 +3059,173 @@ class PostgreSQLLedger:
             }
         finally:
             self.pool.putconn(conn)
-    
+
+    def reconstruct_decision(self, row_id: int) -> Dict[str, Any]:
+        """Replay a governance_decision from its persisted observed_event
+        stream and compare the recomputed assembly against what the row
+        recorded. Read-only: opens no write transaction, mutates nothing.
+
+        This is the payoff of persisting the events (append_decision's
+        observed_events arg): a decision row on its own can be shown to be
+        UNTAMPERED (verify_chain / the twin), but only replaying the
+        observations it was built from shows it is REPRODUCIBLE -- that the
+        recorded provenance map and estimated-field set are what
+        assemble_episode actually produces from those events.
+
+        Verifies the REDUCER layer only. Re-judging tier/score needs the
+        governing cassette rebuilt from its snapshot into a judgeable object,
+        which is not done here -- see the 'rejudged' key, always False for
+        now.
+
+        Returns a dict:
+          ok               -- bool: every checked field matched
+          reason           -- str: why not, when ok is False
+          row_id, episode_id, event_count
+          reducer_version_recorded / _current  -- and reducer_drift bool
+          checks           -- {field: {"recorded":.., "recomputed":.., "match":bool}}
+          rejudged         -- False (documented limitation)
+        """
+        try:
+            from event_v1 import (assemble_episode, make_event,
+                                  REDUCER_VERSION)
+        except Exception as exc:  # pragma: no cover - import wiring
+            return {"ok": False, "reason": f"event_v1 unavailable: {exc}",
+                    "row_id": row_id}
+
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT record_kind, input_data, cassette_version
+                FROM ledger_entries WHERE id = %s
+            """, (row_id,))
+            drow = cursor.fetchone()
+            if drow is None:
+                return {"ok": False, "reason": f"no ledger row with id {row_id}",
+                        "row_id": row_id}
+            record_kind, input_data, cassette_version = drow
+            if record_kind != "governance_decision":
+                return {"ok": False,
+                        "reason": f"row {row_id} is a {record_kind!r}, not a "
+                                  f"governance_decision",
+                        "row_id": row_id}
+
+            idata = self._as_json(input_data) or {}
+            kernel = idata.get("kernel") or {}
+            source_events = list(kernel.get("source_events") or [])
+            if not source_events:
+                return {"ok": False,
+                        "reason": "decision row carries no kernel.source_events -- "
+                                  "it was written before the observed-event layer, "
+                                  "or with observed_events omitted",
+                        "row_id": row_id}
+
+            cursor.execute("""
+                SELECT input_data FROM ledger_entries
+                WHERE record_kind = 'observed_event'
+                  AND input_data->>'event_id' = ANY(%s)
+            """, (source_events,))
+            bodies = [self._as_json(r[0]) or {} for r in cursor.fetchall()]
+
+            missing = set(source_events) - {b.get("event_id") for b in bodies}
+            if missing:
+                return {"ok": False,
+                        "reason": f"observed_event rows missing for "
+                                  f"{sorted(missing)!r} -- the stream is incomplete",
+                        "row_id": row_id, "event_count": len(bodies)}
+
+            episode_ids = {b.get("episode_id") for b in bodies}
+            if len(episode_ids) != 1:
+                return {"ok": False,
+                        "reason": f"events span episodes {sorted(episode_ids)!r}",
+                        "row_id": row_id, "event_count": len(bodies)}
+            episode_id = episode_ids.pop()
+            domain = (bodies[0].get("domain") if bodies else None) or "unknown"
+            reducer_recorded = sorted({b.get("reducer_version") for b in bodies})
+
+            events = [
+                make_event(
+                    event_id=b["event_id"], episode_id=b["episode_id"],
+                    domain=b["domain"], kind=b["kind"],
+                    occurred_at=b["occurred_at"], observed_at=b["observed_at"],
+                    source=b["source"], provenance=b["provenance"],
+                    fields=b.get("fields") or {}, method=b.get("method"),
+                    detail=b.get("detail") or {},
+                    schema_version=b.get("schema_version", 1),
+                    reducer_version=b.get("reducer_version"),
+                )
+                for b in bodies
+            ]
+
+            ep_inputs = kernel.get("episode_inputs") or {}
+            assembly = assemble_episode(
+                episode_id=episode_id, domain=domain,
+                requested=ep_inputs.get("requested") or {},
+                events=events,
+                outcome_reasons=tuple(ep_inputs.get("outcome_reasons") or ()),
+                attributes=ep_inputs.get("attributes") or {},
+            )
+
+            checks: Dict[str, Any] = {}
+            def _check(name, recorded, recomputed):
+                match = recorded == recomputed
+                checks[name] = {"recorded": recorded, "recomputed": recomputed,
+                                "match": match}
+                return match
+
+            _check("source_events",
+                   sorted(source_events), sorted(assembly.source_events))
+            if "field_provenance" in kernel:
+                _check("field_provenance",
+                       kernel.get("field_provenance"), assembly.provenance)
+            if "estimated_fields" in kernel:
+                _check("estimated_fields",
+                       sorted(kernel.get("estimated_fields") or []),
+                       sorted(assembly.estimated_fields))
+
+            failed = [k for k, v in checks.items() if not v["match"]]
+            # An ok verdict requires at least one CONTENT check (not just the
+            # event-id list): a row with tampered fields on every event but an
+            # intact source_events list would otherwise pass on nothing.
+            content_checked = bool({"field_provenance", "estimated_fields"}
+                                   & set(checks))
+            reducer_drift = (len(reducer_recorded) != 1
+                             or reducer_recorded[0] != REDUCER_VERSION)
+
+            if failed:
+                ok = False
+                reason = (f"replayed assembly diverges from the recorded summary "
+                          f"on: {', '.join(failed)}")
+            elif not content_checked:
+                ok = False
+                reason = ("decision summary carries no field_provenance or "
+                          "estimated_fields -- the event bodies cannot be "
+                          "verified against it, only their ids")
+            elif reducer_drift:
+                ok = False
+                reason = (f"assembly matched, but events were recorded under "
+                          f"reducer {reducer_recorded!r} and this build is "
+                          f"{REDUCER_VERSION!r} -- recomputed under the newer fold")
+            else:
+                ok = True
+                reason = ""
+
+            return {
+                "ok": ok,
+                "reason": reason,
+                "row_id": row_id,
+                "episode_id": episode_id,
+                "event_count": len(bodies),
+                "content_verified": content_checked and not failed,
+                "reducer_version_recorded": reducer_recorded,
+                "reducer_version_current": REDUCER_VERSION,
+                "reducer_drift": reducer_drift,
+                "checks": checks,
+                "rejudged": False,
+            }
+        finally:
+            self.pool.putconn(conn)
+
     def sid_exists(self, call_sid: str) -> bool:
         """Check whether a call with this sid has already been recorded.
 
