@@ -252,7 +252,16 @@ def main() -> None:
     import json as _json
     import os as _os
 
-    from claude_governance_api import ClaudeGovernanceDecider
+    try:
+        from claude_governance_api import ClaudeGovernanceDecider
+    except ImportError as exc:  # IVR governor moved to the GSA-815 repo
+        raise SystemExit(
+            "recommendation_impact's `run` subcommand needs "
+            "claude_governance_api.ClaudeGovernanceDecider, which now lives in "
+            "the GSA-815 repo (the IVR island left the kernel). Run this CLI "
+            "from a checkout that has it on PYTHONPATH. The `score` subcommand "
+            "and every function in this module still work kernel-only."
+        ) from exc
     from governance.ledger_postgres import PostgreSQLLedger
 
     ap = argparse.ArgumentParser(

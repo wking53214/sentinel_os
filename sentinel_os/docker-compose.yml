@@ -1,76 +1,12 @@
 version: '3.8'
 
 services:
-  iceberg:
-    build: .
-    container_name: iceberg-main
-    # Stated explicitly as of the governed-lane wiring: the Dockerfile's
-    # default CMD is now api_server_v2.py (the governed ingress), so this
-    # service would otherwise silently start the wrong program. Naming it
-    # here also makes the file say out loud which lane each service is.
-    command: ["python3", "api_server_resilient.py"]
-    ports:
-      - "9090:9090"
-    environment:
-      PYTHONUNBUFFERED: 1
-      ICEBERG_ENV: production
-      # Previously unset -- api_server_resilient.py defaulted to
-      # POSTGRES_HOST=localhost, which inside this container does not
-      # resolve to the ledger service below (compose gives each service
-      # its own network namespace; "ledger" is the DNS name to use).
-      POSTGRES_HOST: ledger
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: iceberg_ledger
-      POSTGRES_USER: iceberg
-      POSTGRES_PASSWORD: change_me_in_prod
-      # Required as of the ICEBERG_LEDGER_RUNTIME_USER fail-closed fix -- the
-      # app refuses to boot without a declared non-owner runtime identity.
-      # ledger_reader is created automatically by ledger_immutability.sql;
-      # its password is self-provisioned from RUNTIME_PASSWORD below on every
-      # startup (see PostgreSQLLedger._provision_runtime_password), so this
-      # is the only place the value needs to be set.
-      ICEBERG_LEDGER_RUNTIME_USER: ledger_reader
-      ICEBERG_LEDGER_RUNTIME_PASSWORD: change_me_in_prod_too
-      # Service signing key for the ledger's authorized_by attestation
-      # (governance/authorized_by_attestation.py). Unset -> rows are written
-      # unattested, which is the default. Taken from the operator's
-      # environment; no placeholder key is committed. Set
-      # ICEBERG_LEDGER_REQUIRE_ATTESTATION=1 to make an unsigned authorized_by
-      # claim a hard failure (the ledger then refuses to start without a key).
-      # KEYS_PREVIOUS holds keys retired from signing but still trusted for
-      # verification -- where an old key goes after a rotation (comma-separated).
-      ICEBERG_LEDGER_ATTESTATION_KEY: ${ICEBERG_LEDGER_ATTESTATION_KEY:-}
-      ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS: ${ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS:-}
-      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
-    volumes:
-      - ./data:/data
-      - ./logs:/app/logs
-    restart: always
-    depends_on:
-      ledger:
-        condition: service_healthy
-    healthcheck:
-      # Previously "python3 -c 'import sys; sys.exit(0)'" -- always exits
-      # 0 regardless of whether the app is actually up, so Docker would
-      # report this container healthy even if the server crashed on
-      # startup. Curl the real /health endpoint instead.
-      #
-      # Protocol fallback (2026-08-07): api_server_resilient.py serves
-      # HTTPS (self-signed cert) whenever ./certs/cert.pem + key.pem
-      # exist at startup, plain HTTP otherwise -- cert presence depends
-      # on the build context, not this compose file. Plain "curl http://"
-      # against a TLS-serving instance fails at the handshake, never
-      # reaching the app -- confirmed live: this exact container ran 2
-      # days reporting unhealthy on every single check despite /health
-      # answering fine over HTTPS the whole time. CMD-SHELL (not CMD) so
-      # the || fallback runs; try HTTPS (-k: self-signed, no CA to
-      # validate against) first, fall back to HTTP.
-      test: ["CMD-SHELL", "curl -fsk https://localhost:9090/health || curl -fs http://localhost:9090/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
+  # The IVR "iceberg" lane (api_server_resilient.py -> resilient_harness ->
+  # IcebergProductionHarness) moved to the GSA-815 repo along with the rest
+  # of the telephony application. This compose file now defines only the
+  # domain-blind governed lane: ledger + redis + api_server_v2 ingress +
+  # sentinel_worker (GovernanceHarness). GSA-815 ships its own compose for
+  # the IVR lane, running on this kernel.
   ledger:
     image: postgres:15-alpine
     container_name: iceberg-ledger
