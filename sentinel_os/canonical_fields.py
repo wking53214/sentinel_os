@@ -157,6 +157,68 @@ CONTRACT_CANONICAL_FIELDS: Dict[str, tuple] = {
 CONTRACT_KINDS_WITH_FINDING: tuple = ("contract_egress",)
 
 
+# ---------------------------------------------------------------------------
+# observed_event rows: the persisted form of an EventV1 (event_v1.py), one
+# row per event, written in the same transaction as the governance_decision
+# they belong to (ledger_postgres.append_decision's observed_events arg).
+#
+# Unlike a governance_decision, an observed_event has NO optional/legacy
+# fields -- every field is always present because every such row is new
+# (there is no pre-existing observed_event row to stay byte-compatible with).
+# So this is a FIXED canonical form, not the present-when-truthy contract
+# above. Same three recompute sites, same one-list rule:
+#   * ledger_postgres.append_decision   (writer)
+#   * ledger_postgres.verify_chain      (primary verifier)
+#   * twin_custody.recompute_current_hash (witness)
+#
+# The event body is stored verbatim in the input_data JSONB column; each
+# site pulls these keys from it in this fixed order (sort_keys makes order
+# hash-irrelevant; fixed for reviewability).
+OBSERVED_EVENT_CANONICAL_FIELDS: tuple = (
+    "episode_id", "event_id", "domain", "kind",
+    "occurred_at", "observed_at", "source", "provenance", "method",
+    "fields", "detail", "schema_version", "reducer_version",
+)
+
+
+def observed_event_canonical(event_body: Dict[str, Any],
+                             previous_hash: str) -> Dict[str, Any]:
+    """The canonical dict hashed for one observed_event ledger row.
+
+    `event_body` is the event as stored in the row's input_data column (the
+    writer serializes an EventV1 into it; the verifiers read it straight
+    back). `method` is carried as-is -- null for verified/attested events --
+    so the form is identical no matter which site builds it.
+    """
+    canonical: Dict[str, Any] = {"record_kind": "observed_event"}
+    for key in OBSERVED_EVENT_CANONICAL_FIELDS:
+        canonical[key] = event_body.get(key)
+    canonical["previous_hash"] = previous_hash
+    return canonical
+
+
+def event_v1_to_body(event: Any) -> Dict[str, Any]:
+    """Serialize an EventV1 (or anything with the same attributes) into the
+    plain dict stored in an observed_event row's input_data column and hashed
+    via observed_event_canonical. Kept here so the writer and any
+    re-materializer agree on the shape."""
+    return {
+        "episode_id": str(event.episode_id),
+        "event_id": str(event.event_id),
+        "domain": str(event.domain),
+        "kind": str(event.kind),
+        "occurred_at": float(event.occurred_at),
+        "observed_at": float(event.observed_at),
+        "source": str(event.source),
+        "provenance": str(event.provenance),
+        "method": None if event.method is None else str(event.method),
+        "fields": dict(event.fields),
+        "detail": dict(event.detail),
+        "schema_version": int(event.schema_version),
+        "reducer_version": str(event.reducer_version),
+    }
+
+
 def apply_optional_hashed_fields(canonical: Dict[str, Any],
                                  source: Dict[str, Any]) -> Dict[str, Any]:
     """Add each optional hashed field to `canonical` iff present-and-truthy in `source`.
