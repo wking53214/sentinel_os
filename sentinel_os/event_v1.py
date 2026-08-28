@@ -70,6 +70,21 @@ PROVENANCE_VERIFIED = "verified"
 PROVENANCE_ATTESTED = "attested"
 PROVENANCE_ESTIMATED = "estimated"
 
+# --- Versioning, for events that get persisted and replayed later ------------
+# EVENT_SCHEMA_VERSION is the shape of an EventV1 payload as it lands in a
+# ledger row (governance/ledger_postgres.py observed_event rows). Bump it when
+# a field is added, removed, or changes meaning, so a replay can tell whether
+# it is reading a stream it still understands.
+#
+# REDUCER_VERSION names the assemble_episode fold below. A persisted event
+# stamps the reducer version that was current when it was recorded, so a later
+# replay through a CHANGED assemble_episode can say "verdict recomputed under
+# reducer vN, the stream was recorded under vM" instead of silently claiming a
+# match. Bump it whenever assemble_episode's folding behaviour changes in a way
+# that could change the assembled episode for the same input events.
+EVENT_SCHEMA_VERSION = 1
+REDUCER_VERSION = "assemble_episode.v1"
+
 PROVENANCE_STAMPS: Tuple[str, ...] = (
     PROVENANCE_VERIFIED,
     PROVENANCE_ATTESTED,
@@ -134,6 +149,17 @@ class EventV1:
                    the stamp map can be built per field.
     detail      -- anything else the domain records about the event.
                    Never enters the episode's judged fields.
+    schema_version  -- the shape of this event, for replay. Defaults to
+                   EVENT_SCHEMA_VERSION.
+    reducer_version -- the assemble_episode version this event was
+                   recorded under, for replay. Defaults to REDUCER_VERSION.
+
+    schema_version / reducer_version are additive and only matter to a
+    consumer that PERSISTS events and replays them later. They do not enter
+    any hash today: assemble_episode drops them (they are not fields and not
+    domain detail), and the live governance path records only the assembled
+    summary, never the raw events. They become load-bearing when
+    ledger_postgres persists observed_event rows.
     """
 
     event_id: str
@@ -147,6 +173,8 @@ class EventV1:
     fields: Dict[str, Any] = field(default_factory=dict)
     method: Optional[str] = None
     detail: Dict[str, Any] = field(default_factory=dict)
+    schema_version: int = EVENT_SCHEMA_VERSION
+    reducer_version: str = REDUCER_VERSION
 
 
 def make_event(event_id: str, episode_id: str, domain: str, kind: str,
@@ -154,8 +182,15 @@ def make_event(event_id: str, episode_id: str, domain: str, kind: str,
                provenance: str,
                fields: Mapping[str, Any] | None = None,
                method: Optional[str] = None,
-               detail: Mapping[str, Any] | None = None) -> EventV1:
-    """Normalizing constructor: copies mappings, coerces scalars."""
+               detail: Mapping[str, Any] | None = None,
+               schema_version: int = EVENT_SCHEMA_VERSION,
+               reducer_version: Optional[str] = None) -> EventV1:
+    """Normalizing constructor: copies mappings, coerces scalars.
+
+    reducer_version defaults to REDUCER_VERSION (the fold this build ships).
+    Pass it explicitly only when re-materializing a persisted event whose
+    stream was recorded under an older fold.
+    """
     return EventV1(
         event_id=str(event_id),
         episode_id=str(episode_id),
@@ -168,6 +203,9 @@ def make_event(event_id: str, episode_id: str, domain: str, kind: str,
         fields=dict(fields or {}),
         method=None if method is None else str(method),
         detail=dict(detail or {}),
+        schema_version=int(schema_version),
+        reducer_version=(REDUCER_VERSION if reducer_version is None
+                         else str(reducer_version)),
     )
 
 
@@ -216,6 +254,17 @@ def validate_event(event: EventV1) -> None:
         if not isinstance(value, dict):
             violations.append(f"{label} must be a dict, got {type(value).__name__}")
 
+    if not isinstance(event.schema_version, int) or isinstance(event.schema_version, bool) \
+            or event.schema_version < 1:
+        violations.append(
+            f"schema_version must be a positive int, got {event.schema_version!r}"
+        )
+    if not str(event.reducer_version or "").strip():
+        violations.append(
+            "reducer_version must be a non-empty string -- a persisted event that "
+            "does not name the fold it was recorded under cannot be safely replayed"
+        )
+
     for label, value in (("occurred_at", event.occurred_at),
                          ("observed_at", event.observed_at)):
         if not isinstance(value, (int, float)) or isinstance(value, bool):
@@ -246,6 +295,10 @@ class EpisodeAssembly:
     provenance: Dict[str, str]
     estimated_fields: Tuple[str, ...]
     source_events: Tuple[str, ...]
+    #: the assemble_episode fold that produced this. A replay compares this
+    #: against the reducer_version stamped on the persisted events: equal ->
+    #: an exact recomputation; different -> "recomputed under a newer fold".
+    reducer_version: str = REDUCER_VERSION
 
 
 def assemble_episode(episode_id: str, domain: str,
@@ -331,6 +384,7 @@ def assemble_episode(episode_id: str, domain: str,
         estimated_fields=tuple(sorted(
             n for n, p in provenance.items() if p == PROVENANCE_ESTIMATED)),
         source_events=tuple(e.event_id for e in ordered),
+        reducer_version=REDUCER_VERSION,
     )
 
 

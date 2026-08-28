@@ -56,6 +56,7 @@ from canonical_fields import (
     CONTRACT_CANONICAL_FIELDS as _CONTRACT_CANONICAL_FIELDS,
     CONTRACT_KINDS_WITH_FINDING as _CONTRACT_KINDS_WITH_FINDING,
     apply_optional_hashed_fields,
+    observed_event_canonical as _observed_event_canonical,
 )
 
 from cryptography.exceptions import InvalidSignature, InvalidTag
@@ -437,6 +438,14 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
             "previous_hash": row["previous_hash"],
         }
         apply_optional_hashed_fields(canonical, row)
+    elif row.get("record_kind") == "observed_event":
+        # Mirrors the observed_event loop in ledger_postgres.append_decision.
+        # The EventV1 body rode verbatim in input_data; the FIXED canonical
+        # form (no optional fields -- every observed_event row is new) is
+        # built by the shared observed_event_canonical the writer and
+        # verify_chain also call. Recompute site 3 of 3.
+        body = row.get("input_data") or {}
+        canonical = _observed_event_canonical(body, row["previous_hash"])
     else:
         canonical = {
             "action_type": row["action_type"],
