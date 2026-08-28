@@ -9,9 +9,9 @@
 | `POSTGRES_DB` | `iceberg` | |
 | `POSTGRES_USER` | `iceberg` | |
 | `POSTGRES_PASSWORD` | `iceberg` | Change for any non-local deployment |
-| `CLAUDE_API_KEY` | — | Required for live governance decisions; without it the governor runs in fail-closed no-client mode (see `claude_governance_api.py`) |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY` / `TWILIO_API_SECRET` | — | Only needed if ingesting real Twilio call logs |
-| `ICEBERG_API_KEYS` | — | Comma-separated API keys for the resilient API server (`api_server_resilient.py`) |
+| `CLAUDE_API_KEY` | — | Used by the IVR governor client, which now lives in the **GSA-815** repo (`claude_governance_api.py`). Not read by this kernel directly. |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY` / `TWILIO_API_SECRET` | — | Twilio call-log ingestion moved to the **GSA-815** repo. |
+| `ICEBERG_API_KEYS` | — | API keys for the resilient API server (`api_server_resilient.py`), now in the **GSA-815** repo. |
 | `ICEBERG_LEDGER_ATTESTATION_KEY` | — | Current signing key for the ledger `authorized_by` attestation. Unset → rows written unattested (default). See below. |
 | `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` | — | Path to a file holding the current key; used only when `ICEBERG_LEDGER_ATTESTATION_KEY` is unset. For file-projecting secret managers (Vault Agent, CSI driver, Docker secrets). |
 | `ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS` / `..._PREVIOUS_FILE` | — | Keys retired from signing but still fully trusted for verification (comma-separated, or one per line in the file). Where old keys live after a rotation. |
@@ -126,29 +126,24 @@ triggers forbid rewriting a row.
 ## Local / single-machine
 
 ```
-python3 iceberg_complete_simulator.py
 docker-compose up -d
 ```
 
-`docker-compose.yml` is the dev/local stack; `docker-compose-prod.yml` is the
-production variant — diff them before assuming parity if you're customizing one.
+`docker-compose.yml` is the governed-lane stack for this kernel: `ledger`
+(Postgres) + `redis` + `ingress` (`api_server_v2.py`) + `worker`
+(`sentinel_worker.py` → `GovernanceHarness`).
+
+The IVR / Iceberg application — the standalone simulator, the resilient API
+server (`api_server_resilient.py`), `docker-compose-prod.yml`, and the `k8s/`
+manifests — moved to the **GSA-815** repo. Deploy that lane from there; it
+runs on this kernel.
 
 ## Kubernetes
 
-Two manifest sets exist in this repo and are **not** the same deployment path:
-
-- `k8s/` — `deployment.yaml`, `service.yaml`, `pvc.yaml`. Minimal, direct-apply set:
-  ```
-  kubectl create secret generic iceberg-secrets --namespace=iceberg \
-    --from-literal=postgres-host=<your-postgres-host> \
-    --from-literal=postgres-password=<real-password> \
-    --from-literal=claude-api-key=<real-key>
-  kubectl apply -f k8s/
-  ```
-  This set does not include a Postgres deployment of its own — point
-  `postgres-host` at an in-cluster Service or an external managed
-  instance you provision separately. See `k8s/secret.yaml.example` for
-  the secret's shape (never commit a filled-in version of it).
+The `k8s/` manifests (a single `iceberg` Deployment running
+`api_server_resilient.py`) moved to the **GSA-815** repo with the rest of the
+IVR lane. This kernel has no k8s manifests of its own yet — the governed lane
+is currently `docker-compose.yml` only.
 
 - `Deploy/k8s/` + `Deploy/argocd/` — **flagged, not verified current, likely dead.**
   All 5 files in this tree are internally consistent with each other but
@@ -171,9 +166,8 @@ variables above. CI provisions one via a `postgres:16` service container
 (see `.github/workflows/tests.yml`) purely for test purposes — it is not a
 production database setup.
 
-`docker-compose-prod.yml` reads `POSTGRES_PASSWORD` from the environment
-(falls back to a placeholder if unset) rather than hardcoding it — set a
-real value in your `.env` before deploying anywhere non-local.
+For a non-local Postgres, set a real `POSTGRES_PASSWORD` in your environment
+before bringing up `docker-compose.yml`.
 
 ## Known gaps (see README "Tests" section for current numbers)
 

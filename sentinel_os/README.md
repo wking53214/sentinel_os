@@ -39,14 +39,24 @@ Traditional IVR systems are rigid, inflexible, and frustrating:
 
 ---
 
+> **The IVR / Iceberg application layer moved out.** The telephony harness,
+> Twilio ingestion, the Claude governor client, the queue/staffing/Bayes
+> layer, the standalone simulator, and the resilient API server now live in
+> the **GSA-815** repo. This repo is the domain-blind kernel:
+> `episode` / `event_v1` (observation + judgment), `governance/` (the
+> Postgres hash-chained ledger, the twin witness, `authorized_by`
+> attestation), the cassette framework, `governance_harness`
+> (`GovernanceHarness`), and the transmission-queue workers. GSA-815 runs
+> on this kernel via `PYTHONPATH`.
+
 ## Quick Start (5 Minutes)
 
 ### Option 1: Standalone Simulator (Easiest)
 ```bash
-# No setup needed beyond Python 3.8+
-python3 sentinel_os/iceberg_complete_simulator.py
+# The standalone IVR simulator now lives in the GSA-815 repo:
+#   PYTHONPATH=/path/to/sentinel_os/sentinel_os python3 iceberg_complete_simulator.py
 ```
-This runs the complete system in memory with simulated call data. Perfect for understanding how everything works.
+It runs an IVR pipeline in memory with simulated call data on top of this kernel.
 
 ### Option 2: Full Stack with Docker
 ```bash
@@ -141,21 +151,17 @@ python3 -m pytest sentinel_os/Tests/ -v
 # See DEPLOYMENT.md for test setup
 ```
 
-### 4. Start the Simulator
-```bash
-python3 sentinel_os/iceberg_complete_simulator.py
-```
-
-### 5. Explore the Code
-- **Core Logic:** `sentinel_os/sentinel_core.py`
-- **Governance:** `sentinel_os/governance/`
-- **Analytics:** `sentinel_os/observe_perceive_core.py`
-- **Operations:** `sentinel_os/queue_staffing_bayes_integration.py`
-- **API Server:** `sentinel_os/api_server.py`
-- **Standalone simulator's supporting modules:** `sentinel_os/Domain/`,
-  `Engines/`, `Model/`, `Sim/`, `observe/` (each has its own README) --
-  used only by `iceberg_complete_simulator.py` and its tests, not by the
-  production governance path above.
+### 4. Explore the Code
+- **Observation & judgment:** `sentinel_os/event_v1.py`, `sentinel_os/episode.py`
+- **Governance ledger:** `sentinel_os/governance/ledger_postgres.py`,
+  `sentinel_os/twin_custody.py`, `sentinel_os/governance/authorized_by_attestation.py`
+- **Domain-blind harness:** `sentinel_os/governance_harness.py`
+- **Cassette framework:** `sentinel_os/cassette_*.py`, `sentinel_os/cassettes/`
+- **Transmission queue / workers:** `sentinel_os/queue_schema.py`,
+  `sentinel_os/sentinel_worker.py`, `sentinel_os/twin_shipper.py`
+- **The IVR/Iceberg application** (telephony harness, Twilio ingestion,
+  simulator, queue/staffing, API server, `Domain/` `Engines/` `Model/`
+  `Sim/` `observe/`): the **GSA-815** repo.
 
 ---
 
