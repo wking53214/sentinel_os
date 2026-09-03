@@ -342,56 +342,23 @@ class GovernanceHarness:
             outcome_obligation=self._outcome_obligation_declaration(),
         )
 
-        # MANDATORY CONSERVATION BOUNDARY: Submit decision through Conservation Kernel
-        # before persisting to ledger. If kernel rejects, fail-closed (don't persist).
+        # MANDATORY CONSERVATION BOUNDARY: verify episode -> judgment as a
+        # conservation transformation before persisting. Fail-closed: no durable
+        # state without conservation verification. See conservation/CONFORMANCE.md.
+        from conservation.boundary import (
+            verify_governed_decision,
+            ConservationBoundaryRejected,
+        )
         try:
-            from conservation.artifact_factory import create_governance_artifact_from_decision
-            from conservation.transformation_factory import create_governance_transformation
-            from conservation.gateway import SentinelConservationGateway
-            from conservation.artifact_store import get_artifact_store
-
-            # Create artifact from decision
-            artifact = create_governance_artifact_from_decision(record)
-
-            # Store artifact in canonical store
-            artifact_store = get_artifact_store()
-            artifact_store.store_artifact(artifact)
-
-            # Create transformation record
-            transformation = create_governance_transformation(record, artifact)
-
-            # Submit through conservation gateway (mandatory boundary)
-            gateway = SentinelConservationGateway()
-            receipt = gateway.submit_artifact(
-                artifact_id=artifact.artifact_id,
-                content=artifact.content,
-                authority_source=artifact.metadata.authority_source,
-                # .value, not str(): for a (str, Enum), str(EpistemicStatus.ESTIMATED)
-                # is "EpistemicStatus.ESTIMATED", which the gateway then rejects as an
-                # invalid status. .value is "estimated" -- same form artifact_factory uses.
-                epistemic_status=artifact.metadata.epistemic_status.value,
-                evidence_refs=artifact.metadata.evidence_refs,
-                lineage=artifact.metadata.lineage
-            )
-
-            # Verify receipt indicates acceptance
-            is_valid, reason = receipt.validate_for_handoff()
-            if not is_valid:
-                # Fail-closed: Conservation Kernel rejected this decision
-                raise RuntimeError(
-                    f"Conservation Kernel rejected decision: {reason}. "
-                    f"Not persisting to ledger (fail-closed)."
-                )
-
+            verify_governed_decision(episode, record)
+        except ConservationBoundaryRejected:
+            raise
         except Exception as exc:
-            # Fail-closed: If Conservation Kernel boundary fails for ANY reason,
-            # do not persist the decision to the ledger.
-            # This is the core invariant: no durable state without conservation verification.
             raise RuntimeError(
-                f"Conservation Kernel boundary failed, decision not persisted: {exc}"
+                f"Conservation boundary failed, decision not persisted: {exc}"
             ) from exc
 
-        # Only if Conservation Kernel accepted: persist to ledger
+        # Only if the conservation boundary accepted: persist to ledger
         self.ledger.append_decision(record, governance_params=params)
 
     # ---- housekeeping ----
