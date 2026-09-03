@@ -22,7 +22,7 @@ from conservation_kernel import (
     UncertaintyState,
 )
 
-from conservation.episode_source import observed_proposition_ids, _OBSERVED_EVIDENCE_ID
+from conservation.episode_source import observed_proposition_ids, OBSERVED_EVIDENCE_ID
 from conservation.transport import BaseGem, GemIdentity
 from episode import Episode
 
@@ -75,7 +75,7 @@ class GovernanceJudgmentTransformer(BaseGem):
                 UncertaintyState.UNCERTAIN,
                 "machine judgment, proposed for the durable ledger, not a human sign-off",
             ),
-            evidence_refs=(_OBSERVED_EVIDENCE_ID,),
+            evidence_refs=(OBSERVED_EVIDENCE_ID,),
             source_refs=(f"sentinel:decision:{getattr(record, 'node', 'node')}",),
             parent_proposition_ids=present_roots or (source.propositions[0].proposition_id,),
         )
@@ -89,7 +89,7 @@ class GovernanceJudgmentTransformer(BaseGem):
             ),
             propositions=source.propositions + (judgment,),
         )
-        return self._proposal(request, output, evidence_refs=(_OBSERVED_EVIDENCE_ID,))
+        return self._proposal(request, output, evidence_refs=(OBSERVED_EVIDENCE_ID,))
 
     # BaseGem.transform is abstract; the boundary calls build_proposal directly.
     def transform(self, request):  # pragma: no cover - not used

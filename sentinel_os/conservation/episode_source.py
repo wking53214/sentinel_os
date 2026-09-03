@@ -34,7 +34,7 @@ from conservation_kernel import (
 
 from episode import Episode
 
-_OBSERVED_EVIDENCE_ID = "ev-observed-record"
+OBSERVED_EVIDENCE_ID = "ev-observed-record"
 
 
 def _slug(value: str) -> str:
@@ -42,23 +42,47 @@ def _slug(value: str) -> str:
     return s or "field"
 
 
+def _unique_ids(prefix: str, keys) -> dict[str, str]:
+    """Deterministic {key: proposition_id}, disambiguating slug collisions.
+
+    e.g. {"reason_code", "reason.code"} -> both slug to "reason-code";
+    the second gets "...-2". Sorted input so the mapping is stable.
+    """
+    used: set[str] = set()
+    out: dict[str, str] = {}
+    for key in sorted(keys, key=str):
+        base = f"{prefix}-{_slug(key)}"
+        pid, n = base, 1
+        while pid in used:
+            n += 1
+            pid = f"{base}-{n}"
+        used.add(pid)
+        out[str(key)] = pid
+    return out
+
+
 def _source_refs(episode: Episode) -> tuple[str, ...]:
     return (f"sentinel:episode:{episode.episode_id}",)
 
 
+def _reason_ids(episode: Episode) -> tuple[str, ...]:
+    return tuple(f"p-reason-{i}" for i in range(len(episode.outcome_reasons)))
+
+
 def observed_proposition_ids(episode: Episode) -> tuple[str, ...]:
     """The proposition IDs a judgment is allowed to root itself against."""
-    ids = ["p-episode"]
-    ids += [f"p-actual-{_slug(k)}" for k in sorted(episode.actual)]
-    ids += [f"p-reason-{i}" for i in range(len(episode.outcome_reasons))]
-    return tuple(ids)
+    return (
+        "p-episode",
+        *_unique_ids("p-actual", episode.actual).values(),
+        *_reason_ids(episode),
+    )
 
 
 def build_episode_source(episode: Episode, registry: EvidenceRegistry) -> Artifact:
     observer = Actor.external("sentinel-observed-record", "Sentinel governed-episode observed record")
     registry.add_evidence(
         EvidenceRecord(
-            evidence_id=_OBSERVED_EVIDENCE_ID,
+            evidence_id=OBSERVED_EVIDENCE_ID,
             subject_id="*",
             kind=EvidenceKind.SOURCE_OBSERVATION,
             provided_by=observer,
@@ -79,27 +103,27 @@ def build_episode_source(episode: Episode, registry: EvidenceRegistry) -> Artifa
             epistemic_status=EpistemicStatus.OBSERVATION,
             origin=OriginStatus.EXTERNAL_ORIGINATED,
             authority=AuthorityStatus.NONE,
-            evidence_refs=(_OBSERVED_EVIDENCE_ID,),
+            evidence_refs=(OBSERVED_EVIDENCE_ID,),
             source_refs=src,
         )
     ]
 
-    for key in sorted(episode.actual):
+    for key, pid in _unique_ids("p-actual", episode.actual).items():
         props.append(
             Proposition(
-                proposition_id=f"p-actual-{_slug(key)}",
+                proposition_id=pid,
                 text=f"Observed record: {key} = {_short(episode.actual[key])}.",
                 epistemic_status=EpistemicStatus.OBSERVATION,
                 origin=OriginStatus.EXTERNAL_ORIGINATED,
-                evidence_refs=(_OBSERVED_EVIDENCE_ID,),
+                evidence_refs=(OBSERVED_EVIDENCE_ID,),
                 source_refs=src,
             )
         )
 
-    for key in sorted(episode.requested):
+    for key, pid in _unique_ids("p-requested", episode.requested).items():
         props.append(
             Proposition(
-                proposition_id=f"p-requested-{_slug(key)}",
+                proposition_id=pid,
                 text=f"The request asked for: {key} = {_short(episode.requested[key])}.",
                 epistemic_status=EpistemicStatus.ASSUMPTION,
                 origin=OriginStatus.EXTERNAL_ORIGINATED,
@@ -107,10 +131,10 @@ def build_episode_source(episode: Episode, registry: EvidenceRegistry) -> Artifa
             )
         )
 
-    for key in sorted(episode.actor_report):
+    for key, pid in _unique_ids("p-actor", episode.actor_report).items():
         props.append(
             Proposition(
-                proposition_id=f"p-actor-{_slug(key)}",
+                proposition_id=pid,
                 text=f"The acting system reports: {key} = {_short(episode.actor_report[key])}.",
                 epistemic_status=EpistemicStatus.INFERENCE,
                 origin=OriginStatus.MACHINE_ORIGINATED,
@@ -118,20 +142,20 @@ def build_episode_source(episode: Episode, registry: EvidenceRegistry) -> Artifa
                     UncertaintyState.UNCERTAIN,
                     "actor self-report, cross-checked against the observed record, never trusted",
                 ),
-                evidence_refs=(_OBSERVED_EVIDENCE_ID,),
+                evidence_refs=(OBSERVED_EVIDENCE_ID,),
                 source_refs=src,
                 derivation_method="actor-self-report",
             )
         )
 
-    for i, reason in enumerate(episode.outcome_reasons):
+    for pid, reason in zip(_reason_ids(episode), episode.outcome_reasons):
         props.append(
             Proposition(
-                proposition_id=f"p-reason-{i}",
+                proposition_id=pid,
                 text=f"Recorded outcome reason: {_short(reason)}.",
                 epistemic_status=EpistemicStatus.OBSERVATION,
                 origin=OriginStatus.EXTERNAL_ORIGINATED,
-                evidence_refs=(_OBSERVED_EVIDENCE_ID,),
+                evidence_refs=(OBSERVED_EVIDENCE_ID,),
                 source_refs=src,
             )
         )
