@@ -5,6 +5,20 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **`docs/pass3/` investor docs: post-snapshot corrections addendum.** The nine
+  `SENTINEL_OS_0*_v3.md` documents are a frozen audit anchored at `68cadfb`
+  (July 29, 2026) and are not being rewritten (~324 commit-anchored `FACT`
+  lines). New `docs/pass3/POST_SNAPSHOT_CORRECTIONS_2026-09-03.md` reconciles
+  only the forward-looking claims a present-day reader would take as current:
+  the "~670 tests / 6 skipped" and "384–673 depending on branch" figures (now
+  937 passed / 22 skipped, 959 collected, no branch-dependent subset); the
+  security-scan framing ("17 medium + 1 high, `-ll`, Tests/ excluded" → whole
+  tree, every severity, `bandit.yaml`); the CI gate set ("test/lint/security" →
+  4 hard gates across 3 jobs); and the mortgage-cassette-"not in CI yet"
+  contradiction the audit itself flagged (resolved — it runs, 37 tests). The
+  shared banner on all 9 docs now points at the addendum. The ~324 baseline
+  `FACT` lines are explicitly *not* re-verified — the addendum says so.
+
 - **Conservation boundary: `authorized_by` deferral reframed as a deliberate
   boundary.** `conservation/CONFORMANCE.md` no longer lists "thread the keyed
   `authorized_by` attestation through as `authorization_refs`" as deferred
