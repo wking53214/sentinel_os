@@ -94,10 +94,9 @@ Three roles, each with an env var and a `_FILE` variant:
    > **Do step 2 before step 3, and let it propagate.** If B becomes the
    > signing key while A is not yet in `..._KEYS_PREVIOUS` anywhere,
    > verification stops recognising A: every pre-rotation row reports
-   > `unknown_key`. That is not fatal — `verify_ledger` / the `/verify`
-   > endpoint run in tolerant mode and *report* violations rather than
-   > crashing — but it lights up the entire back-catalogue until A is
-   > restored to the list. During a rolling deploy, instances that have B as
+   > `unknown_key`. That is not fatal — `scripts/verify_ledger.py` runs in
+   > tolerant mode and *reports* violations rather than crashing — but it
+   > lights up the entire back-catalogue until A is restored to the list. During a rolling deploy, instances that have B as
    > current and A in `..._KEYS_PREVIOUS` verify cleanly; the danger window is
    > only if step 3 lands before step 2.
 
@@ -162,12 +161,77 @@ is currently `docker-compose.yml` only.
 ## Database
 
 The ledger expects a reachable PostgreSQL instance matching the `POSTGRES_*`
-variables above. CI provisions one via a `postgres:16` service container
-(see `.github/workflows/tests.yml`) purely for test purposes — it is not a
-production database setup.
+variables above. CI installs PostgreSQL natively on the runner (so
+`test_twin_live.py` can use Unix-socket peer auth — see
+`.github/workflows/tests.yml`); that is a test setup, not a production one.
 
 For a non-local Postgres, set a real `POSTGRES_PASSWORD` in your environment
-before bringing up `docker-compose.yml`.
+before bringing up `docker-compose.yml`. The app connects as a restricted
+runtime role (`ICEBERG_LEDGER_RUNTIME_USER`, see above) — the ledger refuses to
+start if that role is a superuser or the table owner.
+
+### Backups
+
+The ledger is the record. Back the database up on the schedule your retention
+obligations require, encrypted at rest, with the backup-encryption key held
+separately from whoever administers the database (an auditor will ask — see
+`AUDIT_PLAYBOOK.md` section 5).
+
+A backup you have not restored is not a backup, and for a hash-chained ledger
+"it restored" is not enough — the chain has to still verify. Run the drill:
+
+```
+scripts/ledger_backup_verify.sh  [OUTFILE]
+```
+
+It `pg_dump`s the ledger, restores into a throwaway database, runs
+`scripts/verify_ledger.py` (a thin CLI over `PostgreSQLLedger.verify_chain()`)
+against the restored copy, and drops the throwaway database. Exit 0 means the
+dump restores and its chain verifies clean. Wire it into the job that ships
+backups offsite, so a bad backup fails loudly instead of sitting unnoticed
+until you need it.
+
+`scripts/verify_ledger.py` also runs standalone against any database
+(`--db NAME`, or `POSTGRES_*` env) — the same check an auditor runs.
+
+### Ledger integrity incidents
+
+If `verify_chain()` / `verify_ledger.py` reports a violation:
+
+1. **Do not write to the ledger.** Snapshot the database immediately (a plain
+   `pg_dump`) so the current state is preserved for investigation.
+2. **Read the violation.** `Entry N: content hash mismatch (stored=…,
+   recomputed=…)` means row N's stored `current_hash` no longer matches a
+   recomputation of its contents — an in-place edit, corruption, or a restore
+   from a tampered source. `Entry N: chain broken (prev_hash mismatch)` means
+   the chain link at N is broken — a row was inserted, deleted, or reordered.
+   `Entry N: authorized_by …` means the keyed attestation on that row's
+   attribution string doesn't check out (see "Ledger `authorized_by`
+   attestation" above).
+3. **Distinguish accident from action.** A single mismatch with a plausible
+   cause (disk error, a botched migration) is likely corruption — restore from
+   the last backup whose `ledger_backup_verify.sh` run passed. A *clean* full
+   chain that simply disagrees with an external record is the harder case:
+   `AUDIT_PLAYBOOK.md` (H3/H5) shows an operator with database superuser access
+   can disable the immutability triggers and produce a fully self-consistent
+   rewrite. `verify_chain()` cannot tell you that happened.
+4. **Cross-check the twin.** If a twin replica is configured, compare its
+   independently-held chain head and per-decision receipts against the primary.
+   Divergence there is the signal `verify_chain()` alone cannot give you. This
+   is the whole reason the twin exists.
+5. **Restoring does not clear the finding.** A clean `verify_chain()` after a
+   restore proves the backup is internally consistent, not that it was never
+   tampered before the dump. Treat a confirmed rewrite as a reportable incident,
+   not a footnote.
+
+### Growth
+
+The ledger is append-only and never shrinks — one row per governed decision,
+plus one `cassette_binding` row per distinct cassette version. There is no
+automatic partitioning or archival of old entries yet; for high-volume
+deployments, plan table partitioning by time or `id` range before the table
+gets large enough that `verify_chain()` (a full-table recomputation) becomes
+slow.
 
 ## Known gaps (see README "Tests" section for current numbers)
 
