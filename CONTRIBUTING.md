@@ -193,12 +193,11 @@ pytest sentinel_os/Tests/ --cov=sentinel_os --cov-report=html
 # Open htmlcov/index.html to view coverage
 ```
 
-### Run the Simulator
+### Run the IVR simulator
 
-```bash
-# Test with the standalone simulator (no database needed)
-python3 sentinel_os/iceberg_complete_simulator.py
-```
+The standalone contact-centre simulator now lives in the
+[GSA-815](https://github.com/wking53214/GSA-815) repo, which runs on this
+kernel via `PYTHONPATH`. It is not in this repo.
 
 ### Run with Docker Compose
 
