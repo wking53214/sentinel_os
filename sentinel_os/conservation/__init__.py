@@ -1,21 +1,21 @@
+"""Conservation boundary for Sentinel OS governed decisions.
+
+`governance_harness._write_decision` calls `verify_governed_decision(episode,
+record)` before persisting to the ledger. It models the decision as a
+conservation transformation -- `episode (observed record) -> judgment` -- and
+submits it through an enforced gateway around `conservation_kernel`
+(`conservation/transport/`, vendored from GEMS). Fail-closed: no durable state
+without conservation verification.
+
+The pre-transport modules (`gateway.py`, `artifact_factory.py`,
+`transformation_factory.py`, `artifact_store.py`, `types.py`, `receipt.py`) are
+kept for now but are OFF the governed hot path -- see CONFORMANCE.md; they are
+slated for removal.
 """
-Conservation Kernel integration for Sentinel OS.
 
-Provides a mandatory conservation boundary ensuring that governed artifacts
-passing from Sentinel to downstream systems (GSA-815) have been verified by
-the Conservation Kernel.
-
-This module implements PHASE 2-3 of the Sentinel → Conservation Kernel → GSA-815
-integration, making conservation receipt a required envelope for artifact handoff.
-"""
-
-from .gateway import SentinelConservationGateway
-from .receipt import ConservationReceipt
-from .types import SentinelArtifact, ArtifactMetadata
+from .boundary import ConservationBoundaryRejected, verify_governed_decision
 
 __all__ = [
-    "SentinelConservationGateway",
-    "ConservationReceipt",
-    "SentinelArtifact",
-    "ArtifactMetadata",
+    "ConservationBoundaryRejected",
+    "verify_governed_decision",
 ]
