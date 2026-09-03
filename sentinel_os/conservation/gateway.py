@@ -339,13 +339,25 @@ class SentinelConservationGateway:
         before passing it here.
 
         Fails closed: unknown authorities return NONE.
+
+        Authority ceiling is PROPOSED until the authorization attestation is
+        threaded through. The Kernel requires authorization_refs for
+        HUMAN_AUTHORIZED / CANONICAL / EXECUTED, and Sentinel does not yet carry
+        the keyed `authorized_by` attestation (governance ledger, PR #28) down
+        to this point -- so claiming those levels here would be an unbacked
+        assertion, exactly what the conservation boundary exists to reject. A
+        recognised governance channel maps to PROPOSED ("produced through a
+        known channel, put forward for the ledger, not a substantiated human
+        sign-off"); an unrecognised string still fails closed to NONE. When the
+        attestation is wired, the entries below whose authorization is real get
+        re-elevated (with the refs to back them). See AUTHORIZATION_REFS_TODO.
         """
-        # Explicit whitelist of known, verified actor identities.
+        # Explicit whitelist of known, verified governance channels.
         # Add entries only after verifying the actor against the registry.
         VERIFIED_AUTHORITIES = {
-            "human": KernelAuthorityStatus.HUMAN_AUTHORIZED,
-            "governor_claude_api": KernelAuthorityStatus.HUMAN_AUTHORIZED,  # API governed by human policy
-            "regulatory_system": KernelAuthorityStatus.CANONICAL,
+            "human": KernelAuthorityStatus.PROPOSED,
+            "governor_claude_api": KernelAuthorityStatus.PROPOSED,
+            "regulatory_system": KernelAuthorityStatus.PROPOSED,
         }
 
         # Normalize but do NOT infer - exact match only

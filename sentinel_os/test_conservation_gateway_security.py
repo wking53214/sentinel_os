@@ -79,7 +79,10 @@ class TestA1_StringBasedAuthorityBypass:
 
         for normalized in normalized_should_accept:
             result = gateway._map_authority_status(normalized)
-            assert result == KernelAuthorityStatus.HUMAN_AUTHORIZED, \
+            # A recognised channel maps to PROPOSED (authority ceiling until the
+            # authorization attestation is threaded through); what matters here
+            # is that normalization still lands it on a whitelist entry, not NONE.
+            assert result == KernelAuthorityStatus.PROPOSED, \
                 f"Normalization failed: '{normalized}' should normalize to match whitelist (got {result})"
 
 
@@ -100,8 +103,8 @@ class TestA2_CanonicalStringSpoof:
         # But if whitelist doesn't include them, they should fail
         result = gateway._map_authority_status("HUMAN")
         # This actually SHOULD work because of .lower() normalization
-        # Let's test that it does
-        assert result == KernelAuthorityStatus.HUMAN_AUTHORIZED, \
+        # Let's test that it does (whitelist entries map to PROPOSED for now)
+        assert result == KernelAuthorityStatus.PROPOSED, \
             "Normalized 'HUMAN' should match 'human' in whitelist after .lower()"
 
     def test_A2_extra_text_should_not_match(self):
@@ -120,9 +123,6 @@ class TestA3_GatewayCallVerification:
     DESCRIPTION: Verify gateway is actually called from _write_decision
     EXPECTED RESULT: Gateway must be in critical path
     VERDICT: Should PASS (gateway in code path) or FAIL (gateway bypassed)
-
-    NOTE: This is INSPECTED (code review), not EXECUTED, because gateway
-    is not integrated yet.
     """
 
     def test_A3_gateway_exists_in_codebase(self):
@@ -130,22 +130,18 @@ class TestA3_GatewayCallVerification:
         from conservation.gateway import SentinelConservationGateway
         assert SentinelConservationGateway is not None
 
-    def test_A3_gateway_not_yet_integrated(self):
-        """INSPECTED: A3b - Gateway exists but is not called from governance_harness"""
+    def test_A3_gateway_is_integrated(self):
+        """EXECUTED: A3b - _write_decision routes through the conservation gateway."""
         import inspect
         from governance_harness import GovernanceHarness
 
-        # Check if _write_decision calls conservation gateway
         source = inspect.getsource(GovernanceHarness._write_decision)
 
-        # This is currently expected to FAIL (gateway not integrated)
-        # Once integrated, this test will PASS
         gateway_imported = "conservation" in source or "SentinelConservationGateway" in source
 
-        # INFERRED: Gateway not integrated (based on Phase 1 finding)
-        # Once fixed, this assertion will flip
-        assert not gateway_imported, \
-            "Gateway not yet integrated into _write_decision (expected for current baseline)"
+        assert gateway_imported, \
+            "_write_decision must route the decision through the conservation gateway " \
+            "before persisting to the ledger (mandatory boundary)"
 
 
 class TestA4_ConservationKernelRejection:
@@ -275,10 +271,13 @@ class TestAuthorityWhitelistBoundary:
         """EXECUTED: Verify whitelist has expected entries"""
         gateway = SentinelConservationGateway()
 
-        # Test that valid entries work
-        assert gateway._map_authority_status("human") == KernelAuthorityStatus.HUMAN_AUTHORIZED
-        assert gateway._map_authority_status("governor_claude_api") == KernelAuthorityStatus.HUMAN_AUTHORIZED
-        assert gateway._map_authority_status("regulatory_system") == KernelAuthorityStatus.CANONICAL
+        # Recognised governance channels map to PROPOSED. They cannot honestly
+        # reach HUMAN_AUTHORIZED / CANONICAL until the `authorized_by` attestation
+        # is carried through as authorization_refs (see AUTHORIZATION_REFS_TODO);
+        # an unbacked elevated claim is exactly what the boundary rejects.
+        assert gateway._map_authority_status("human") == KernelAuthorityStatus.PROPOSED
+        assert gateway._map_authority_status("governor_claude_api") == KernelAuthorityStatus.PROPOSED
+        assert gateway._map_authority_status("regulatory_system") == KernelAuthorityStatus.PROPOSED
 
     def test_authority_whitelist_default_is_none(self):
         """EXECUTED: Unknown entries default to NONE (fail-closed)"""
