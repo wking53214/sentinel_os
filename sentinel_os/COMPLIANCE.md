@@ -193,7 +193,7 @@ Sentinel ships a customer-held-key witness replica ("the twin") that turns the p
 ## Monitoring & Incident Response
 
 ### Real-Time Metrics
-- **Decision rate**, **approval rate**, **error rate** (target <1%), **rejection rate** — all exported to Prometheus. Grafana dashboards in `Deploy/grafana/`.
+- **Decision rate**, **approval rate**, **error rate** (target <1%), **rejection rate**. The Prometheus/Grafana export is part of the IVR lane in the **GSA-815** repo, not this kernel (`operational_resilience.export_alert_rules` here emits alert-rule YAML; the dashboards moved with the rest of the IVR mission).
 
 ### Incident Response
 - **Governor timeout:** fails closed (`approved: false`).

@@ -148,7 +148,7 @@ This allows regulators to audit decisions historically: "For all BILLING intents
 - **Intent distribution:** Should match expected patterns. Sudden shifts may indicate IVR routing changes.
 - **Downstream approval rate by intent:** Should be roughly equal. Large variance indicates downstream bias.
 
-All metrics exported to Prometheus; sample Grafana dashboard queries provided in `Deploy/grafana/sentinel-intent-monitoring.json`.
+Metrics export (Prometheus / Grafana) is part of the IVR lane and lives in the **GSA-815** repo, not this kernel.
 
 ### Retraining / Updating
 

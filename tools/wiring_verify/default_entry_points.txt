@@ -19,7 +19,5 @@
 # system is actually operated, not something derivable from the AST.
 # Update it when a new long-running process or CLI is added.
 governance_harness.py
-production_harness.py
 sentinel_worker.py
 api_server_v2.py
-api_server_resilient.py

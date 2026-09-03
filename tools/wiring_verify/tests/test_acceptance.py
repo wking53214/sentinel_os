@@ -14,20 +14,16 @@ repo verified by hand this session, BEFORE this tool existed:
      RegulatoryDeck(...) (confirmed by reading sentinel_worker.py and
      regulatory_deck.py directly, and by git log showing the commits
      that wired this in: 6357f28, f8a407e, 010478f).
-  3. As of the "Wire the governed mortgage lane into docker-compose"
-     commit (669796f), the Dockerfile's own CMD is
-     `python3 api_server_v2.py`, and docker-compose.yml runs THREE
-     separate entry points as three services, each with its own
-     explicit `command:` override: `iceberg` -> api_server_resilient.py
-     (the pre-existing IVR-era server, named explicitly since it no
-     longer matches the Dockerfile's bare default), `ingress` ->
-     api_server_v2.py, `worker` -> sentinel_worker.py. All three are
-     real, valid entry points on their own AND all three are actually
-     deployed -- confirmed by reading docker-compose.yml directly and
-     by running deploy_config.detect_deployed_entry_points() against
-     this repo. (k8s/deployment.yaml still has no command override of
-     its own, so it inherits the Dockerfile's api_server_v2.py default
-     -- untouched here, tracked separately.)
+  3. The Dockerfile's own CMD is `python3 api_server_v2.py`, and
+     docker-compose.yml runs two Python entry points as services with
+     explicit `command:` overrides: `ingress` -> api_server_v2.py and
+     `worker` -> sentinel_worker.py (`ledger` and `redis` are stock
+     Postgres/Redis images, no repo code). The IVR-era
+     api_server_resilient.py and its `iceberg` service moved to GSA-815
+     with the rest of the IVR lane (PR #30); the Deploy/k8s tree was
+     removed 2026-09-03. Confirmed by reading docker-compose.yml and by
+     running deploy_config.detect_deployed_entry_points() against this
+     repo.
   4. gallm_coordinator.py was removed from the repo (git log:
      "Remove dead gallm_coordinator.py and its self-referencing test",
      ede912c) -- only a stale .pyc remains. It must not exist anywhere
@@ -52,15 +48,13 @@ import deploy_config as dc  # noqa: E402
 
 REPO_SRC_ROOT = os.environ.get(
     "SENTINEL_OS_SRC_ROOT",
-    os.path.expanduser("~/sentinel_os/sentinel_os"),
+    os.path.normpath(os.path.join(_TOOL_DIR, "..", "..", "sentinel_os")),
 )
 
 ENTRY_FILES = [
     "governance_harness.py",
-    "production_harness.py",
     "sentinel_worker.py",
     "api_server_v2.py",
-    "api_server_resilient.py",
 ]
 
 
@@ -129,13 +123,12 @@ def test_deployed_entry_points_match_compose_services(graph):
     assert report.dockerfile_cmd.py_file == "api_server_v2.py"
 
     deployed_files = set(report.deployed_py_files())
-    expected = {"api_server_resilient.py", "api_server_v2.py", "sentinel_worker.py"}
+    expected = {"api_server_v2.py", "sentinel_worker.py"}
     assert deployed_files == expected, (
-        f"expected docker-compose.yml's three services to deploy exactly {expected}, got {deployed_files}"
+        f"expected docker-compose.yml's Python services to deploy exactly {expected}, got {deployed_files}"
     )
 
     by_source = {e.source: e.py_file for e in report.entries}
-    assert by_source.get("docker-compose.yml:service=iceberg") == "api_server_resilient.py"
     assert by_source.get("docker-compose.yml:service=ingress") == "api_server_v2.py"
     assert by_source.get("docker-compose.yml:service=worker") == "sentinel_worker.py"
 

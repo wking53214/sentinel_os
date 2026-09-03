@@ -141,22 +141,16 @@ runs on this kernel.
 
 The `k8s/` manifests (a single `iceberg` Deployment running
 `api_server_resilient.py`) moved to the **GSA-815** repo with the rest of the
-IVR lane. This kernel has no k8s manifests of its own yet — the governed lane
-is currently `docker-compose.yml` only.
+IVR lane. This kernel has no k8s manifests of its own — the governed lane is
+`docker-compose.yml` only.
 
-- `Deploy/k8s/` + `Deploy/argocd/` — **flagged, not verified current, likely dead.**
-  All 5 files in this tree are internally consistent with each other but
-  not with the current codebase: `iceberg-api.yaml` targets a different
-  image (`iceberg-runtime:3.x` vs `iceberg:latest`) and port (8000 vs
-  9090); `iceberg-rl.yaml` and `iceberg-sim-workers.yaml` deploy RL/sim
-  workers for engines (`Engines/rl_ppo.py`, `Engines/rl_marl.py`) that no
-  longer exist in this repo; `hpa.yaml` scales the old `iceberg-api`
-  deployment name. `Deploy/argocd/application.yaml` isn't even a valid
-  ArgoCD `Application` resource — it contains the same
-  `server`/`governance`/`rl` config block as the old ConfigMap, just
-  under the wrong folder, which suggests this tree was generated/copied
-  incorrectly rather than actively maintained. Don't apply any of it
-  without confirming what it's actually meant to target.
+A `Deploy/k8s/` + `Deploy/argocd/` tree was removed 2026-09-03: five files that
+were internally consistent with each other but not with any current code
+(wrong image and port, deployed RL/sim workers for `Engines/` modules that no
+longer exist, an `argocd/application.yaml` that wasn't a valid `Application`
+resource). If you need a k8s target for the kernel, write it against the
+current `docker-compose.yml` services rather than resurrecting that tree from
+git history.
 
 ## Database
 
