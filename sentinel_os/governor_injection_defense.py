@@ -50,7 +50,10 @@ responsible for returning the fail-closed dict on any downstream error.
 from __future__ import annotations
 
 from typing import Any, Dict, Tuple
-from xml.sax.saxutils import escape as _xml_escape
+# saxutils.escape is a string escaper, not an XML parser -- it is used here to
+# neutralise untrusted caller data before fencing it, the opposite of an
+# XML-parsing attack surface.
+from xml.sax.saxutils import escape as _xml_escape  # nosec B406
 
 # The single delimiter tag every governor call fences untrusted data with.
 _DATA_TAG = "untrusted_caller_data"

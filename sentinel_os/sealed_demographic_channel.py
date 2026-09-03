@@ -78,7 +78,9 @@ class SealedDemographicChannel:
     ICEBERG_LEDGER_RUNTIME_USER.
     """
 
-    def __init__(self, host: str = "localhost", port: int = 5432,
+    # "iceberg" is the documented local-dev default; this channel is
+    # fail-closed with no privileged fallback (see the class docstring).
+    def __init__(self, host: str = "localhost", port: int = 5432,  # nosec B107
                  dbname: str = "iceberg", user: str = "iceberg",
                  password: str = "iceberg", min_connections: int = 1,
                  max_connections: int = 5,

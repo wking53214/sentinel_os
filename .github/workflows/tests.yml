@@ -61,8 +61,10 @@ jobs:
           # rule categories, not new lint debt. Pinning stops that from
           # recurring silently on some future ruff release; bump this pin
           # deliberately (and clean up whatever the new default set flags)
-          # rather than letting `pip install ruff` drift again.
-          pip install ruff==0.15.22 bandit
+          # rather than letting `pip install ruff` drift again. bandit is
+          # pinned for the same reason -- a new release can add or retighten
+          # checks and turn the gate red with no code change to blame.
+          pip install ruff==0.15.22 bandit==1.9.4
 
       - name: Install redis-server binary
         run: |
@@ -145,47 +147,27 @@ jobs:
       - name: Lint (ruff)
         if: always()
         run: |
-          # Real gate now: 73 pre-existing findings as of the previous
-          # commit (mostly unused imports/variables, multi-statement
-          # lines, import-order) are fixed -- 15 mechanically via `ruff
-          # --fix`, the rest by hand, including 2 genuine bugs the F841
-          # unused-variable check surfaced along the way (not just lint
-          # noise): a test that tracked whether it found the /health
-          # route but never asserted it, and a cycle-detection DFS whose
-          # `visited` set was created but never actually used, meaning
-          # any DAG with a shared descendant got needlessly re-explored.
-          # Both fixed for real, not just silenced. Zero findings as of
-          # this commit -- no `|| true` anymore, so new lint debt fails
-          # the build instead of accumulating silently.
+          # Hard gate: `ruff check .` at zero findings, no `|| true`. Runs
+          # ruff's default rule set (E4/E7/E9/F) -- the repo has no ruff or
+          # pyproject config, deliberately. History: this was made a real
+          # gate at a clean tree, then drifted red (~141 -> 34 -> 33 -> 32
+          # findings across several PRs that merged through it anyway),
+          # and was brought back to zero on 2026-09-03 (PR #36). Keep it
+          # there.
           ruff check .
 
       - name: Security scan (bandit)
         if: always()
         run: |
-          # Real gate now, at Medium-and-above severity (`-ll`): both
-          # High-severity findings from the previous commit are fixed for
-          # real, not suppressed -- test_queue_identity_converter.py's
-          # shell=True subprocess pipe was replaced with a native
-          # redis-client scan+delete (eliminates the shell-injection-shaped
-          # pattern entirely, doesn't just quiet the warning). The 17
-          # Medium findings were individually reviewed and are all
-          # legitimate/deliberate (0.0.0.0 binding for containerized
-          # deployment, fixed-path /tmp scratch dirs in test-only or
-          # explicitly-archived/simulator code, SQL string-interpolation
-          # of fixed code-defined column lists or test-internal-only
-          # values, never external input) -- each has an individual
-          # `# nosec BXXX` with its own justification comment at the exact
-          # line, not a blanket suppression. Gated at Medium+ rather than
-          # every severity: the 541 remaining Low findings are dominated
-          # by this repo's own test-credential conventions (e.g. the
-          # local-only iceberg/iceberg and ledger_reader_test_pw
-          # passwords used throughout the Postgres-backed test suite),
-          # which bandit's B105/B106 will always flag as "possible
-          # hardcoded password" -- a real, separate, much larger cleanup
-          # (individually reviewing and justifying or restructuring
-          # every one of those) than this pass took on. Gating at Medium+
-          # still means nothing above test-credential noise can land
-          # unreviewed, and is a real improvement over `|| true`
-          # swallowing everything including the two High findings this
-          # fixed.
-          bandit -r . -x ./Tests -ll
+          # Hard gate: the whole tree, test code included, at every
+          # severity level -- `bandit -r . -c bandit.yaml`. Was
+          # `bandit -r . -x ./Tests -ll` (Medium+, Tests/ unscanned);
+          # widened 2026-09-03. bandit.yaml carries the skip list, each
+          # entry verified to have zero findings outside test code (or,
+          # for B311, no cryptographic use anywhere) with a one-line
+          # rationale; B101 stays live for non-test code via
+          # `assert_used.skips`. The four remaining checks that do fire
+          # (B107 x3, B406 x1) are all false positives / documented
+          # local-dev defaults, each with an inline `# nosec BXXX` and a
+          # plain-comment justification above it.
+          bandit -r . -c bandit.yaml
