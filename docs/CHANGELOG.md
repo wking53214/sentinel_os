@@ -5,6 +5,14 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **Loader for the 10k synthetic mortgage dataset.** `sentinel_os/run_mortgage_population.py`
+  drives `sample_data/mortgage_cassette_synthetic_customers_v2.csv` (committed
+  `212d666`, no loader until now) through the full governed path: per row,
+  `judge` → governor consult → conservation boundary → hash-chained ledger,
+  then `ledger.verify_chain()` over the whole run, then `classify_outcome()`
+  over the matured resolutions. On the full 10k: 4,285 governed / 4,286 ledger
+  entries / `verify_chain` ok, 0 violations. `sample_data/README.md` documents
+  the dataset.
 - **Widened the bandit security gate to the whole tree.** Was
   `bandit -r . -x ./Tests -ll` (Medium+ only, `Tests/` unscanned); now
   `bandit -r . -c bandit.yaml` — every file, every severity. The new
