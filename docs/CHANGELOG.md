@@ -21,6 +21,15 @@ full detail; this is the skim version.
   Platform") to point at the root README as canonical; added
   point-in-time-snapshot banners to the five July-2026 architecture/status
   docs under `docs/`.
+- **Pruned three orphans** (follow-up to the island removal):
+  `governance/perceive_integration.py` (a Sentinel→PERCEIVE bridge that did
+  not import — `governance_orchestrator` is in a sibling repo — and had zero
+  importers); `otlp/sentinel-os-pipeline-core.py` + `otlp/telemetry-processor-complete.py`
+  (single-line flattened pastes, not valid Python, non-importable filenames,
+  ~106 of the repo's ruff findings); and `telemetry_pipeline.py` +
+  `Tests/test_telemetry_pipeline.py` (an in-memory call-telemetry collector,
+  Iceberg/telephony-shaped, orphaned here — moved to GSA-815, PR #5).
+  Collection 698 → 694; ghost_buster baseline 401 → 395.
 
 ## 2026-08-28
 
