@@ -5,6 +5,16 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **The conservation boundary is now kernel-conformant.** A governance decision
+  is modelled as the transformation it is — `episode (observed record) ->
+  judgment` — and verified as such. New `conservation/transport/` (an enforced
+  `ConservationGateway`, vendored from `GEMS/transport/`), `episode_source.py`
+  (`Episode` -> root source `Artifact`), `judgment.py` (the judgment as one
+  rooted `DECISION`/`PROPOSED` proposition), and `boundary.py` (the fail-closed
+  entry point). Replaces the pre-transport gateway, which submitted decisions
+  as input-less transformations and so rejected every one; ~18 `@requires_pg`
+  tests that fail-closed on that now pass. The pre-transport modules stay off
+  the hot path pending a cleanup PR. See `conservation/CONFORMANCE.md`.
 - **Removed the orphaned IVR/Iceberg simulator support island.** PR #30
   (2026-08-28) extracted the IVR application to GSA-815 but left the
   standalone simulator's `Domain/` `Sim/` `Engines/` `Latent/` `Model/`
