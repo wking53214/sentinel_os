@@ -5,6 +5,17 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **Real `SECURITY.md` + a secret-scanning gate.** `SECURITY.md` was still the
+  GitHub template (placeholder version table, "tell people how to report..."
+  boilerplate); it now carries a real disclosure path, states that `main` is
+  the only supported line, and — the substantive part — points at
+  `AUDIT_PLAYBOOK.md` and states the operator-trust boundary and the
+  twin-not-yet-accepted caveat up front, so a security reviewer sees the honest
+  claim without having to go looking. The root README gets a matching Security
+  section. New `secrets` CI job runs `gitleaks` (pinned 8.30.1) over the
+  working tree as a hard gate; `.gitleaks.toml` carries one justified allowlist
+  entry (a fixed fake key in `api_server_v2`'s auth tests). This closes the gap
+  #38 opened when it skipped bandit's B105/B106 name heuristic.
 - **Dependency CVE audit in CI.** New `deps` job in `tests.yml` runs
   `pip-audit -r requirements.txt` (pinned `2.10.1`) as a hard gate, parallel to
   the suite. Clean today with one justified ignore — `PYSEC-2026-1845` (pytest
