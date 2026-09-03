@@ -38,11 +38,13 @@ carries none of it.
 
 ```bash
 pip install -r requirements.txt
-docker compose up -d          # governed lane: ledger + redis + ingress + worker
-python3 -m pytest Tests/ -v   # ~698 tests; ledger/queue tests need Postgres + Redis
+docker compose up -d       # governed lane: ledger + redis + ingress + worker
+python3 -m pytest .        # run from this directory; ledger/queue/twin tests need Postgres + Redis
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for environment variables and TLS/DB setup.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for environment variables and TLS/DB setup,
+and the [root CONTRIBUTING.md](../CONTRIBUTING.md) for the full local test setup.
+`.github/workflows/tests.yml` is the executable spec.
 
 ## License
 
