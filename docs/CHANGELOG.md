@@ -5,6 +5,12 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **Dependency CVE audit in CI.** New `deps` job in `tests.yml` runs
+  `pip-audit -r requirements.txt` (pinned `2.10.1`) as a hard gate, parallel to
+  the suite. Clean today with one justified ignore — `PYSEC-2026-1845` (pytest
+  7.4.0's predictable `/tmp/pytest-of-{user}` path: a local-user attack not
+  reachable on ephemeral single-user CI; the fix is a pytest 7→9 major bump
+  tracked separately). `conservation-kernel` auto-skips (git URL, not PyPI).
 - **The GSA-815 boundary is now checked in CI.** `Tests/test_gsa815_contract.py`
   imports every kernel module GSA-815 consumes (the list in
   `GSA-815/DEPENDENCIES.md`, cross-checked against its actual import lines) and

@@ -103,7 +103,7 @@ ledger; run them if your change touches the decision hot path.
 
 ## Checks CI enforces (run these before you push)
 
-Both are **hard gates** — a finding fails the build.
+All three are **hard gates** — a finding fails the build.
 
 ```bash
 cd sentinel_os
@@ -116,13 +116,21 @@ ruff check .
 # security — whole tree, test code included, every severity level
 pip install bandit==1.9.4
 bandit -r . -c bandit.yaml
+
+# dependency CVEs — audits the resolved requirements.txt tree
+pip install pip-audit==2.10.1
+pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-1845
 ```
 
-Keep both at zero. `bandit.yaml` holds the skip list — every entry is a check
-verified to have no findings outside test code, with a one-line rationale. If a
-new finding is a genuine false positive, add `# nosec BXXX` on the line with a
-plain-comment justification directly above it — never a blanket suppression, and
-don't widen `bandit.yaml` without the same verification.
+Keep ruff and bandit at zero. `bandit.yaml` holds the skip list — every entry is
+a check verified to have no findings outside test code, with a one-line
+rationale. If a new finding is a genuine false positive, add `# nosec BXXX` on
+the line with a plain-comment justification directly above it — never a blanket
+suppression, and don't widen `bandit.yaml` without the same verification.
+
+For `pip-audit`, every `--ignore-vuln` is justified in the workflow comment; a
+new CVE means bump the pin, not add an ignore, unless the finding genuinely does
+not apply (with the reasoning recorded next to it).
 
 There is also a mechanical duplication/dead-code baseline
 (`.ghost_baseline.json` at the repo root, produced by the `ghost_buster` tool).
