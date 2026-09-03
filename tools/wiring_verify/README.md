@@ -80,17 +80,16 @@ sections**, never merged:
    or `--entries-file`) -- "is this wired into *something* real".
 2. **Reachable from what's actually deployed** (`--deployed`, parsed
    from `Dockerfile` CMD/ENTRYPOINT, `docker-compose*.yml` service
-   `command:` overrides falling back to the Dockerfile CMD, and
-   `k8s/**/*.yaml` / `Deploy/k8s/**/*.yaml` container `command`/`args`
-   falling back the same way) -- "is this wired into what a user
-   actually gets when they run this repo".
+   `command:` overrides falling back to the Dockerfile CMD, and a
+   `k8s/` or `Deploy/k8s/` directory if one exists -- "is this wired
+   into what a user actually gets when they run this repo".
 
 A module can be a perfectly valid standalone entry point (question 1:
 yes) and still not be what's deployed (question 2: no) -- e.g.
-`sentinel_worker.py` and `api_server_v2.py` in this repo are real,
-callable entry points, but the Dockerfile/compose/k8s configs all
-resolve to `api_server_resilient.py`. Reporting one number here would
-erase that distinction; the tool never does.
+`governance_harness.py` in this repo is a real, callable entry point,
+but `docker-compose.yml` deploys `api_server_v2.py` (ingress) and
+`sentinel_worker.py` (worker), which reach it internally. Reporting one
+number here would erase that distinction; the tool never does.
 
 ## Usage
 
