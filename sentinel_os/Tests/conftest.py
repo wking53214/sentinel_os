@@ -1,7 +1,5 @@
 import sys
 import os
-import importlib.util
-import importlib.machinery
 
 import pytest
 
