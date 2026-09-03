@@ -1,0 +1,21 @@
+# Secret-scanning config for CI:  gitleaks dir . --config .gitleaks.toml
+#
+# Working-tree scan, not git history: a self-signed dev TLS cert
+# (sentinel_os/certs/key.pem) was committed once in 8dfa1c6 and removed in
+# 8ce3e0c. It is in history but not in any checkout, and "is there a secret in
+# the code now" is what a working-tree scan answers. `certs/` and `*.pem` are
+# gitignored so it cannot recur.
+
+title = "sentinel_os"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Verified non-secrets, checked 2026-09-03."
+regexTarget = "match"
+regexes = [
+  # api_server_v2's auth tests (sentinel_os/test_api_server_v2.py) fence
+  # requests with a fixed obviously-fake key; the name on it is "pytest".
+  '''testkey-abc123''',
+]
