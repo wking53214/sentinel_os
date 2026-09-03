@@ -4,6 +4,7 @@ chaos_metrics.json
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 
 # TLS certificates and private keys -- never commit these. A dev
 # self-signed cert (certs/key.pem) was committed once historically

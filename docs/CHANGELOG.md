@@ -5,6 +5,17 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **The GSA-815 boundary is now checked in CI.** `Tests/test_gsa815_contract.py`
+  imports every kernel module GSA-815 consumes (the list in
+  `GSA-815/DEPENDENCIES.md`, cross-checked against its actual import lines) and
+  pins the signatures of the load-bearing call sites (`judge_episode`,
+  `GovernanceDecider.safety_check`, `build_governance_call`,
+  `PostgreSQLLedger.__init__`). GSA-815 has no CI of its own and is consumed
+  purely off PYTHONPATH; before this, a kernel rename broke it silently. Also
+  removed two unused pins from `requirements.txt` -- `httpx2==2.7.0` (all HTTP
+  code uses `httpx`) and `python-dotenv==1.0.0` (nothing imports `dotenv`; also
+  clears PYSEC-2026-2270) -- and corrected the stale `conservation-kernel`
+  comment there (it still described the deleted `conservation/gateway.py`).
 - **Loader for the 10k synthetic mortgage dataset.** `sentinel_os/run_mortgage_population.py`
   drives `sample_data/mortgage_cassette_synthetic_customers_v2.csv` (committed
   `212d666`, no loader until now) through the full governed path: per row,
