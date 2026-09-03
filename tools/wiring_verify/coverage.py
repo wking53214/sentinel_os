@@ -28,10 +28,10 @@ from __future__ import annotations
 
 import ast
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 
-from model import Graph, flatten_attr_chain, relpath_to_dotted, EXCLUDED_DIR_NAMES
+from model import Graph, flatten_attr_chain, EXCLUDED_DIR_NAMES
 
 TEST_ONLY_EXCLUDED = {n for n in EXCLUDED_DIR_NAMES if n != "Tests"}
 

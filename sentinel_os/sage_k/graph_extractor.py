@@ -19,8 +19,8 @@ same edge target.
 from __future__ import annotations
 
 import ast
-from dataclasses import asdict, dataclass, field, replace
-from typing import Any, Dict, List, Optional, Set
+from dataclasses import asdict, dataclass, replace
+from typing import Dict, List, Optional, Set
 
 from .gsa_adapter import GsaContextEnvelope
 
