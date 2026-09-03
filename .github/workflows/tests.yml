@@ -171,3 +171,38 @@ jobs:
           # local-dev defaults, each with an inline `# nosec BXXX` and a
           # plain-comment justification above it.
           bandit -r . -c bandit.yaml
+
+  deps:
+    # Known-CVE audit of the pinned dependency set. Separate job: no Postgres
+    # / Redis / TLS setup needed, and it runs in parallel with the suite.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sentinel_os
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Audit pinned dependencies for known CVEs
+        run: |
+          # Hard gate: pip-audit against requirements.txt (resolves the full
+          # tree, checks it against the OSV database). Pinned, same reasoning
+          # as ruff/bandit -- a new pip-audit release can change behaviour.
+          #
+          # Every --ignore-vuln below carries its justification here, so an
+          # entry cannot sit unexplained:
+          #
+          #   PYSEC-2026-1845 -- pytest 7.4.0. `/tmp/pytest-of-{user}` is a
+          #   predictable path a hostile LOCAL user on a shared machine could
+          #   pre-create (local DoS, possibly priv-esc). GitHub's runners are
+          #   ephemeral and single-user, so it is not reachable here or in the
+          #   dev containers. The fix is pytest >= 9.0.3 -- a 7 -> 9 major bump
+          #   with real collection/fixture API changes, tracked as its own
+          #   migration rather than a dependency-audit line item.
+          #
+          # conservation-kernel is skipped automatically (installed from a git
+          # URL, not on PyPI) -- expected, not a coverage gap.
+          pip install pip-audit==2.10.1
+          pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-1845
