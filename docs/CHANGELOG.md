@@ -5,6 +5,17 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **Widened the bandit security gate to the whole tree.** Was
+  `bandit -r . -x ./Tests -ll` (Medium+ only, `Tests/` unscanned); now
+  `bandit -r . -c bandit.yaml` — every file, every severity. The new
+  `sentinel_os/bandit.yaml` holds the skip list: each entry was checked to have
+  zero findings outside test code (B101 stays live for non-test code via
+  `assert_used.skips`), with a one-line rationale. The four checks that still
+  fire (B107 ×3, B406 ×1) are false positives / documented local-dev defaults,
+  each with an inline `# nosec`. Also corrected two stale claims in
+  `.github/workflows/tests.yml`'s own comments (the ruff "zero findings" note
+  had been false across several PRs that merged through a red gate; the "17
+  Medium bandit findings" count was 4).
 - **Removed the pre-transport conservation gateway and cleared the ruff gate.**
   Now that the transport boundary is the governed path (see the entry below),
   the six pre-transport modules (`conservation/{gateway,artifact_factory,

@@ -1,0 +1,46 @@
+# Full-tree security scan for CI:  bandit -r . -c bandit.yaml
+#
+# Replaces  bandit -r . -x ./Tests -ll  -- this config scans the test code too
+# and at every severity level, so nothing above genuine test-infrastructure
+# noise can land unreviewed. Every skip below was verified against the tree on
+# 2026-09-03 (0 findings outside test code unless noted); where a skipped check
+# has a more dangerous sibling, that sibling stays live.
+
+skips:
+  - B404  # `import subprocess`: informational only. 0 outside test code.
+          # shell=True (B602) stays live.
+  - B603  # subprocess call without shell=True: LOW/informational. The
+          # integration suites (test_twin_live, test_sentinel_worker,
+          # test_rate_limiter_v2, ...) spawn real workers/servers with fixed
+          # argv lists, never a shell string. 0 outside test code.
+  - B607  # partial executable path: 'python3' / 'redis-server' resolved from
+          # PATH, in those same integration suites. 0 outside test code.
+  - B110  # try/except/pass: best-effort teardown only -- killing an
+          # already-dead process group, closing an already-closed connection,
+          # json.loads on a column that may not be JSON. All 5 sites read
+          # 2026-09-03. 0 outside test code.
+  - B608  # SQL built from SHIPPED_COLUMNS / an explicit code-defined column
+          # list, never external input. 0 outside test code.
+  - B311  # stdlib `random` for non-cryptographic use: RL policy-weight init
+          # and action sampling in sage_k, test-data and load generation
+          # elsewhere. Claim tokens use `secrets` / `uuid`, not `random`
+          # (queue_schema.py).
+  - B105  # hardcoded_password_string: local test-DB credentials, plus false
+          # positives on status constants ("PASS" / "FLAG") and a field
+          # delimiter. No real secret in the tree -- production DB credentials
+          # come from the environment (ICEBERG_LEDGER_RUNTIME_*, fail-closed).
+          # Real secret scanning is a separate gitleaks-style gate, not
+          # bandit's variable-name heuristic.
+  - B106  # hardcoded_password_funcarg: same -- test-DB credentials and test
+          # auth tokens (ship_token="tok-*"). Same rationale as B105.
+
+# B101 (assert_used): pytest's assertion mechanism. Verified 0 occurrences in
+# non-test code 2026-09-03, so it stays LIVE there -- an `assert` guarding a
+# ledger or capability invariant silently stops guarding under `python -O`.
+assert_used:
+  skips:
+    - '*/Tests/*'
+    - '*/test_*.py'
+    - 'test_*.py'
+    - '*/conftest.py'
+    - 'conftest.py'
