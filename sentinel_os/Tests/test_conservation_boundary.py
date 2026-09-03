@@ -1,8 +1,9 @@
 """The conservation boundary: episode -> judgment as a verified transformation.
 
-Replaces the pre-transport gateway's tests for the governed hot path. The
-old-path modules still have their own tests (test_conservation_integration.py,
-test_conservation_gateway_security.py) until they are removed.
+This is the whole test surface for the governed conservation boundary. The
+pre-transport gateway and its two test files (test_conservation_integration.py,
+test_conservation_gateway_security.py) were removed 2026-09-03; the coverage
+map is in conservation/CONFORMANCE.md.
 """
 import inspect
 
@@ -86,6 +87,28 @@ def test_keys_that_slug_to_the_same_id_stay_distinct():
     ids = [p.proposition_id for p in src.propositions]
     assert len(ids) == len(set(ids))
     assert verify_governed_decision(ep, _Record()).accepted
+
+
+def test_authorized_by_string_cannot_raise_kernel_authority():
+    """The judgment lands at PROPOSED no matter what `authorized_by` says --
+    the transport path does no string->authority mapping, so the substring
+    attacks the old gateway defended against (A1/A2: 'inhumane' contains
+    'human', 'x_canonical_fraud' contains 'canonical') have no surface here.
+    Tripwire for the day CONFORMANCE.md's deferred authorization_refs work
+    reintroduces string handling."""
+    for spoof in ("human", "inhumane_canonical_fraud", "CANONICAL", "governor_claude_api x"):
+        rec = _Record()
+        rec.authorized_by = spoof
+        src = build_episode_source(_episode(), (reg := EvidenceRegistry()))
+        gw = ConservationGateway(registry=reg)
+        gw.ingest_source(src)
+        tx = GovernanceJudgmentTransformer.for_record(rec, _episode())
+        gw.register_gem(tx.identity)
+        req = tx.make_request(src)
+        proposal = tx.build_proposal(req, rec)
+        judgment = proposal.output_artifact.proposition_map()["p-governance-judgment"]
+        assert judgment.authority == AuthorityStatus.PROPOSED
+        assert gw.submit(req, proposal).accepted
 
 
 def test_unrooted_judgment_is_rejected():
