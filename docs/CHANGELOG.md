@@ -5,6 +5,17 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **Removed the pre-transport conservation gateway and cleared the ruff gate.**
+  Now that the transport boundary is the governed path (see the entry below),
+  the six pre-transport modules (`conservation/{gateway,artifact_factory,
+  transformation_factory,artifact_store,types,receipt}.py`) and their two
+  isolated test files are deleted — nothing imported them off the hot path.
+  Their coverage map is in `conservation/CONFORMANCE.md`; the two DB tests in
+  `test_conservation_gateway_security.py` were broken (queried
+  `information_schema.triggers`, which omits `TRUNCATE` triggers, and swallowed
+  the `AssertionError` as a skip). With them gone plus a sweep of `sage_k/` and
+  two stray test imports, `ruff check .` (the CI gate) is at **zero** for the
+  first time since it became a hard gate.
 - **The conservation boundary is now kernel-conformant.** A governance decision
   is modelled as the transformation it is — `episode (observed record) ->
   judgment` — and verified as such. New `conservation/transport/` (an enforced

@@ -31,8 +31,9 @@ A governance decision is modelled as a **conservation transformation**:
 The kernel accepts an honest judgment (`PASS_WITH_DECLARED_TRANSFORMATION`) and
 rejects: judgments claiming human-originated facts (`FALSE_HUMAN_ATTRIBUTION`),
 unrooted claims (`UNROOTED_NEW_PROPOSITION`), unbacked human authority
-(rejected at construction). All ~18 `@requires_pg` tests that previously
-fail-closed on the pre-transport gateway now pass.
+(rejected at construction). The 18 `@requires_pg` tests that previously
+fail-closed on the pre-transport gateway now pass (PR #35: CI 855→881 passed,
+0 failed).
 
 ## Deferred
 
@@ -43,14 +44,25 @@ fail-closed on the pre-transport gateway now pass.
   that point `judgment.py` gets an `AuthorityReference` and
   `episode_source.py` / the ledger's PR-#28 attestation feed it.
 
-## To be removed (follow-up)
+## Pre-transport modules removed (2026-09-03)
 
-The pre-transport modules are OFF the governed hot path and kept only so their
-own isolated tests keep passing until a dedicated cleanup PR:
-
-- `gateway.py`, `artifact_factory.py`, `transformation_factory.py`,
-  `artifact_store.py`, `types.py`, `receipt.py`
-- `test_conservation_integration.py`, `test_conservation_gateway_security.py`
+The pre-transport gateway and its factories/store/types/receipt
+(`gateway.py`, `artifact_factory.py`, `transformation_factory.py`,
+`artifact_store.py`, `types.py`, `receipt.py`) and their two isolated test
+files (`test_conservation_integration.py`, `test_conservation_gateway_security.py`)
+have been deleted. Nothing imported them off the transport path.
 
 Their coverage is re-expressed against the transport path in
-`Tests/test_conservation_boundary.py`.
+`Tests/test_conservation_boundary.py`:
+
+- gateway wired into `_write_decision` (was A3) — `test_boundary_is_wired_into_write_decision`
+- fail-closed on kernel rejection (was A4) — `test_verify_propagates_the_real_rejection`,
+  `test_unrooted_judgment_is_rejected`
+- `authorized_by` string content cannot buy kernel authority (was A1/A2) —
+  `test_authorized_by_string_cannot_raise_kernel_authority`
+- ledger immutability triggers (was A6) — covered by `Tests/test_ledger_boot_lock.py`
+  (existence + auto-restore). The two A6 tests here were broken: they queried
+  `information_schema.triggers` (which omits `TRUNCATE` triggers) and swallowed
+  the resulting `AssertionError` as a skip, so they never ran a passing
+  assertion. All three triggers do exist (`pg_trigger`), and `ledger_reader`
+  `UPDATE` is permission-denied.
