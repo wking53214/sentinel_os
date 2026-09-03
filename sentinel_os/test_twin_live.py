@@ -343,7 +343,7 @@ def receiver(dbname: str, site: str = "site-a"):
         yield f"http://127.0.0.1:{port}", dbname, port
 
 
-def register_replica(url: str, replica_id: str, keys: Dict[str, str],
+def register_replica(url: str, replica_id: str, keys: Dict[str, str],  # nosec B107
                      custody_model: str = "A", ship_token: str = "tok",
                      max_lag: int = 5, primary_evidence: bool = False,
                      recipient_pub: Optional[str] = None,

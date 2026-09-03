@@ -139,8 +139,11 @@ class PostgreSQLLedger:
         "prevent_ledger_truncate",
     )
 
-    def __init__(self, host: str = "localhost", port: int = 5432, 
-                 dbname: str = "iceberg", user: str = "iceberg", 
+    # "iceberg" is the documented local-dev default (DEPLOYMENT.md). Real
+    # deployments write through runtime_user/runtime_password, which is
+    # fail-closed with no privileged fallback.
+    def __init__(self, host: str = "localhost", port: int = 5432,  # nosec B107
+                 dbname: str = "iceberg", user: str = "iceberg",
                  password: str = "iceberg", min_connections: int = 1, max_connections: int = 10,
                  runtime_user: str = None, runtime_password: str = None):
         """Initialize connection pool.

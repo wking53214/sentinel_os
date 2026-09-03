@@ -113,14 +113,16 @@ cd sentinel_os
 pip install ruff==0.15.22
 ruff check .
 
-# security — gated at medium severity and above
-pip install bandit
-bandit -r . -x ./Tests -ll
+# security — whole tree, test code included, every severity level
+pip install bandit==1.9.4
+bandit -r . -c bandit.yaml
 ```
 
-Keep both at zero. If a bandit finding is genuinely a false positive, add a
-`# nosec BXXX` with a one-line justification at the exact line — never a blanket
-suppression.
+Keep both at zero. `bandit.yaml` holds the skip list — every entry is a check
+verified to have no findings outside test code, with a one-line rationale. If a
+new finding is a genuine false positive, add `# nosec BXXX` on the line with a
+plain-comment justification directly above it — never a blanket suppression, and
+don't widen `bandit.yaml` without the same verification.
 
 There is also a mechanical duplication/dead-code baseline
 (`.ghost_baseline.json` at the repo root, produced by the `ghost_buster` tool).
@@ -157,7 +159,7 @@ commit it in the same PR.
    bug, so fix docs in the same PR when you move or rename something.
 
 3. **Verify** (from `sentinel_os/`): `python3 -m pytest .`, `ruff check .`,
-   `bandit -r . -x ./Tests -ll`.
+   `bandit -r . -c bandit.yaml`.
 
 4. **Commit** with a `Type: summary` subject (`Fix:`, `Feature:`, `Docs:`,
    `Refactor:`, `Test:`, `Chore:`) and a body explaining *why*.
