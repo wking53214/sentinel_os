@@ -1,3 +1,9 @@
+> **⚠ Point-in-time snapshot — not maintained.** The canonical description of Sentinel OS is the [repository root README](../README.md).
+>
+> Major changes since this document was written: keyed `authorized_by` ledger attestation with key rotation (PR #28); the persisted observed-event layer (PR #29); and the extraction of the IVR/Iceberg application to the [GSA-815](https://github.com/wking53214/GSA-815) repo (PR #30, 2026-08-28) — the standalone simulator and its `Domain/` `Sim/` `Engines/` `Model/` `observe/` support tree, Twilio ingestion, the Claude governor client, and the queue/staffing/Bayes layer. The directory maps, dependency graphs, and counts below predate all of that.
+
+---
+
 # Sentinel OS — Governance Status (v1)
 *As of July 22, 2026 — repo: github.com/wking53214/sentinel_os, main @ 2880729*
 
