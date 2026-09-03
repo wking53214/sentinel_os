@@ -7,16 +7,17 @@ httpx<0.28  # anthropic 0.116.0 breaks on client construction ("unexpected keywo
 pytest==7.4.0
 numpy>=2.1,<2.9
 pydantic>=2.9,<3  # fastapi 0.139.0 requires pydantic>=2.9.0
-python-dotenv==1.0.0
 opentelemetry-api>=1.20
 opentelemetry-sdk>=1.20
 opentelemetry-exporter-otlp-proto-grpc>=1.20  # only needed if OTEL_EXPORTER_OTLP_ENDPOINT is set
 redis==8.0.1
-httpx2==2.7.0
 cryptography>=41.0  # twin_custody.py: ECIES envelopes, Ed25519/X25519, AES-GCM, HKDF
 # The mandatory conservation boundary: governance_harness._write_decision routes
-# every governed decision through conservation/gateway.py, which imports this at
-# module load and fail-closes the ledger write if it is absent. Not on PyPI;
-# installed from the sibling repo. Pinned to a commit because gateway.py's
-# enum/dimension mapping mirrors this kernel's public API -- bump deliberately.
+# every governed decision through conservation/boundary.py, which submits the
+# episode->judgment transformation to conservation_kernel's verifier (via the
+# vendored conservation/transport/ gateway) and fail-closes the ledger write on
+# anything other than a clean acceptance. Not on PyPI; installed from the
+# sibling repo. Pinned to a commit because conservation/transport/ + judgment.py
+# mirror this kernel version's enums / Proposition rules / rejection codes --
+# bump deliberately (re-run the conservation boundary tests on the new SHA).
 conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@feaf6609c4af00b3451d5b02c2face30fd7fb34c
