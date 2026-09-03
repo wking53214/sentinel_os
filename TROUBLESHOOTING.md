@@ -1,625 +1,267 @@
 # Troubleshooting Guide
 
-Can't get Sentinel OS running? Don't worry—this guide covers the most common issues and how to fix them.
+Common problems getting the Sentinel OS kernel and its test suite running, and
+how to fix them.
 
-> **Note (2026-09-03):** the standalone IVR simulator (`iceberg_complete_simulator.py`) and its `Domain/` `Sim/` `Engines/` `Model/` `observe/` support tree moved to the [GSA-815](https://github.com/wking53214/GSA-815) repo. Recipes below that invoke the simulator apply there, not here. Test-count figures in this guide predate that change.
-
----
-
-## Table of Contents
-
-1. [PostgreSQL Connection Issues](#postgresql-connection-issues)
-2. [Python & Dependency Problems](#python--dependency-problems)
-3. [TLS Certificate Issues](#tls-certificate-issues)
-4. [Test Failures](#test-failures)
-5. [Docker Issues](#docker-issues)
-6. [Claude API Key Problems](#claude-api-key-problems)
-7. [Performance Issues](#performance-issues)
-8. [Logging & Debug Mode](#logging--debug-mode)
-9. [Getting Help](#getting-help)
+> The authoritative, always-current setup is [`.github/workflows/tests.yml`](.github/workflows/tests.yml)
+> — it installs PostgreSQL and Redis, provisions the `iceberg` role/database and
+> the twin OS identities, generates a TLS cert, and runs the suite. If a recipe
+> here disagrees with that file, that file is right.
+>
+> The standalone IVR simulator (`iceberg_complete_simulator.py`) and its
+> `Domain/` `Sim/` `Engines/` `Model/` `observe/` tree moved to the
+> [GSA-815](https://github.com/wking53214/GSA-815) repo. Simulator recipes apply
+> there, not here.
 
 ---
 
-## PostgreSQL Connection Issues
+## Contents
 
-### Problem: "could not connect to server: Connection refused"
+1. [PostgreSQL connection issues](#postgresql-connection-issues)
+2. [Python & dependency problems](#python--dependency-problems)
+3. [TLS certificate issues](#tls-certificate-issues)
+4. [Test failures](#test-failures)
+5. [Docker issues](#docker-issues)
+6. [Claude API key problems](#claude-api-key-problems)
+7. [Logging & debug](#logging--debug)
+8. [Getting help](#getting-help)
 
-**Cause:** PostgreSQL is not running
+---
 
-**Solution:**
+## PostgreSQL connection issues
 
-```bash
-# macOS
-brew services start postgresql
-
-# Linux (Ubuntu/Debian)
-sudo systemctl start postgresql
-
-# Windows/WSL
-sudo service postgresql start
-
-# Verify it's running
-psql --version
-psql -U iceberg -d iceberg -c "SELECT version();"
-```
-
-### Problem: "FATAL: password authentication failed for user 'iceberg'"
-
-**Cause:** PostgreSQL user doesn't exist or wrong password
-
-**Solution:**
+The test suite connects as the OS-mapped role `iceberg` to a database `iceberg`,
+using **peer authentication** over a Unix socket. Set that up once:
 
 ```bash
-# Check if user exists
-sudo -u postgres psql -c "\du"
-
-# If not, create it
-sudo -u postgres psql <<EOF
-CREATE USER iceberg WITH PASSWORD 'iceberg';
-CREATE DATABASE iceberg OWNER iceberg;
-GRANT ALL PRIVILEGES ON DATABASE iceberg TO iceberg;
-EOF
-
-# Test connection
-psql -h localhost -U iceberg -d iceberg -c "SELECT 1;"
-```
-
-### Problem: "FATAL: database 'iceberg' does not exist"
-
-**Cause:** Database wasn't created
-
-**Solution:**
-
-```bash
-# Create the database
+sudo -u postgres psql -c "CREATE ROLE iceberg WITH LOGIN SUPERUSER PASSWORD 'iceberg';"
 sudo -u postgres psql -c "CREATE DATABASE iceberg OWNER iceberg;"
-
-# Verify
-psql -h localhost -U iceberg -d iceberg -c "SELECT current_database();"
 ```
 
-### Problem: "could not translate host name 'postgres' to address"
+### "could not connect to server: Connection refused"
 
-**Cause:** Using Docker Compose but host is wrong, or PostgreSQL container isn't running
-
-**Solution:**
+PostgreSQL is not running.
 
 ```bash
-# If using Docker Compose, ensure it's running
+sudo systemctl start postgresql   # Linux (systemd)
+sudo service postgresql start     # Linux (dev container / WSL)
+brew services start postgresql    # macOS
+
+pg_isready                        # should print "accepting connections"
+```
+
+### "FATAL: role 'iceberg' does not exist" / "database 'iceberg' does not exist"
+
+Run the two `CREATE` statements above. Verify:
+
+```bash
+sudo -u postgres psql -c "\du"                       # role list
+sudo -u postgres psql -c "\l" | grep iceberg         # database list
+```
+
+### "FATAL: Peer authentication failed for user 'iceberg'"
+
+You are connecting as an OS user that Postgres cannot map to the `iceberg` role.
+Either run the tests as an OS user named `iceberg`, or connect over TCP with the
+password instead:
+
+```bash
+psql "host=localhost user=iceberg password=iceberg dbname=iceberg" -c "SELECT 1;"
+```
+
+### "could not translate host name 'redis'/'ledger' to address"
+
+You are running outside Docker but pointing at Docker-internal hostnames. Use
+`localhost` from the host machine; the `redis` / `ledger` names only resolve
+inside the compose network.
+
+---
+
+## Python & dependency problems
+
+### "No module named 'cassettes'" / "No module named 'episode'"
+
+You are running from the wrong directory. The kernel modules are imported
+flat — run from **inside `sentinel_os/`**:
+
+```bash
 cd sentinel_os
-docker-compose ps
-
-# If postgres container isn't running, start it
-docker-compose up -d postgres
-
-# If connecting manually, use correct host
-# Inside Docker: psql -h postgres -U iceberg -d iceberg
-# From host machine: psql -h localhost -U iceberg -d iceberg
+python3 -m pytest .
 ```
 
----
+### "No module named 'conservation_kernel'"
 
-## Python & Dependency Problems
-
-### Problem: "No module named 'sentinel_os'"
-
-**Cause:** Virtual environment not activated, or dependencies not installed
-
-**Solution:**
+`conservation_kernel` is a git-pinned dependency (not on PyPI). Reinstall:
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate  # macOS/Linux/Chromebook
-# or
-venv\Scripts\activate  # Windows
-
-# Reinstall dependencies
 pip install -r sentinel_os/requirements.txt
-
-# Verify
-python3 -c "import sentinel_os; print(sentinel_os.__file__)"
 ```
 
-### Problem: "ModuleNotFoundError: No module named 'cassettes'"
+Subprocess-spawning tests (`test_sentinel_worker.py`,
+`test_queue_identity_converter.py`) need it importable by a fresh interpreter,
+not just on your shell's `PYTHONPATH` — a real `pip install` into the active
+environment is required, a `--target` directory is not enough.
 
-**Cause:** Running from wrong directory
-
-**Solution:**
-
-```bash
-# Make sure you're in the project root
-cd sentinel_os  # If you're in a subdirectory
-
-# Or run with python module syntax
-python3 -m sentinel_os.iceberg_complete_simulator
-
-# Not:
-python3 iceberg_complete_simulator.py  # from root
-```
-
-### Problem: "pip install fails with 'ERROR: Could not find a version'"
-
-**Cause:** Old pip version or incompatible Python version
-
-**Solution:**
+### "pip install fails" / dependency version mismatch
 
 ```bash
-# Check Python version (should be 3.8+)
-python3 --version
-
-# Upgrade pip
+python3 --version            # 3.11+ (CI runs 3.12)
 pip install --upgrade pip
-
-# Retry install
 pip install -r sentinel_os/requirements.txt
 
-# If still failing, check requirements.txt
-cat sentinel_os/requirements.txt
-```
-
-### Problem: "AttributeError: module 'X' has no attribute 'Y'"
-
-**Cause:** Dependency version mismatch
-
-**Solution:**
-
-```bash
-# Clear and reinstall
-pip uninstall -y -r sentinel_os/requirements.txt
-pip install -r sentinel_os/requirements.txt
-
-# Or reinstall specific package
-pip install --force-reinstall package-name==version
+# anthropic's SDK currently needs httpx pinned below 0.28 (see the CI workflow)
+pip install "httpx<0.28"
 ```
 
 ---
 
-## TLS Certificate Issues
+## TLS certificate issues
 
-### Problem: "FileNotFoundError: [Errno 2] No such file or directory: './certs/cert.pem'"
+### "FileNotFoundError: ... 'certs/cert.pem'"
 
-**Cause:** TLS certificates don't exist
-
-**Solution:**
+The TLS-dependent tests need a local cert. `certs/` is gitignored on purpose.
 
 ```bash
-# Generate self-signed certificates
-mkdir -p certs
+mkdir -p sentinel_os/certs
 openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout certs/key.pem -out certs/cert.pem \
-  -days 365 -subj "/CN=localhost"
-
-# Verify
-ls -la certs/
-file certs/cert.pem
+  -keyout sentinel_os/certs/key.pem -out sentinel_os/certs/cert.pem \
+  -days 1 -subj "/CN=sentinel-dev"
 ```
 
-### Problem: "SSL: CERTIFICATE_VERIFY_FAILED"
+### "SSL: CERTIFICATE_VERIFY_FAILED" / expired cert
 
-**Cause:** Invalid or expired certificate
+Regenerate with the command above. For a real deployment use a CA-issued
+certificate and point `CERT_FILE` / `KEY_FILE` at it (see `sentinel_os/DEPLOYMENT.md`).
 
-**Solution:**
+---
+
+## Test failures
+
+### Tests that `skip` with "requires PostgreSQL" / "requires Redis"
+
+Expected when the infrastructure isn't reachable — the suite skips with a
+reason rather than passing silently. Start PostgreSQL and Redis (see above), and
+they run.
+
+### `test_twin_live.py` collection errors ("FileNotFoundError")
+
+`test_twin_live.py` needs the three twin OS identities and their peer-auth roles.
+Provision them (idempotent), then run as root:
 
 ```bash
-# Check certificate expiration
-openssl x509 -in certs/cert.pem -text -noout | grep -A2 "Validity"
-
-# If expired, regenerate
-rm -f certs/cert.pem certs/key.pem
-openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout certs/key.pem -out certs/cert.pem \
-  -days 365 -subj "/CN=localhost"
-
-# For production, use a proper certificate from a CA
+sudo sentinel_os/scripts/twin_ensure_services.sh
+cd sentinel_os && sudo -E env "PATH=$PATH" python3 -m pytest test_twin_live.py -v
 ```
 
-### Problem: "Permission denied" when accessing certs/
+To run the rest of the suite without them: `python3 -m pytest . --ignore=test_twin_live.py`.
 
-**Cause:** Wrong file permissions
-
-**Solution:**
+### A single test fails with `AssertionError`
 
 ```bash
-# Fix permissions
-chmod 644 certs/cert.pem
-chmod 600 certs/key.pem
+cd sentinel_os
+python3 -m pytest Tests/test_file.py::test_name -vvs --tb=long
+```
 
-# Verify
-ls -la certs/
+### Suite is flaky under load
+
+One wall-clock latency assertion is known to be timing-sensitive and passes in
+isolation. Suites that use persistent PostgreSQL/Redis can also fail if the
+daemon is reaped mid-run — restart both and re-run.
+
+---
+
+## Docker issues
+
+The governed lane is `docker compose up -d` from `sentinel_os/`. It starts four
+services — `ledger` (PostgreSQL), `redis`, `ingress` (`api_server_v2.py`, port
+**8000**), and `worker`.
+
+### "ICEBERG_API_KEYS ... before starting the governed lane"
+
+The `ingress` service publishes port 8000 to the host, so it requires API keys —
+`docker compose up` stops before starting anything if they're unset:
+
+```bash
+export ICEBERG_API_KEYS="yourkey:yourname"
+docker compose up -d
+```
+
+### "Cannot connect to Docker daemon"
+
+```bash
+sudo systemctl start docker      # Linux
+open -a Docker                   # macOS
+```
+
+### "docker-compose: command not found"
+
+Use the v2 subcommand: `docker compose` (space, not hyphen).
+
+### "port 5432 is already allocated"
+
+A host PostgreSQL is using the port. Either stop it (`sudo systemctl stop
+postgresql`) or remap the `ledger` service's published port in
+`docker-compose.yml`.
+
+### A service won't start
+
+```bash
+docker compose logs ledger       # or redis / ingress / worker
+docker compose down -v           # -v also drops the volumes
+docker compose up -d
+```
+
+### Health check
+
+```bash
+curl -fs http://localhost:8000/health
 ```
 
 ---
 
-## Test Failures
+## Claude API key problems
 
-### Problem: "7 tests skipped - requires PostgreSQL"
+The Claude governor client lives in the [GSA-815](https://github.com/wking53214/GSA-815)
+repo, not this kernel — `CLAUDE_API_KEY` is not read here directly. If you are
+running the IVR application layer and its governor calls fail:
 
-**Status:** This is expected behavior ✅
-
-**Explanation:** These tests require a live PostgreSQL database:
-- Ledger immutability tests
-- SHA-256 chain verification tests
-- End-to-end governance decision recording
-
-**Solution:** To run the full test suite:
-
-```bash
-# 1. Ensure PostgreSQL is running
-sudo systemctl start postgresql  # Linux
-brew services start postgresql   # macOS
-sudo service postgresql start    # Windows/WSL
-
-# 2. Verify database exists
-psql -h localhost -U iceberg -d iceberg -c "SELECT 1;"
-
-# 3. Run full test suite
-pytest sentinel_os/Tests/ -v
-
-# All 110 tests should pass, 7 no longer skipped
-```
-
-### Problem: "FAILED test_X - AssertionError"
-
-**Cause:** Test logic failed, or code changed
-
-**Solution:**
-
-```bash
-# Run just that test with verbose output
-pytest sentinel_os/Tests/test_file.py::test_name -vvv
-
-# Run with print statements visible
-pytest sentinel_os/Tests/test_file.py::test_name -vvs
-
-# Run with traceback
-pytest sentinel_os/Tests/test_file.py::test_name --tb=long
-```
-
-### Problem: "TIMEOUT - test took >30 seconds"
-
-**Cause:** Performance issue or infinite loop
-
-**Solution:**
-
-```bash
-# Run load tests to check baseline performance
-python3 sentinel_os/load_test.py
-# Should maintain ~942K calls/sec
-
-# If slower, profile the code
-python3 -m cProfile -s cumtime sentinel_os/iceberg_complete_simulator.py | head -50
-
-# Or run specific test with timeout
-pytest sentinel_os/Tests/test_file.py -v --timeout=60
-```
+- A missing or invalid key makes the governor **fail closed** — it returns
+  `approved=false`, `risk_level=critical`. That is working as designed, not a
+  bug to route around.
+- Check the key format (`sk-ant-...`) and that outbound HTTPS to
+  `api.anthropic.com` works.
 
 ---
 
-## Docker Issues
-
-### Problem: "docker: command not found"
-
-**Cause:** Docker not installed
-
-**Solution:**
+## Logging & debug
 
 ```bash
-# Install Docker
-# macOS: https://docs.docker.com/desktop/install/mac-install/
-# Linux: https://docs.docker.com/engine/install/ubuntu/
-# Windows: https://docs.docker.com/desktop/install/windows-install/
-
-# Verify installation
-docker --version
-docker run hello-world
-```
-
-### Problem: "ERROR: Cannot connect to Docker daemon"
-
-**Cause:** Docker daemon not running
-
-**Solution:**
-
-```bash
-# macOS
-open /Applications/Docker.app
-
-# Linux
-sudo systemctl start docker
-
-# Windows
-# Start Docker Desktop from Start menu
-```
-
-### Problem: "docker-compose: command not found"
-
-**Cause:** Docker Compose not installed (older Docker versions)
-
-**Solution:**
-
-```bash
-# Install Docker Compose V2
-pip install docker-compose
-
-# Or upgrade Docker (includes Compose)
-docker --version  # Should be 20.10+
-
-# Verify
-docker compose version
-```
-
-### Problem: "port 5432 is already allocated"
-
-**Cause:** Another service using the PostgreSQL port
-
-**Solution:**
-
-```bash
-# Option 1: Stop conflicting service
-docker-compose down
-# or
-sudo systemctl stop postgresql
-
-# Option 2: Use different port
-# Edit docker-compose.yml and change:
-# ports:
-#   - "5433:5432"  # Use 5433 instead of 5432
-
-# Verify port is free
-lsof -i :5432
-```
-
-### Problem: "ERROR: Service 'postgres' failed to start"
-
-**Cause:** Database initialization failed
-
-**Solution:**
-
-```bash
-# View logs
-docker-compose logs postgres
-
-# Restart with fresh volume
-docker-compose down -v  # -v removes volumes
-docker-compose up -d postgres
-
-# Wait for startup
-sleep 10
-docker-compose exec postgres pg_isready
-```
-
----
-
-## Claude API Key Problems
-
-### Problem: "CLAUDE_API_KEY not set" or governance decisions fail
-
-**Cause:** API key environment variable missing
-
-**Solution:**
-
-```bash
-# Set API key
-export CLAUDE_API_KEY="sk-ant-your-actual-key-here"
-
-# Verify
-echo $CLAUDE_API_KEY
-
-# Or add to .env file
-cat > sentinel_os/.env <<EOF
-CLAUDE_API_KEY=sk-ant-your-actual-key-here
-POSTGRES_HOST=localhost
-POSTGRES_USER=iceberg
-POSTGRES_PASSWORD=iceberg
-POSTGRES_DB=iceberg
-EOF
-
-# Source it
-source sentinel_os/.env
-```
-
-### Problem: "Claude API call failed: 401 Unauthorized"
-
-**Cause:** Invalid or expired API key
-
-**Solution:**
-
-```bash
-# Check API key format (should start with sk-ant-)
-echo $CLAUDE_API_KEY | head -c 10
-
-# Get a new key from https://console.anthropic.com/
-# Set it correctly
-export CLAUDE_API_KEY="sk-ant-your-new-key"
-
-# Test connection
-python3 -c "from sentinel_os.claude_governance_api import ClaudeGovernor; print('API configured')"
-```
-
-### Problem: "Governor error: timeout"
-
-**Cause:** Claude API taking too long to respond
-
-**Solution:**
-
-```bash
-# This is fail-closed behavior (working as designed)
-# Governor returns: approved=false, risk_level=critical
-
-# Check logs for details
-tail -f sentinel_os/logs/governor.log
-
-# Verify internet connection
-curl https://api.anthropic.com/v1/models
-
-# Increase timeout in code if needed
-# See: claude_governance_api.py, timeout parameter
-```
-
----
-
-## Performance Issues
-
-### Problem: "System is slow / throughput <942K calls/sec"
-
-**Cause:** Various factors—check in order
-
-**Solution:**
-
-```bash
-# 1. Run baseline test
-python3 sentinel_os/load_test.py
-
-# 2. Check system resources
-top  # or Task Manager on Windows
-
-# 3. Check database performance
-psql -U iceberg -d iceberg -c "EXPLAIN ANALYZE SELECT COUNT(*) FROM ledger_entries;"
-
-# 4. Profile the code
-python3 -m cProfile -s cumtime sentinel_os/load_test.py 2>&1 | head -30
-
-# 5. Check for bottlenecks
-# Look for: long database queries, API calls, lock contention
-```
-
-### Problem: "Out of memory" errors
-
-**Cause:** Processing too much data at once
-
-**Solution:**
-
-```bash
-# Check available memory
-free -h  # Linux
-vm_stat  # macOS
-
-# Reduce batch size in config
-# Edit: sentinel_os/adaptive_config.py
-# Reduce BATCH_SIZE parameter
-
-# Or run with memory limit
-python3 -m memory_profiler sentinel_os/iceberg_complete_simulator.py
-```
-
----
-
-## Logging & Debug Mode
-
-### Enable Debug Logging
-
-```bash
-# Set log level
 export LOG_LEVEL=DEBUG
-
-# Run with debug output
-python3 sentinel_os/iceberg_complete_simulator.py --debug
-
-# Or modify code
-import logging
-logging.basicConfig(level=logging.DEBUG)
+python3 -m pytest Tests/test_file.py::test_name -vvs   # -s shows log output
 ```
 
-### View Logs
+The ledger is in PostgreSQL, not a log file. Inspect it directly:
 
 ```bash
-# Sentinel logs
-tail -f sentinel_os/logs/sentinel.log
-
-# Governor logs
-tail -f sentinel_os/logs/governor.log
-
-# All logs
-tail -f sentinel_os/logs/*.log
-
-# Search for errors
-grep "ERROR" sentinel_os/logs/*.log
-grep "WARN" sentinel_os/logs/*.log
-```
-
-### Check Prometheus Metrics
-
-```bash
-# If running with docker-compose
-curl http://localhost:9090/metrics
-
-# Key metrics to check:
-# - sentinel_governance_decisions_total
-# - sentinel_governance_approval_rate
-# - sentinel_governance_errors_total
-# - sentinel_governance_latency_ms
+psql "host=localhost user=iceberg password=iceberg dbname=iceberg" \
+  -c "SELECT id, action_type, created_at FROM ledger_entries ORDER BY id DESC LIMIT 10;"
 ```
 
 ---
 
-## Getting Help
+## Getting help
 
-### Still stuck? Here's how to get support:
+1. Search the [issues](https://github.com/wking53214/sentinel_os/issues).
+2. Check [`README.md`](README.md) (overview) and
+   [`sentinel_os/DEPLOYMENT.md`](sentinel_os/DEPLOYMENT.md) (env vars, TLS, ports).
+3. Open an issue with: the problem, steps to reproduce, the full traceback, and
+   your environment (OS, Python version, `main` commit).
 
-1. **Check existing issues:** https://github.com/wking53214/sentinel_os/issues
-
-2. **Search documentation:**
-   - [README.md](README.md) — Overview
-   - [DEPLOYMENT.md](sentinel_os/DEPLOYMENT.md) — Deployment guide
-   - [SETUP_GUIDE.md](SETUP_GUIDE.md) — Step-by-step setup
-
-3. **Create a GitHub issue** with:
-   - Clear description of the problem
-   - Steps to reproduce
-   - Error message (full traceback)
-   - Your environment (OS, Python version, etc.)
-   - What you've already tried
-
-4. **Join discussions:** https://github.com/wking53214/sentinel_os/discussions
-
-### Helpful Commands for Debugging
+### Debugging commands
 
 ```bash
-# System info
-uname -a
-python3 --version
-pip list
-
-# PostgreSQL status
-psql -U iceberg -d iceberg -c "SELECT version();"
-psql -U iceberg -d iceberg -c "SELECT COUNT(*) FROM ledger_entries;"
-
-# Docker status
-docker ps
-docker logs sentinel_os_postgres_1
-
-# Network connectivity
-curl -I https://api.anthropic.com/v1/models
-
-# File permissions
-ls -la certs/
-ls -la sentinel_os/
-
-# Python path
-python3 -c "import sys; print('\n'.join(sys.path))"
+uname -a && python3 --version && pip list
+pg_isready && redis-cli ping
+psql "host=localhost user=iceberg password=iceberg dbname=iceberg" -c "SELECT version();"
+docker compose ps
 ```
-
----
-
-## Common Success Indicators
-
-✅ **You're set up correctly if:**
-
-- `pytest sentinel_os/Tests/ -v` shows 110 passed tests
-- `python3 sentinel_os/iceberg_complete_simulator.py` runs without errors
-- `docker-compose up -d` starts all services
-- `curl http://localhost:9090/health` returns 200 OK
-- `psql -U iceberg -d iceberg -c "SELECT 1;"` succeeds
-
----
-
-## Report a Bug
-
-Found an issue not covered here? Please report it:
-
-1. Open: https://github.com/wking53214/sentinel_os/issues/new
-2. Use the bug report template
-3. Include your troubleshooting steps
-4. Attach logs if relevant
-
-Thank you for helping us improve Sentinel OS! 🚀

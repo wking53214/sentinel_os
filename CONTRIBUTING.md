@@ -1,551 +1,185 @@
 # Contributing to Sentinel OS
 
-Welcome! 👋 We're thrilled you want to contribute to Sentinel OS. Whether you're fixing bugs, adding features, improving documentation, or suggesting improvements, your help makes this project better.
-
-This guide will walk you through everything you need to know to get started.
-
----
-
-## Code of Conduct
-
-We are committed to providing a welcoming and inspiring community for all. Please read and follow our code of conduct:
-
-- **Be respectful** - Treat all community members with kindness and respect
-- **Be inclusive** - Welcome people of all backgrounds and experiences
-- **Be constructive** - Provide helpful feedback and collaborate towards solutions
-- **Report issues** - If you see harassment or inappropriate behavior, please reach out privately
+Thanks for wanting to contribute. This guide covers the setup, the checks CI
+enforces, and the workflow for landing a change.
 
 ---
 
-## Getting Started
+## Code of conduct
 
-### 1. Fork the Repository
-
-Go to https://github.com/wking53214/sentinel_os and click **"Fork"** in the top right corner. This creates your own copy of the project.
-
-### 2. Clone Your Fork Locally
-
-```bash
-git clone https://github.com/YOUR-USERNAME/sentinel_os.git
-cd sentinel_os
-```
-
-### 3. Add the Original Repository as Upstream
-
-This lets you stay in sync with the main project:
-
-```bash
-git remote add upstream https://github.com/wking53214/sentinel_os.git
-git remote -v  # Verify you have both 'origin' and 'upstream'
-```
+Be respectful, be constructive, assume good faith. If you see harassment or
+inappropriate behaviour, contact the maintainer privately rather than posting
+publicly.
 
 ---
 
-## Development Environment Setup
+## What Sentinel OS is (so your change lands in the right place)
+
+`sentinel_os/` is a **domain-blind governance kernel**: it observes a decision,
+judges its outcome against rules fixed and hashed before the outcome was known,
+and records every step in a tamper-evident PostgreSQL hash-chained ledger with
+an independent twin witness. A *cassette* supplies the domain knowledge; the
+kernel refuses any cassette that asks for a capability it does not provide.
+
+The IVR / contact-centre **application** — the standalone simulator, Twilio
+ingestion, the Claude governor client, the queue/staffing/Bayes layer, the
+resilient API server — is **not in this repo**. It lives in
+[GSA-815](https://github.com/wking53214/GSA-815), which runs on this kernel via
+`PYTHONPATH`. Changes to that layer go there.
+
+---
+
+## Development environment
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- pip (Python package manager)
-- Git
-- PostgreSQL 13+ (for full test suite)
-- Docker and Docker Compose (optional, for full stack)
+- **Python 3.11+** (CI runs 3.12)
+- **PostgreSQL 14+** — for the full suite. The tests use **peer authentication**
+  over a Unix socket: a role named `iceberg` and a database named `iceberg`.
+- **Redis 7+** — for the transmission-queue tests
+- **Git**
+- Docker + Docker Compose — optional, for the governed lane end to end
+- `openssl` — the TLS-dependent tests need a local cert
 
-### Choose Your Platform
+### The executable spec is the CI workflow
 
-#### macOS
+`.github/workflows/tests.yml` is the authoritative, always-current setup: it
+installs a native PostgreSQL, provisions the `iceberg` role/database, installs
+Redis, generates an ephemeral TLS cert, provisions the three twin OS identities
+via `scripts/twin_ensure_services.sh`, and runs the suite. When a setup step
+here and that file disagree, that file is right — copy from it.
 
-```bash
-# Install Homebrew (if not already installed)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Install Python and PostgreSQL
-brew install python@3.11 postgresql
-
-# Start PostgreSQL
-brew services start postgresql
-
-# Verify installation
-python3 --version
-psql --version
-```
-
-#### Linux (Ubuntu/Debian)
+### Local setup (Linux / dev container)
 
 ```bash
-# Update package list
-sudo apt-get update
-
-# Install Python and PostgreSQL
-sudo apt-get install -y python3.11 python3.11-venv python3-pip postgresql postgresql-contrib
-
-# Start PostgreSQL
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
-
-# Verify installation
-python3 --version
-psql --version
-```
-
-#### Windows (WSL2 Recommended)
-
-```bash
-# Enable WSL2 and install Ubuntu
-# See: https://docs.microsoft.com/en-us/windows/wsl/install
-
-# Inside WSL2 Ubuntu terminal:
-sudo apt-get update
-sudo apt-get install -y python3.11 python3.11-venv python3-pip postgresql postgresql-contrib
-
-# Start PostgreSQL
-sudo service postgresql start
-
-# Verify installation
-python3 --version
-psql --version
-```
-
-#### Chromebook (Linux Container)
-
-```bash
-# Open Linux terminal (Ctrl+Alt+T in terminal, or via settings)
-sudo apt-get update
-sudo apt-get install -y python3.11 python3.11-venv python3-pip postgresql postgresql-contrib
-
-# Start PostgreSQL
-sudo service postgresql start
-
-# Verify installation
-python3 --version
-psql --version
-```
-
-### Set Up Virtual Environment
-
-```bash
-# Navigate to project directory
-cd sentinel_os
-
-# Create virtual environment
-python3 -m venv venv
-
-# Activate it
-# On macOS/Linux/Chromebook:
-source venv/bin/activate
-# On Windows:
-venv\Scripts\activate
-
-# Upgrade pip
-pip install --upgrade pip
-
-# Install dependencies
+# from the repo root
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r sentinel_os/requirements.txt
 
-# Verify installation
-python3 -c "import sys; print(f'Python {sys.version} in {sys.prefix}')"
+# PostgreSQL role + database the tests expect (peer auth, no password needed
+# for local socket connections as the matching OS user)
+sudo -u postgres psql -c "CREATE ROLE iceberg WITH LOGIN SUPERUSER PASSWORD 'iceberg';"
+sudo -u postgres psql -c "CREATE DATABASE iceberg OWNER iceberg;"
+
+# twin live-suite OS identities (idempotent)
+sudo sentinel_os/scripts/twin_ensure_services.sh
+
+# ephemeral TLS cert for the TLS-dependent tests
+mkdir -p sentinel_os/certs
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -keyout sentinel_os/certs/key.pem -out sentinel_os/certs/cert.pem \
+  -days 1 -subj "/CN=sentinel-dev"
 ```
 
-### Set Up PostgreSQL (for full test suite)
-
-```bash
-# Create database and user
-sudo -u postgres psql <<EOF
-CREATE USER iceberg WITH PASSWORD 'iceberg';
-CREATE DATABASE iceberg OWNER iceberg;
-GRANT ALL PRIVILEGES ON DATABASE iceberg TO iceberg;
-EOF
-
-# Or on Windows/WSL:
-psql -U postgres -c "CREATE USER iceberg WITH PASSWORD 'iceberg';"
-psql -U postgres -c "CREATE DATABASE iceberg OWNER iceberg;"
-psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE iceberg TO iceberg;"
-
-# Test connection
-psql -h localhost -U iceberg -d iceberg -c "SELECT version();"
-```
+See [`sentinel_os/DEPLOYMENT.md`](sentinel_os/DEPLOYMENT.md) for the full
+environment-variable reference (attestation keys, TLS paths, ports).
 
 ---
 
-## Running Tests
+## Running the tests
 
-### Quick Test (No PostgreSQL Required)
-
-```bash
-# Activate virtual environment first
-source venv/bin/activate
-
-# Run core tests (110 tests, no external dependencies)
-pytest sentinel_os/Tests/ -v
-
-# Run specific test file
-pytest sentinel_os/Tests/test_sentinel_core.py -v
-```
-
-### Full Test Suite (Requires PostgreSQL)
-
-```bash
-# Make sure PostgreSQL is running and iceberg database exists
-pytest sentinel_os/Tests/ -v --tb=short
-
-# With coverage report
-pytest sentinel_os/Tests/ --cov=sentinel_os --cov-report=html
-# Open htmlcov/index.html to view coverage
-```
-
-### Run the IVR simulator
-
-The standalone contact-centre simulator now lives in the
-[GSA-815](https://github.com/wking53214/GSA-815) repo, which runs on this
-kernel via `PYTHONPATH`. It is not in this repo.
-
-### Run with Docker Compose
+The suite runs from the `sentinel_os/` directory. `test_twin_live.py` needs the
+OS identities provisioned above and generally needs to run as root (it uses
+`runuser` internally to cross OS-identity boundaries).
 
 ```bash
 cd sentinel_os
-docker-compose up -d
-# Services will be available at:
-# - API: http://localhost:9090
-# - PostgreSQL: localhost:5432
-# - Grafana: http://localhost:3000
+
+# most of the suite
+python3 -m pytest . -v
+
+# the whole suite the way CI runs it (twin live-suite included)
+sudo -E env "PATH=$PATH" python3 -m pytest . -v
 ```
+
+There is no dependency-free subset — the ledger, queue, and twin tests need
+PostgreSQL and Redis, and they are most of the suite. Tests that cannot reach
+their infrastructure `skip` with a reason rather than passing silently.
+
+`load_test.py` and `load_test_live.py` are throughput checks against a local
+ledger; run them if your change touches the decision hot path.
 
 ---
 
-## Code Style & Conventions
+## Checks CI enforces (run these before you push)
 
-We follow PEP 8 with a few guidelines:
-
-### Python Style
+Both are **hard gates** — a finding fails the build.
 
 ```bash
-# Install linting tools
-pip install black flake8 isort
+cd sentinel_os
 
-# Format code (Black)
-black sentinel_os/
+# lint — pinned; do not `pip install ruff` unpinned, 0.16+ changes the default
+# rule set and floods this tree with findings that are not real debt
+pip install ruff==0.15.22
+ruff check .
 
-# Check for style issues (Flake8)
-flake8 sentinel_os/ --max-line-length=100
-
-# Sort imports
-isort sentinel_os/
+# security — gated at medium severity and above
+pip install bandit
+bandit -r . -x ./Tests -ll
 ```
 
-### Naming Conventions
+Keep both at zero. If a bandit finding is genuinely a false positive, add a
+`# nosec BXXX` with a one-line justification at the exact line — never a blanket
+suppression.
 
-- **Functions:** `snake_case` (e.g., `calculate_friction_score()`)
-- **Classes:** `PascalCase` (e.g., `GovernanceDecisionRecord`)
-- **Constants:** `UPPER_SNAKE_CASE` (e.g., `MAX_FRICTION_THRESHOLD`)
-- **Private methods:** prefix with `_` (e.g., `_internal_helper()`)
-
-### Code Comments
-
-- Use clear, concise comments for complex logic
-- Document functions with docstrings (Google style):
-
-```python
-def calculate_wait_time(queue_depth: int, agents_available: int) -> float:
-    """
-    Calculate expected wait time using Erlang C formula.
-    
-    Args:
-        queue_depth: Number of calls waiting in queue
-        agents_available: Number of available agents
-        
-    Returns:
-        Expected wait time in seconds
-        
-    Raises:
-        ValueError: If inputs are negative
-    """
-    if queue_depth < 0 or agents_available < 0:
-        raise ValueError("Queue depth and agents must be non-negative")
-    
-    # Erlang C calculation here
-    return wait_time
-```
-
-### No hardcoded values!
-
-All governance parameters go in `cassettes/`. Never hardcode thresholds, timeouts, or policies directly in code.
+There is also a mechanical duplication/dead-code baseline
+(`.ghost_baseline.json` at the repo root, produced by the `ghost_buster` tool).
+It is not a CI gate, but if your change legitimately shifts it, refresh and
+commit it in the same PR.
 
 ---
 
-## Git Workflow
+## Code style
 
-### Create a Branch
-
-Always create a new branch for your work:
-
-```bash
-# Update main branch first
-git fetch upstream
-git checkout main
-git pull upstream main
-
-# Create a new branch for your feature
-git checkout -b fix/issue-description
-# or
-git checkout -b feature/new-feature-name
-```
-
-**Branch naming:**
-- `feature/` for new features
-- `fix/` for bug fixes
-- `docs/` for documentation
-- `refactor/` for code cleanup
-- `test/` for tests
-
-### Make Your Changes
-
-```bash
-# Make your edits
-# Test frequently!
-pytest sentinel_os/Tests/ -v
-
-# Stage changes
-git add .
-
-# Commit with clear message
-git commit -m "Fix: Correct governance decision timeout logic
-
-- Increased timeout from 5s to 10s
-- Added fallback to fail-closed on timeout
-- Updated related tests
-- Verified with load_test_live.py (942K calls/sec baseline maintained)"
-
-# Push to your fork
-git push origin fix/issue-description
-```
-
-### Commit Message Guidelines
-
-**Format:** `Type: Brief description`
-
-```
-Type can be:
-- Fix: Bug fix
-- Feature: New feature
-- Docs: Documentation changes
-- Refactor: Code cleanup (no behavior change)
-- Test: Adding/updating tests
-- Chore: Dependency updates, config changes
-
-Example:
-Fix: Handle null caller_id in intent classification
-Feature: Add retry logic to Claude API calls
-Docs: Update ARCHITECTURE.md with new governance flow
-```
-
-### Create a Pull Request
-
-1. Go to https://github.com/wking53214/sentinel_os
-2. Click **"Compare & pull request"** (GitHub will suggest this)
-3. Fill out the PR template:
-   - **Title:** Clear, descriptive (e.g., "Fix: Correct governance decision timeout")
-   - **Description:** Explain what changed and why
-   - **Related issues:** Reference any issues this closes (e.g., "Closes #42")
-   - **Testing:** Describe how you tested
-
-```markdown
-## Description
-Fixed the governance decision timeout that was causing false rejections 
-during high load. Previously set to 5 seconds, now 10 seconds with 
-fail-closed fallback.
-
-## Type of Change
-- [x] Bug fix (non-breaking change that fixes an issue)
-- [ ] New feature (non-breaking change that adds functionality)
-- [ ] Breaking change
-- [ ] Documentation update
-
-## Testing
-- [x] Unit tests pass (110/110)
-- [x] Ran load_test_live.py - maintained 942K calls/sec
-- [x] Manual testing with docker-compose setup
-
-## Related Issues
-Closes #42
-```
+- PEP 8. The repo has no `ruff`/`pyproject` config, so the gate runs ruff's
+  default rule set (`E4/E7/E9/F` — unused imports, undefined names, syntax,
+  a few statement-level checks); it does **not** enforce line length. Keep
+  lines to roughly 100 columns by convention anyway.
+- `snake_case` functions, `PascalCase` classes, `UPPER_SNAKE_CASE` constants,
+  `_leading_underscore` for private.
+- Google-style docstrings on non-trivial functions.
+- **No hardcoded governance values.** Thresholds, timeouts, and policies live in
+  a cassette, never in code — the cassette loader's validation will refuse a
+  parameter that isn't declared by an enabled capability.
 
 ---
 
-## Testing Requirements
+## Workflow
 
-Before submitting a PR:
+1. **Branch** off `main`:
+   ```bash
+   git fetch origin && git checkout -b fix/short-description origin/main
+   ```
+   Prefixes: `fix/`, `feature/`, `docs/`, `refactor/`, `test/`.
 
-### 1. All tests must pass
+2. **Make the change.** Keep the PR focused — one concern. Add or update tests
+   for any behaviour change; a doc pointing at a file that no longer exists is a
+   bug, so fix docs in the same PR when you move or rename something.
 
-```bash
-pytest sentinel_os/Tests/ -v
-```
+3. **Verify** (from `sentinel_os/`): `python3 -m pytest .`, `ruff check .`,
+   `bandit -r . -x ./Tests -ll`.
 
-### 2. No regressions in performance
+4. **Commit** with a `Type: summary` subject (`Fix:`, `Feature:`, `Docs:`,
+   `Refactor:`, `Test:`, `Chore:`) and a body explaining *why*.
 
-```bash
-python3 sentinel_os/load_test.py
-# Should maintain ~942K calls/sec baseline
-```
+5. **Open a PR** against `main`. Describe what changed and why, link any issue,
+   and say how you verified it. CI runs the full suite plus both gates.
 
-### 3. New code must include tests
-
-If you add a new function, add a test for it:
-
-```python
-# sentinel_os/Tests/test_my_feature.py
-import pytest
-from sentinel_os.my_module import my_function
-
-def test_my_function_returns_expected_value():
-    result = my_function(input_data)
-    assert result == expected_output
-
-def test_my_function_handles_edge_cases():
-    with pytest.raises(ValueError):
-        my_function(invalid_input)
-```
-
-### 4. Code style checks pass
-
-```bash
-black sentinel_os/ --check
-flake8 sentinel_os/
-isort sentinel_os/ --check-only
-```
+6. **Squash-merge** once green and reviewed; delete the branch.
 
 ---
 
-## Reporting Bugs
+## Reporting bugs
 
-Found a bug? Thanks for reporting it! Here's how:
+Open an issue with: what you did, what you expected, what happened, the full
+traceback, and your environment (OS, Python version, `main` commit). A failing
+test that reproduces it is the best possible bug report.
 
-1. **Check existing issues** - Search https://github.com/wking53214/sentinel_os/issues to see if it's already reported
-2. **Create a new issue** with the following info:
-
-```markdown
-## Description
-A clear description of what the bug is.
-
-## Steps to Reproduce
-1. Run command: `...`
-2. Expected: `...`
-3. Actual: `...`
-
-## Environment
-- OS: macOS / Linux / Windows
-- Python version: 3.11
-- Sentinel OS version: main branch
-
-## Error Message
-```
-Paste full error traceback here
-```
-
-## Additional Context
-Any other relevant information
-```
-
----
-
-## Suggesting Features
-
-Have an idea? We'd love to hear it!
-
-1. **Check existing issues** - Search for similar feature requests
-2. **Create a discussion** or issue explaining:
-   - What problem does it solve?
-   - How would you use it?
-   - Any alternative approaches?
-
----
-
-## Documentation Contributions
-
-Documentation improvements are just as valuable as code!
-
-### Update Existing Docs
-
-1. Find the `.md` file you want to improve
-2. Make your edits
-3. Test that markdown renders correctly on GitHub
-4. Submit a PR with clear description of changes
-
-### Add New Docs
-
-If you think we need new documentation:
-
-1. Discuss in an issue first
-2. Follow the same structure as existing docs
-3. Include code examples where relevant
-4. Link to related documentation
-
----
-
-## Getting Help
-
-- **Questions?** Open a GitHub Discussion
-- **Stuck?** Comment on the issue or PR
-- **Need guidance?** Reach out to @wking53214
-- **Found a security issue?** Email instead of posting publicly
-
----
-
-## Review Process
-
-Once you submit a PR:
-
-1. **Automated checks** will run (tests, style checks)
-2. **Code review** - Maintainer will review your changes
-3. **Feedback** - You may be asked for clarifications or changes
-4. **Approval** - PR is merged once approved
-5. **Deployment** - Your contribution goes live! 🎉
-
-### Tips for getting your PR approved faster
-
-- Keep PRs focused (one feature or fix per PR)
-- Write clear commit messages
-- Include tests
-- Follow code style guidelines
-- Respond to feedback promptly
-- Test thoroughly before submitting
-
----
-
-## What We're Looking For
-
-We especially welcome contributions in these areas:
-
-- 🐛 **Bug fixes** - Found and fixed a bug?
-- 📚 **Documentation** - Improved clarity or added examples?
-- ✅ **Tests** - Added test coverage, especially for edge cases?
-- 🚀 **Performance** - Optimized slow code paths?
-- 🔧 **Tooling** - Improved development experience?
-- 🌍 **Localization** - Translated docs or messages?
-
----
-
-## Recognition
-
-We recognize and celebrate our contributors! Every PR that's merged will be noted in:
-- Release notes
-- GitHub contributors page
-- Project README (pending - we'll add this!)
+Security issues: email the maintainer, don't open a public issue.
 
 ---
 
 ## License
 
-By contributing to Sentinel OS, you agree that your contributions will be licensed under the same license as the project. (Add your license here - MIT, Apache 2.0, etc.)
-
----
-
-## Questions?
-
-Don't hesitate to ask! Contributing should be fun and rewarding. We're here to help you succeed.
-
-- **GitHub Issues:** https://github.com/wking53214/sentinel_os/issues
-- **Discussions:** https://github.com/wking53214/sentinel_os/discussions
-- **Email:** Contact the maintainer
-
-Thank you for contributing to Sentinel OS! 🚀
+By contributing you agree your contributions are licensed under **Apache-2.0**,
+the same as the project ([`LICENSE`](LICENSE)).
