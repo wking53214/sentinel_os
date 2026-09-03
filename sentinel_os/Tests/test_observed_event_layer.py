@@ -11,7 +11,6 @@ Tested against a real ledger, same convention as test_ai_cost_ledger.py /
 test_outcome_chain_records.py.
 """
 
-import json
 
 import psycopg2
 import pytest

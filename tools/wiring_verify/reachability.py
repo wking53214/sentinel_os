@@ -39,7 +39,7 @@ be misquoted as a proven call chain when it isn't one.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
 
 from model import Graph, func_node_id
 

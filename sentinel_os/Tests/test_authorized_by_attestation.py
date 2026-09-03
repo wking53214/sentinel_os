@@ -18,7 +18,6 @@ already tested.
 See governance/authorized_by_attestation.py.
 """
 
-import hashlib
 import inspect
 import json
 

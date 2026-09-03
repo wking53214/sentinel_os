@@ -13,7 +13,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269580+00:00",
+    "first_seen": "2026-09-03T12:51:56.045107+00:00",
     "id": "ghost-82da62558f02",
     "layer": "mechanical",
     "severity": "minor",
@@ -34,7 +34,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269749+00:00",
+    "first_seen": "2026-09-03T12:51:56.045236+00:00",
     "id": "ghost-70e2c7f41732",
     "layer": "mechanical",
     "severity": "minor",
@@ -55,7 +55,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269770+00:00",
+    "first_seen": "2026-09-03T12:51:56.045249+00:00",
     "id": "ghost-d9ed413f7cdc",
     "layer": "mechanical",
     "severity": "minor",
@@ -76,7 +76,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269807+00:00",
+    "first_seen": "2026-09-03T12:51:56.045272+00:00",
     "id": "ghost-2e9b53b0bf51",
     "layer": "mechanical",
     "severity": "minor",
@@ -97,7 +97,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269828+00:00",
+    "first_seen": "2026-09-03T12:51:56.045284+00:00",
     "id": "ghost-a4018a2ff91c",
     "layer": "mechanical",
     "severity": "minor",
@@ -118,7 +118,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269848+00:00",
+    "first_seen": "2026-09-03T12:51:56.045295+00:00",
     "id": "ghost-4e5d411a42cb",
     "layer": "mechanical",
     "severity": "minor",
@@ -139,7 +139,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269862+00:00",
+    "first_seen": "2026-09-03T12:51:56.045302+00:00",
     "id": "ghost-dee239f5d0a0",
     "layer": "mechanical",
     "severity": "minor",
@@ -160,7 +160,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269875+00:00",
+    "first_seen": "2026-09-03T12:51:56.045310+00:00",
     "id": "ghost-195117a570a7",
     "layer": "mechanical",
     "severity": "minor",
@@ -181,7 +181,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269898+00:00",
+    "first_seen": "2026-09-03T12:51:56.045321+00:00",
     "id": "ghost-ba9f2b09dadb",
     "layer": "mechanical",
     "severity": "minor",
@@ -202,7 +202,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269909+00:00",
+    "first_seen": "2026-09-03T12:51:56.045327+00:00",
     "id": "ghost-5a62d0e00366",
     "layer": "mechanical",
     "severity": "minor",
@@ -223,7 +223,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269920+00:00",
+    "first_seen": "2026-09-03T12:51:56.045334+00:00",
     "id": "ghost-4a52a8542f77",
     "layer": "mechanical",
     "severity": "minor",
@@ -244,7 +244,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269960+00:00",
+    "first_seen": "2026-09-03T12:51:56.045347+00:00",
     "id": "ghost-19dadb78dc90",
     "layer": "mechanical",
     "severity": "minor",
@@ -265,54 +265,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.269971+00:00",
+    "first_seen": "2026-09-03T12:51:56.045352+00:00",
     "id": "ghost-f918484b9b29",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
     "summary": "'_default_ledger_runtime_user' is defined but never referenced anywhere in the scanned set"
-  },
-  {
-    "category": "dead_code",
-    "confidence": null,
-    "detail": "No ast.Name, ast.Attribute, or string-subscript-key node anywhere in the scanned files resolves to this identifier. Scope limit: getattr-by-string and decorator-based registration are still not traced, so this can false-positive on names only reached that way -- confirm before deleting.",
-    "detector": "dead_code",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/conservation/artifact_store.py",
-      "line_end": null,
-      "line_start": null,
-      "related_files": [],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:14.269983+00:00",
-    "id": "ghost-19cfe2913df5",
-    "layer": "mechanical",
-    "severity": "minor",
-    "status": "suppressed",
-    "summary": "'init_artifact_store' is defined but never referenced anywhere in the scanned set"
-  },
-  {
-    "category": "dead_code",
-    "confidence": null,
-    "detail": "No ast.Name, ast.Attribute, or string-subscript-key node anywhere in the scanned files resolves to this identifier. Scope limit: getattr-by-string and decorator-based registration are still not traced, so this can false-positive on names only reached that way -- confirm before deleting.",
-    "detector": "dead_code",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/conservation/gateway.py",
-      "line_end": null,
-      "line_start": null,
-      "related_files": [],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:14.270009+00:00",
-    "id": "ghost-b8c1359348fc",
-    "layer": "mechanical",
-    "severity": "minor",
-    "status": "suppressed",
-    "summary": "'submit_for_conservation' is defined but never referenced anywhere in the scanned set"
   },
   {
     "category": "dead_code",
@@ -328,7 +286,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270033+00:00",
+    "first_seen": "2026-09-03T12:51:56.045363+00:00",
     "id": "ghost-72edd0e71d9a",
     "layer": "mechanical",
     "severity": "minor",
@@ -349,7 +307,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270077+00:00",
+    "first_seen": "2026-09-03T12:51:56.045385+00:00",
     "id": "ghost-8d9e8415d64d",
     "layer": "mechanical",
     "severity": "minor",
@@ -370,7 +328,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270106+00:00",
+    "first_seen": "2026-09-03T12:51:56.045399+00:00",
     "id": "ghost-ae60003ebf61",
     "layer": "mechanical",
     "severity": "minor",
@@ -391,7 +349,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270133+00:00",
+    "first_seen": "2026-09-03T12:51:56.045419+00:00",
     "id": "ghost-c4c912f5b36d",
     "layer": "mechanical",
     "severity": "minor",
@@ -412,7 +370,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270143+00:00",
+    "first_seen": "2026-09-03T12:51:56.045424+00:00",
     "id": "ghost-400d895b3bb8",
     "layer": "mechanical",
     "severity": "minor",
@@ -433,7 +391,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270159+00:00",
+    "first_seen": "2026-09-03T12:51:56.045430+00:00",
     "id": "ghost-b1bb5c9e5c03",
     "layer": "mechanical",
     "severity": "minor",
@@ -454,7 +412,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270169+00:00",
+    "first_seen": "2026-09-03T12:51:56.045435+00:00",
     "id": "ghost-c593da7afa2b",
     "layer": "mechanical",
     "severity": "minor",
@@ -475,7 +433,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270206+00:00",
+    "first_seen": "2026-09-03T12:51:56.045459+00:00",
     "id": "ghost-cc6fc38106cd",
     "layer": "mechanical",
     "severity": "minor",
@@ -496,7 +454,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270222+00:00",
+    "first_seen": "2026-09-03T12:51:56.045464+00:00",
     "id": "ghost-236530d55ddb",
     "layer": "mechanical",
     "severity": "minor",
@@ -517,7 +475,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270231+00:00",
+    "first_seen": "2026-09-03T12:51:56.045469+00:00",
     "id": "ghost-89a5f8dc9fcd",
     "layer": "mechanical",
     "severity": "minor",
@@ -538,7 +496,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270246+00:00",
+    "first_seen": "2026-09-03T12:51:56.045478+00:00",
     "id": "ghost-b036d5cdd3ea",
     "layer": "mechanical",
     "severity": "minor",
@@ -559,7 +517,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270259+00:00",
+    "first_seen": "2026-09-03T12:51:56.045485+00:00",
     "id": "ghost-62fff57395ca",
     "layer": "mechanical",
     "severity": "minor",
@@ -580,7 +538,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.270274+00:00",
+    "first_seen": "2026-09-03T12:51:56.045491+00:00",
     "id": "ghost-c4cf600f7b7d",
     "layer": "mechanical",
     "severity": "minor",
@@ -601,7 +559,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.489516+00:00",
+    "first_seen": "2026-09-03T12:51:56.208848+00:00",
     "id": "ghost-25a6969459a2",
     "layer": "mechanical",
     "severity": "minor",
@@ -622,7 +580,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.489594+00:00",
+    "first_seen": "2026-09-03T12:51:56.208893+00:00",
     "id": "ghost-e78c767341f5",
     "layer": "mechanical",
     "severity": "minor",
@@ -643,7 +601,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.493153+00:00",
+    "first_seen": "2026-09-03T12:51:56.212068+00:00",
     "id": "ghost-d26c69b7bf66",
     "layer": "mechanical",
     "severity": "minor",
@@ -664,7 +622,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.498811+00:00",
+    "first_seen": "2026-09-03T12:51:56.216733+00:00",
     "id": "ghost-654d81b86ba1",
     "layer": "mechanical",
     "severity": "minor",
@@ -680,38 +638,17 @@
     "disposition_note": "",
     "evidence": {
       "file": "sentinel_os/conservation/episode_source.py",
-      "line_end": 149,
-      "line_start": 57,
+      "line_end": 173,
+      "line_start": 81,
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.505608+00:00",
+    "first_seen": "2026-09-03T12:51:56.220795+00:00",
     "id": "ghost-dde378bf456e",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
     "summary": "'build_episode_source' spans 92 lines (threshold 80)"
-  },
-  {
-    "category": "complexity",
-    "confidence": null,
-    "detail": "Line-count proxy for the 'Long Method' smell, not true cyclomatic complexity -- a long function that's mostly a flat sequence of simple statements is a weaker signal than a short function with deep branching. Treat as a prompt to look, not a verdict.",
-    "detector": "long_function",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/conservation/gateway.py",
-      "line_end": 250,
-      "line_start": 144,
-      "related_files": [],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:14.508131+00:00",
-    "id": "ghost-e24743067427",
-    "layer": "mechanical",
-    "severity": "minor",
-    "status": "suppressed",
-    "summary": "'submit_artifact' spans 106 lines (threshold 80)"
   },
   {
     "category": "complexity",
@@ -727,7 +664,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.523980+00:00",
+    "first_seen": "2026-09-03T12:51:56.230817+00:00",
     "id": "ghost-08ecf3f44b18",
     "layer": "mechanical",
     "severity": "minor",
@@ -748,7 +685,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.532353+00:00",
+    "first_seen": "2026-09-03T12:51:56.236463+00:00",
     "id": "ghost-ed851d2e8c9b",
     "layer": "mechanical",
     "severity": "minor",
@@ -769,7 +706,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.544351+00:00",
+    "first_seen": "2026-09-03T12:51:56.246701+00:00",
     "id": "ghost-b837603c0fd0",
     "layer": "mechanical",
     "severity": "minor",
@@ -790,7 +727,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567712+00:00",
+    "first_seen": "2026-09-03T12:51:56.265078+00:00",
     "id": "ghost-1e4e7eed815e",
     "layer": "mechanical",
     "severity": "major",
@@ -811,7 +748,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567769+00:00",
+    "first_seen": "2026-09-03T12:51:56.265153+00:00",
     "id": "ghost-de099c936372",
     "layer": "mechanical",
     "severity": "major",
@@ -832,7 +769,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567781+00:00",
+    "first_seen": "2026-09-03T12:51:56.265174+00:00",
     "id": "ghost-d2507a9b4e52",
     "layer": "mechanical",
     "severity": "minor",
@@ -853,7 +790,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567793+00:00",
+    "first_seen": "2026-09-03T12:51:56.265193+00:00",
     "id": "ghost-9ba406efebf0",
     "layer": "mechanical",
     "severity": "minor",
@@ -874,7 +811,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567803+00:00",
+    "first_seen": "2026-09-03T12:51:56.265215+00:00",
     "id": "ghost-3d3fd6f93ec7",
     "layer": "mechanical",
     "severity": "minor",
@@ -895,7 +832,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567812+00:00",
+    "first_seen": "2026-09-03T12:51:56.265230+00:00",
     "id": "ghost-d5048a66bfd6",
     "layer": "mechanical",
     "severity": "minor",
@@ -916,7 +853,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567821+00:00",
+    "first_seen": "2026-09-03T12:51:56.265246+00:00",
     "id": "ghost-ae47dbf76177",
     "layer": "mechanical",
     "severity": "minor",
@@ -937,7 +874,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567829+00:00",
+    "first_seen": "2026-09-03T12:51:56.265261+00:00",
     "id": "ghost-57e93002755a",
     "layer": "mechanical",
     "severity": "minor",
@@ -958,7 +895,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567843+00:00",
+    "first_seen": "2026-09-03T12:51:56.265287+00:00",
     "id": "ghost-bc359b1b2ad7",
     "layer": "mechanical",
     "severity": "minor",
@@ -979,7 +916,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567872+00:00",
+    "first_seen": "2026-09-03T12:51:56.265349+00:00",
     "id": "ghost-dc8c0a9793c9",
     "layer": "mechanical",
     "severity": "minor",
@@ -1000,7 +937,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567893+00:00",
+    "first_seen": "2026-09-03T12:51:56.265391+00:00",
     "id": "ghost-b9111d2601c3",
     "layer": "mechanical",
     "severity": "major",
@@ -1021,7 +958,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.567902+00:00",
+    "first_seen": "2026-09-03T12:51:56.265404+00:00",
     "id": "ghost-f0ea9a1d00d1",
     "layer": "mechanical",
     "severity": "major",
@@ -1042,7 +979,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.583689+00:00",
+    "first_seen": "2026-09-03T12:51:56.281328+00:00",
     "id": "ghost-6f43f5e7ed88",
     "layer": "mechanical",
     "severity": "minor",
@@ -1063,7 +1000,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.585638+00:00",
+    "first_seen": "2026-09-03T12:51:56.283353+00:00",
     "id": "ghost-c1c6349f644e",
     "layer": "mechanical",
     "severity": "minor",
@@ -1084,7 +1021,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.596817+00:00",
+    "first_seen": "2026-09-03T12:51:56.294304+00:00",
     "id": "ghost-1e60bee49fca",
     "layer": "mechanical",
     "severity": "minor",
@@ -1105,7 +1042,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.607981+00:00",
+    "first_seen": "2026-09-03T12:51:56.304813+00:00",
     "id": "ghost-9d29f7dc9f22",
     "layer": "mechanical",
     "severity": "minor",
@@ -1126,7 +1063,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.612175+00:00",
+    "first_seen": "2026-09-03T12:51:56.308689+00:00",
     "id": "ghost-8bd021c56f15",
     "layer": "mechanical",
     "severity": "minor",
@@ -1147,7 +1084,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.616698+00:00",
+    "first_seen": "2026-09-03T12:51:56.313149+00:00",
     "id": "ghost-c6741181bd04",
     "layer": "mechanical",
     "severity": "minor",
@@ -1168,7 +1105,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.620228+00:00",
+    "first_seen": "2026-09-03T12:51:56.318441+00:00",
     "id": "ghost-5d55fcfb5224",
     "layer": "mechanical",
     "severity": "minor",
@@ -1189,7 +1126,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.626358+00:00",
+    "first_seen": "2026-09-03T12:51:56.324452+00:00",
     "id": "ghost-6426845227a2",
     "layer": "mechanical",
     "severity": "minor",
@@ -1210,7 +1147,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.633375+00:00",
+    "first_seen": "2026-09-03T12:51:56.335567+00:00",
     "id": "ghost-6675034536d5",
     "layer": "mechanical",
     "severity": "minor",
@@ -1231,7 +1168,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.640231+00:00",
+    "first_seen": "2026-09-03T12:51:56.343142+00:00",
     "id": "ghost-249007ef6057",
     "layer": "mechanical",
     "severity": "minor",
@@ -1252,7 +1189,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.643879+00:00",
+    "first_seen": "2026-09-03T12:51:56.347600+00:00",
     "id": "ghost-51a83b254777",
     "layer": "mechanical",
     "severity": "minor",
@@ -1273,7 +1210,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.651413+00:00",
+    "first_seen": "2026-09-03T12:51:56.355654+00:00",
     "id": "ghost-e4f12b58112c",
     "layer": "mechanical",
     "severity": "minor",
@@ -1294,7 +1231,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.651458+00:00",
+    "first_seen": "2026-09-03T12:51:56.355703+00:00",
     "id": "ghost-7e26bf50a415",
     "layer": "mechanical",
     "severity": "minor",
@@ -1315,7 +1252,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.651472+00:00",
+    "first_seen": "2026-09-03T12:51:56.355719+00:00",
     "id": "ghost-e98205a492e7",
     "layer": "mechanical",
     "severity": "minor",
@@ -1336,7 +1273,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.651485+00:00",
+    "first_seen": "2026-09-03T12:51:56.355734+00:00",
     "id": "ghost-7021a0c7c9c5",
     "layer": "mechanical",
     "severity": "minor",
@@ -1357,7 +1294,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.651499+00:00",
+    "first_seen": "2026-09-03T12:51:56.355748+00:00",
     "id": "ghost-591661a5bdc1",
     "layer": "mechanical",
     "severity": "minor",
@@ -1378,7 +1315,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.667490+00:00",
+    "first_seen": "2026-09-03T12:51:56.371709+00:00",
     "id": "ghost-bcc4e119f119",
     "layer": "mechanical",
     "severity": "minor",
@@ -1399,7 +1336,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.680612+00:00",
+    "first_seen": "2026-09-03T12:51:56.395487+00:00",
     "id": "ghost-167244fcf55e",
     "layer": "mechanical",
     "severity": "minor",
@@ -1420,7 +1357,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.691289+00:00",
+    "first_seen": "2026-09-03T12:51:56.420707+00:00",
     "id": "ghost-66e15d6d1e13",
     "layer": "mechanical",
     "severity": "minor",
@@ -1441,7 +1378,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.706031+00:00",
+    "first_seen": "2026-09-03T12:51:56.436905+00:00",
     "id": "ghost-18e42b434cbe",
     "layer": "mechanical",
     "severity": "minor",
@@ -1462,7 +1399,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.761953+00:00",
+    "first_seen": "2026-09-03T12:51:56.536338+00:00",
     "id": "ghost-57c76f72b6a6",
     "layer": "mechanical",
     "severity": "major",
@@ -1483,7 +1420,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.765418+00:00",
+    "first_seen": "2026-09-03T12:51:56.542431+00:00",
     "id": "ghost-a6c369ecdec9",
     "layer": "mechanical",
     "severity": "minor",
@@ -1504,7 +1441,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.774683+00:00",
+    "first_seen": "2026-09-03T12:51:56.556545+00:00",
     "id": "ghost-85760a829cfc",
     "layer": "mechanical",
     "severity": "major",
@@ -1525,7 +1462,7 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:14.782769+00:00",
+    "first_seen": "2026-09-03T12:51:56.564895+00:00",
     "id": "ghost-cfa4b10d5bad",
     "layer": "mechanical",
     "severity": "minor",
@@ -1549,7 +1486,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660063+00:00",
+    "first_seen": "2026-09-03T12:51:57.349725+00:00",
     "id": "ghost-da36a9c7a6b9",
     "layer": "mechanical",
     "severity": "major",
@@ -1572,7 +1509,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660101+00:00",
+    "first_seen": "2026-09-03T12:51:57.349765+00:00",
     "id": "ghost-221584afc9a2",
     "layer": "mechanical",
     "severity": "minor",
@@ -1595,7 +1532,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660115+00:00",
+    "first_seen": "2026-09-03T12:51:57.349779+00:00",
     "id": "ghost-fd23dcfb0a78",
     "layer": "mechanical",
     "severity": "minor",
@@ -1618,7 +1555,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660141+00:00",
+    "first_seen": "2026-09-03T12:51:57.349805+00:00",
     "id": "ghost-69f1b78f426e",
     "layer": "mechanical",
     "severity": "minor",
@@ -1642,7 +1579,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660163+00:00",
+    "first_seen": "2026-09-03T12:51:57.349827+00:00",
     "id": "ghost-edb48ad5867c",
     "layer": "mechanical",
     "severity": "major",
@@ -1665,7 +1602,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660175+00:00",
+    "first_seen": "2026-09-03T12:51:57.349838+00:00",
     "id": "ghost-0d25ecee074f",
     "layer": "mechanical",
     "severity": "minor",
@@ -1688,7 +1625,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660202+00:00",
+    "first_seen": "2026-09-03T12:51:57.349864+00:00",
     "id": "ghost-a0c895de1cfa",
     "layer": "mechanical",
     "severity": "minor",
@@ -1711,7 +1648,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660214+00:00",
+    "first_seen": "2026-09-03T12:51:57.349877+00:00",
     "id": "ghost-e3adbf945f33",
     "layer": "mechanical",
     "severity": "minor",
@@ -1734,7 +1671,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660227+00:00",
+    "first_seen": "2026-09-03T12:51:57.349888+00:00",
     "id": "ghost-1d68e1a70f30",
     "layer": "mechanical",
     "severity": "minor",
@@ -1760,7 +1697,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660249+00:00",
+    "first_seen": "2026-09-03T12:51:57.349908+00:00",
     "id": "ghost-98e4ba914e08",
     "layer": "mechanical",
     "severity": "major",
@@ -1784,59 +1721,12 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660261+00:00",
+    "first_seen": "2026-09-03T12:51:57.349920+00:00",
     "id": "ghost-6ee82b0d3607",
     "layer": "mechanical",
     "severity": "major",
     "status": "suppressed",
     "summary": "3 functions share identical AST structure (names/literals differ, control flow and shape don't): banking_cassette.py:86:get_config, ivr_cassette.py:126:get_config, mortgage_cassette.py:267:get_config"
-  },
-  {
-    "category": "duplication",
-    "confidence": null,
-    "detail": "Structural fingerprint match, not textual diff -- this is the 'copy-pasted then renamed' shape specifically. Confirm these are actually solving the same problem before merging; some structural matches are coincidental (e.g. two unrelated simple validators).",
-    "detector": "near_duplicate_function",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/conservation/gateway.py",
-      "line_end": 313,
-      "line_start": 305,
-      "related_files": [
-        "sentinel_os/conservation/gateway.py"
-      ],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:15.660280+00:00",
-    "id": "ghost-858d863264e7",
-    "layer": "mechanical",
-    "severity": "minor",
-    "status": "suppressed",
-    "summary": "2 functions share identical AST structure (names/literals differ, control flow and shape don't): gateway.py:305:_map_epistemic_status, gateway.py:315:_map_origin_status"
-  },
-  {
-    "category": "duplication",
-    "confidence": null,
-    "detail": "Structural fingerprint match, not textual diff -- this is the 'copy-pasted then renamed' shape specifically. Confirm these are actually solving the same problem before merging; some structural matches are coincidental (e.g. two unrelated simple validators).",
-    "detector": "near_duplicate_function",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/conservation/receipt.py",
-      "line_end": 36,
-      "line_start": 30,
-      "related_files": [
-        "sentinel_os/conservation/receipt.py",
-        "sentinel_os/conservation/transport/contracts.py"
-      ],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:15.660291+00:00",
-    "id": "ghost-7ce70b4bc32b",
-    "layer": "mechanical",
-    "severity": "major",
-    "status": "suppressed",
-    "summary": "3 functions share identical AST structure (names/literals differ, control flow and shape don't): receipt.py:30:to_dict, receipt.py:47:to_dict, contracts.py:250:to_dict"
   },
   {
     "category": "duplication",
@@ -1854,7 +1744,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660317+00:00",
+    "first_seen": "2026-09-03T12:51:57.349951+00:00",
     "id": "ghost-1f35d66b7eb4",
     "layer": "mechanical",
     "severity": "minor",
@@ -1877,7 +1767,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660335+00:00",
+    "first_seen": "2026-09-03T12:51:57.349969+00:00",
     "id": "ghost-4f2e15cad059",
     "layer": "mechanical",
     "severity": "minor",
@@ -1900,7 +1790,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660344+00:00",
+    "first_seen": "2026-09-03T12:51:57.349977+00:00",
     "id": "ghost-ccdfc4d8362c",
     "layer": "mechanical",
     "severity": "minor",
@@ -1923,7 +1813,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660353+00:00",
+    "first_seen": "2026-09-03T12:51:57.349986+00:00",
     "id": "ghost-00894c686672",
     "layer": "mechanical",
     "severity": "minor",
@@ -1946,7 +1836,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660363+00:00",
+    "first_seen": "2026-09-03T12:51:57.349995+00:00",
     "id": "ghost-c01e00a2f139",
     "layer": "mechanical",
     "severity": "minor",
@@ -1969,7 +1859,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660373+00:00",
+    "first_seen": "2026-09-03T12:51:57.350004+00:00",
     "id": "ghost-efda590001f0",
     "layer": "mechanical",
     "severity": "minor",
@@ -1992,7 +1882,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660382+00:00",
+    "first_seen": "2026-09-03T12:51:57.350013+00:00",
     "id": "ghost-ada299771ce1",
     "layer": "mechanical",
     "severity": "minor",
@@ -2015,7 +1905,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660391+00:00",
+    "first_seen": "2026-09-03T12:51:57.350053+00:00",
     "id": "ghost-4ed0c91492e7",
     "layer": "mechanical",
     "severity": "minor",
@@ -2038,7 +1928,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660401+00:00",
+    "first_seen": "2026-09-03T12:51:57.350067+00:00",
     "id": "ghost-53514b17845a",
     "layer": "mechanical",
     "severity": "minor",
@@ -2061,7 +1951,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660410+00:00",
+    "first_seen": "2026-09-03T12:51:57.350081+00:00",
     "id": "ghost-664eee0045cb",
     "layer": "mechanical",
     "severity": "minor",
@@ -2084,7 +1974,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660419+00:00",
+    "first_seen": "2026-09-03T12:51:57.350092+00:00",
     "id": "ghost-8d01e8e8973f",
     "layer": "mechanical",
     "severity": "minor",
@@ -2107,7 +1997,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660428+00:00",
+    "first_seen": "2026-09-03T12:51:57.350103+00:00",
     "id": "ghost-302ba437ff29",
     "layer": "mechanical",
     "severity": "minor",
@@ -2130,7 +2020,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660436+00:00",
+    "first_seen": "2026-09-03T12:51:57.350112+00:00",
     "id": "ghost-5a78c77fccf4",
     "layer": "mechanical",
     "severity": "minor",
@@ -2153,7 +2043,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660445+00:00",
+    "first_seen": "2026-09-03T12:51:57.350121+00:00",
     "id": "ghost-8f46f065262c",
     "layer": "mechanical",
     "severity": "minor",
@@ -2176,7 +2066,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660455+00:00",
+    "first_seen": "2026-09-03T12:51:57.350130+00:00",
     "id": "ghost-347d6b2b151a",
     "layer": "mechanical",
     "severity": "minor",
@@ -2199,7 +2089,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660464+00:00",
+    "first_seen": "2026-09-03T12:51:57.350140+00:00",
     "id": "ghost-8e34c98b3465",
     "layer": "mechanical",
     "severity": "minor",
@@ -2222,7 +2112,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660472+00:00",
+    "first_seen": "2026-09-03T12:51:57.350149+00:00",
     "id": "ghost-be240beee06d",
     "layer": "mechanical",
     "severity": "minor",
@@ -2245,7 +2135,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660480+00:00",
+    "first_seen": "2026-09-03T12:51:57.350157+00:00",
     "id": "ghost-dc5b7d334575",
     "layer": "mechanical",
     "severity": "minor",
@@ -2268,7 +2158,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660489+00:00",
+    "first_seen": "2026-09-03T12:51:57.350172+00:00",
     "id": "ghost-fe6e45f92881",
     "layer": "mechanical",
     "severity": "minor",
@@ -2291,7 +2181,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660498+00:00",
+    "first_seen": "2026-09-03T12:51:57.350182+00:00",
     "id": "ghost-3796ac20b7db",
     "layer": "mechanical",
     "severity": "minor",
@@ -2314,7 +2204,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660507+00:00",
+    "first_seen": "2026-09-03T12:51:57.350190+00:00",
     "id": "ghost-84da78148ab0",
     "layer": "mechanical",
     "severity": "minor",
@@ -2337,7 +2227,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660534+00:00",
+    "first_seen": "2026-09-03T12:51:57.350200+00:00",
     "id": "ghost-c8db4bc6b7b9",
     "layer": "mechanical",
     "severity": "minor",
@@ -2360,7 +2250,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660545+00:00",
+    "first_seen": "2026-09-03T12:51:57.350209+00:00",
     "id": "ghost-0b11611253ef",
     "layer": "mechanical",
     "severity": "minor",
@@ -2383,7 +2273,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660554+00:00",
+    "first_seen": "2026-09-03T12:51:57.350219+00:00",
     "id": "ghost-e1b36f2cd664",
     "layer": "mechanical",
     "severity": "minor",
@@ -2406,7 +2296,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660563+00:00",
+    "first_seen": "2026-09-03T12:51:57.350228+00:00",
     "id": "ghost-261f9004cc4f",
     "layer": "mechanical",
     "severity": "minor",
@@ -2429,12 +2319,35 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660572+00:00",
+    "first_seen": "2026-09-03T12:51:57.350236+00:00",
     "id": "ghost-a5cb99d86dfc",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
     "summary": "2 functions share identical AST structure (names/literals differ, control flow and shape don't): report.py:61:monthly_drift_report, report.py:61:monthly_drift_report"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match, not textual diff -- this is the 'copy-pasted then renamed' shape specifically. Confirm these are actually solving the same problem before merging; some structural matches are coincidental (e.g. two unrelated simple validators).",
+    "detector": "near_duplicate_function",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "sentinel_os/interpretation/report.py",
+      "line_end": 251,
+      "line_start": 109,
+      "related_files": [
+        "sentinel_os/sage_k/report.py"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-03T12:51:57.350245+00:00",
+    "id": "ghost-8955320e2dff",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "2 functions share identical AST structure (names/literals differ, control flow and shape don't): report.py:109:annual_realignment_report, report.py:109:annual_realignment_report"
   },
   {
     "category": "duplication",
@@ -2452,7 +2365,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660582+00:00",
+    "first_seen": "2026-09-03T12:51:57.350254+00:00",
     "id": "ghost-6f085fde55f8",
     "layer": "mechanical",
     "severity": "minor",
@@ -2475,7 +2388,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660591+00:00",
+    "first_seen": "2026-09-03T12:51:57.350263+00:00",
     "id": "ghost-2cc04b09ea63",
     "layer": "mechanical",
     "severity": "minor",
@@ -2498,7 +2411,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660599+00:00",
+    "first_seen": "2026-09-03T12:51:57.350271+00:00",
     "id": "ghost-ee45aa2700d6",
     "layer": "mechanical",
     "severity": "minor",
@@ -2521,7 +2434,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660607+00:00",
+    "first_seen": "2026-09-03T12:51:57.350281+00:00",
     "id": "ghost-efb8ff26630e",
     "layer": "mechanical",
     "severity": "minor",
@@ -2544,7 +2457,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660616+00:00",
+    "first_seen": "2026-09-03T12:51:57.350290+00:00",
     "id": "ghost-c13e306f0b77",
     "layer": "mechanical",
     "severity": "minor",
@@ -2567,7 +2480,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660624+00:00",
+    "first_seen": "2026-09-03T12:51:57.350298+00:00",
     "id": "ghost-416756e80d7a",
     "layer": "mechanical",
     "severity": "minor",
@@ -2591,7 +2504,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660677+00:00",
+    "first_seen": "2026-09-03T12:51:57.350325+00:00",
     "id": "ghost-e70a2787e977",
     "layer": "mechanical",
     "severity": "major",
@@ -2614,7 +2527,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660693+00:00",
+    "first_seen": "2026-09-03T12:51:57.350341+00:00",
     "id": "ghost-b0d1755efeee",
     "layer": "mechanical",
     "severity": "minor",
@@ -2637,37 +2550,12 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660706+00:00",
+    "first_seen": "2026-09-03T12:51:57.350354+00:00",
     "id": "ghost-a4c62d1bf1e7",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
     "summary": "2 functions share identical AST structure (names/literals differ, control flow and shape don't): test_api_server_v2.py:626:hammer_health, test_api_server_v2.py:688:probe"
-  },
-  {
-    "category": "duplication",
-    "confidence": null,
-    "detail": "Structural fingerprint match, not textual diff -- this is the 'copy-pasted then renamed' shape specifically. Confirm these are actually solving the same problem before merging; some structural matches are coincidental (e.g. two unrelated simple validators).",
-    "detector": "near_duplicate_function",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/test_conservation_gateway_security.py",
-      "line_end": 41,
-      "line_start": 32,
-      "related_files": [
-        "sentinel_os/test_conservation_gateway_security.py",
-        "sentinel_os/test_conservation_gateway_security.py",
-        "sentinel_os/test_conservation_gateway_security.py"
-      ],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:15.660721+00:00",
-    "id": "ghost-ea635b6ded16",
-    "layer": "mechanical",
-    "severity": "major",
-    "status": "suppressed",
-    "summary": "4 functions share identical AST structure (names/literals differ, control flow and shape don't): test_conservation_gateway_security.py:32:test_A1_inhumane_contains_human_should_not_match, test_conservation_gateway_security.py:43:test_A1_canonical_fraud_should_not_match, test_conservation_gateway_security.py:98:test_A2_case_variation_should_not_match, test_conservation_gateway_security.py:110:test_A2_extra_text_should_not_match"
   },
   {
     "category": "duplication",
@@ -2685,7 +2573,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660735+00:00",
+    "first_seen": "2026-09-03T12:51:57.350373+00:00",
     "id": "ghost-8712c9e798b6",
     "layer": "mechanical",
     "severity": "minor",
@@ -2708,7 +2596,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.660744+00:00",
+    "first_seen": "2026-09-03T12:51:57.350385+00:00",
     "id": "ghost-b68430fa62d1",
     "layer": "mechanical",
     "severity": "minor",
@@ -2731,7 +2619,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.687068+00:00",
+    "first_seen": "2026-09-03T12:51:57.377151+00:00",
     "id": "ghost-963b780946b6",
     "layer": "mechanical",
     "severity": "minor",
@@ -2747,19 +2635,19 @@
     "disposition_note": "",
     "evidence": {
       "file": "sentinel_os/Tests/test_authorized_by_attestation.py",
-      "line_end": 533,
-      "line_start": 533,
+      "line_end": 532,
+      "line_start": 532,
       "related_files": [
-        "sentinel_os/Tests/test_authorized_by_attestation.py:534-534"
+        "sentinel_os/Tests/test_authorized_by_attestation.py:533-533"
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.701355+00:00",
-    "id": "ghost-a0269c231ad7",
+    "first_seen": "2026-09-03T12:51:57.388365+00:00",
+    "id": "ghost-32af1f7117bd",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'test_keyset_partitions_and_dedupes' repeats the same single statement 2 times (lines 533-533, 534-534): same shape, names/literals differ"
+    "summary": "'test_keyset_partitions_and_dedupes' repeats the same single statement 2 times (lines 532-532, 533-533): same shape, names/literals differ"
   },
   {
     "category": "duplication",
@@ -2770,19 +2658,19 @@
     "disposition_note": "",
     "evidence": {
       "file": "sentinel_os/Tests/test_authorized_by_attestation.py",
-      "line_end": 541,
-      "line_start": 541,
+      "line_end": 540,
+      "line_start": 540,
       "related_files": [
-        "sentinel_os/Tests/test_authorized_by_attestation.py:542-542"
+        "sentinel_os/Tests/test_authorized_by_attestation.py:541-541"
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.701614+00:00",
-    "id": "ghost-c7f71e237218",
+    "first_seen": "2026-09-03T12:51:57.388536+00:00",
+    "id": "ghost-3cfcef506be8",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'test_rotation_old_key_in_previous_still_verifies_ok' repeats the same single statement 2 times (lines 541-541, 542-542): same shape, names/literals differ"
+    "summary": "'test_rotation_old_key_in_previous_still_verifies_ok' repeats the same single statement 2 times (lines 540-540, 541-541): same shape, names/literals differ"
   },
   {
     "category": "duplication",
@@ -2793,19 +2681,19 @@
     "disposition_note": "",
     "evidence": {
       "file": "sentinel_os/Tests/test_authorized_by_attestation.py",
-      "line_end": 566,
-      "line_start": 566,
+      "line_end": 565,
+      "line_start": 565,
       "related_files": [
-        "sentinel_os/Tests/test_authorized_by_attestation.py:569-569"
+        "sentinel_os/Tests/test_authorized_by_attestation.py:568-568"
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.702372+00:00",
-    "id": "ghost-02ea890e88c3",
+    "first_seen": "2026-09-03T12:51:57.389029+00:00",
+    "id": "ghost-f43329002fcf",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'test_legacy_bare_digest_still_verifies_by_trying_every_key' repeats the same single statement 2 times (lines 566-566, 569-569): same shape, names/literals differ"
+    "summary": "'test_legacy_bare_digest_still_verifies_by_trying_every_key' repeats the same single statement 2 times (lines 565-565, 568-568): same shape, names/literals differ"
   },
   {
     "category": "duplication",
@@ -2816,19 +2704,19 @@
     "disposition_note": "",
     "evidence": {
       "file": "sentinel_os/Tests/test_authorized_by_attestation.py",
-      "line_end": 680,
-      "line_start": 680,
+      "line_end": 679,
+      "line_start": 679,
       "related_files": [
-        "sentinel_os/Tests/test_authorized_by_attestation.py:686-686"
+        "sentinel_os/Tests/test_authorized_by_attestation.py:685-685"
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.705027+00:00",
-    "id": "ghost-8836ab0787a9",
+    "first_seen": "2026-09-03T12:51:57.390778+00:00",
+    "id": "ghost-bd5921e72954",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'test_verify_chain_after_a_rotation_is_clean' repeats the same single statement 2 times (lines 680-680, 686-686): same shape, names/literals differ"
+    "summary": "'test_verify_chain_after_a_rotation_is_clean' repeats the same single statement 2 times (lines 679-679, 685-685): same shape, names/literals differ"
   },
   {
     "category": "duplication",
@@ -2846,7 +2734,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.709551+00:00",
+    "first_seen": "2026-09-03T12:51:57.395429+00:00",
     "id": "ghost-fdf62bb9b3db",
     "layer": "mechanical",
     "severity": "minor",
@@ -2869,7 +2757,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.720673+00:00",
+    "first_seen": "2026-09-03T12:51:57.410352+00:00",
     "id": "ghost-55d070a0425f",
     "layer": "mechanical",
     "severity": "minor",
@@ -2892,7 +2780,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.720714+00:00",
+    "first_seen": "2026-09-03T12:51:57.410379+00:00",
     "id": "ghost-33720322cf2a",
     "layer": "mechanical",
     "severity": "minor",
@@ -2915,7 +2803,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.720725+00:00",
+    "first_seen": "2026-09-03T12:51:57.410390+00:00",
     "id": "ghost-1e4d827fd1ac",
     "layer": "mechanical",
     "severity": "minor",
@@ -2938,7 +2826,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.720733+00:00",
+    "first_seen": "2026-09-03T12:51:57.410400+00:00",
     "id": "ghost-5a37892a67cb",
     "layer": "mechanical",
     "severity": "minor",
@@ -2961,7 +2849,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.721890+00:00",
+    "first_seen": "2026-09-03T12:51:57.411572+00:00",
     "id": "ghost-8667b1d6ea5e",
     "layer": "mechanical",
     "severity": "minor",
@@ -2984,7 +2872,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.721904+00:00",
+    "first_seen": "2026-09-03T12:51:57.411589+00:00",
     "id": "ghost-0c876552ca07",
     "layer": "mechanical",
     "severity": "minor",
@@ -3007,7 +2895,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.721914+00:00",
+    "first_seen": "2026-09-03T12:51:57.411599+00:00",
     "id": "ghost-93e5fe7c6bdf",
     "layer": "mechanical",
     "severity": "minor",
@@ -3030,7 +2918,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.722560+00:00",
+    "first_seen": "2026-09-03T12:51:57.412224+00:00",
     "id": "ghost-238544ea2fce",
     "layer": "mechanical",
     "severity": "minor",
@@ -3053,7 +2941,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.723471+00:00",
+    "first_seen": "2026-09-03T12:51:57.413148+00:00",
     "id": "ghost-5ee3d80ac50c",
     "layer": "mechanical",
     "severity": "minor",
@@ -3076,7 +2964,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.723484+00:00",
+    "first_seen": "2026-09-03T12:51:57.413163+00:00",
     "id": "ghost-75634217d164",
     "layer": "mechanical",
     "severity": "minor",
@@ -3099,7 +2987,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.726417+00:00",
+    "first_seen": "2026-09-03T12:51:57.420147+00:00",
     "id": "ghost-a75ad6904b30",
     "layer": "mechanical",
     "severity": "minor",
@@ -3122,7 +3010,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.731980+00:00",
+    "first_seen": "2026-09-03T12:51:57.425004+00:00",
     "id": "ghost-3dcefac4018b",
     "layer": "mechanical",
     "severity": "minor",
@@ -3145,7 +3033,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.732033+00:00",
+    "first_seen": "2026-09-03T12:51:57.425028+00:00",
     "id": "ghost-21466384758f",
     "layer": "mechanical",
     "severity": "minor",
@@ -3168,7 +3056,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.733389+00:00",
+    "first_seen": "2026-09-03T12:51:57.425851+00:00",
     "id": "ghost-d9c768ffca64",
     "layer": "mechanical",
     "severity": "minor",
@@ -3191,7 +3079,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.733429+00:00",
+    "first_seen": "2026-09-03T12:51:57.425864+00:00",
     "id": "ghost-da27b5be6c46",
     "layer": "mechanical",
     "severity": "minor",
@@ -3214,7 +3102,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.739969+00:00",
+    "first_seen": "2026-09-03T12:51:57.433911+00:00",
     "id": "ghost-34771304c5a8",
     "layer": "mechanical",
     "severity": "minor",
@@ -3237,7 +3125,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.747059+00:00",
+    "first_seen": "2026-09-03T12:51:57.443194+00:00",
     "id": "ghost-5c365608badb",
     "layer": "mechanical",
     "severity": "minor",
@@ -3260,7 +3148,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.747213+00:00",
+    "first_seen": "2026-09-03T12:51:57.443342+00:00",
     "id": "ghost-f0d9ad6a59ed",
     "layer": "mechanical",
     "severity": "minor",
@@ -3283,7 +3171,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.758708+00:00",
+    "first_seen": "2026-09-03T12:51:57.453730+00:00",
     "id": "ghost-68a73e52fd9b",
     "layer": "mechanical",
     "severity": "minor",
@@ -3306,7 +3194,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.765374+00:00",
+    "first_seen": "2026-09-03T12:51:57.461092+00:00",
     "id": "ghost-7a24b27d3152",
     "layer": "mechanical",
     "severity": "minor",
@@ -3330,7 +3218,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.774262+00:00",
+    "first_seen": "2026-09-03T12:51:57.471236+00:00",
     "id": "ghost-e2c4d124aec6",
     "layer": "mechanical",
     "severity": "major",
@@ -3353,7 +3241,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.776478+00:00",
+    "first_seen": "2026-09-03T12:51:57.473308+00:00",
     "id": "ghost-2b458800ab11",
     "layer": "mechanical",
     "severity": "minor",
@@ -3377,7 +3265,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.780917+00:00",
+    "first_seen": "2026-09-03T12:51:57.477884+00:00",
     "id": "ghost-bbcf2b796a33",
     "layer": "mechanical",
     "severity": "major",
@@ -3400,7 +3288,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.780937+00:00",
+    "first_seen": "2026-09-03T12:51:57.477905+00:00",
     "id": "ghost-d35208801e41",
     "layer": "mechanical",
     "severity": "minor",
@@ -3423,7 +3311,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.785611+00:00",
+    "first_seen": "2026-09-03T12:51:57.484289+00:00",
     "id": "ghost-a7e060393c3b",
     "layer": "mechanical",
     "severity": "minor",
@@ -3446,7 +3334,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.786461+00:00",
+    "first_seen": "2026-09-03T12:51:57.485182+00:00",
     "id": "ghost-f15c6d8f2255",
     "layer": "mechanical",
     "severity": "minor",
@@ -3469,7 +3357,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.793252+00:00",
+    "first_seen": "2026-09-03T12:51:57.492984+00:00",
     "id": "ghost-a3f63adf9775",
     "layer": "mechanical",
     "severity": "minor",
@@ -3492,7 +3380,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.820488+00:00",
+    "first_seen": "2026-09-03T12:51:57.519050+00:00",
     "id": "ghost-adb9caeb3ff3",
     "layer": "mechanical",
     "severity": "minor",
@@ -3515,7 +3403,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.820747+00:00",
+    "first_seen": "2026-09-03T12:51:57.519472+00:00",
     "id": "ghost-6b00c2871d07",
     "layer": "mechanical",
     "severity": "minor",
@@ -3538,7 +3426,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.820761+00:00",
+    "first_seen": "2026-09-03T12:51:57.519491+00:00",
     "id": "ghost-10395114ed60",
     "layer": "mechanical",
     "severity": "minor",
@@ -3561,7 +3449,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.830672+00:00",
+    "first_seen": "2026-09-03T12:51:57.528867+00:00",
     "id": "ghost-81b5123da81b",
     "layer": "mechanical",
     "severity": "minor",
@@ -3584,7 +3472,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.841204+00:00",
+    "first_seen": "2026-09-03T12:51:57.536058+00:00",
     "id": "ghost-3c847cb32dc3",
     "layer": "mechanical",
     "severity": "minor",
@@ -3607,7 +3495,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.842986+00:00",
+    "first_seen": "2026-09-03T12:51:57.537733+00:00",
     "id": "ghost-6c239ce23942",
     "layer": "mechanical",
     "severity": "minor",
@@ -3630,7 +3518,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.843011+00:00",
+    "first_seen": "2026-09-03T12:51:57.537747+00:00",
     "id": "ghost-aa3a1fe3b690",
     "layer": "mechanical",
     "severity": "minor",
@@ -3653,7 +3541,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.853563+00:00",
+    "first_seen": "2026-09-03T12:51:57.545194+00:00",
     "id": "ghost-50a876d30cf1",
     "layer": "mechanical",
     "severity": "minor",
@@ -3676,7 +3564,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.854293+00:00",
+    "first_seen": "2026-09-03T12:51:57.545929+00:00",
     "id": "ghost-d8d2340823ae",
     "layer": "mechanical",
     "severity": "minor",
@@ -3699,7 +3587,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.855024+00:00",
+    "first_seen": "2026-09-03T12:51:57.546688+00:00",
     "id": "ghost-278c04871fea",
     "layer": "mechanical",
     "severity": "minor",
@@ -3722,7 +3610,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.855604+00:00",
+    "first_seen": "2026-09-03T12:51:57.547666+00:00",
     "id": "ghost-2fa49b6ee8c0",
     "layer": "mechanical",
     "severity": "minor",
@@ -3745,7 +3633,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.857690+00:00",
+    "first_seen": "2026-09-03T12:51:57.549822+00:00",
     "id": "ghost-957a2dd43718",
     "layer": "mechanical",
     "severity": "minor",
@@ -3768,7 +3656,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.857707+00:00",
+    "first_seen": "2026-09-03T12:51:57.549839+00:00",
     "id": "ghost-776105a6236b",
     "layer": "mechanical",
     "severity": "minor",
@@ -3791,7 +3679,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.857718+00:00",
+    "first_seen": "2026-09-03T12:51:57.549848+00:00",
     "id": "ghost-58be858275e1",
     "layer": "mechanical",
     "severity": "minor",
@@ -3814,7 +3702,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.860488+00:00",
+    "first_seen": "2026-09-03T12:51:57.551686+00:00",
     "id": "ghost-e5e03fc1a3d4",
     "layer": "mechanical",
     "severity": "minor",
@@ -3837,7 +3725,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.860515+00:00",
+    "first_seen": "2026-09-03T12:51:57.551699+00:00",
     "id": "ghost-4d365ccb7315",
     "layer": "mechanical",
     "severity": "minor",
@@ -3860,7 +3748,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.879254+00:00",
+    "first_seen": "2026-09-03T12:51:57.569994+00:00",
     "id": "ghost-6359df5386ba",
     "layer": "mechanical",
     "severity": "minor",
@@ -3883,7 +3771,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.886534+00:00",
+    "first_seen": "2026-09-03T12:51:57.576394+00:00",
     "id": "ghost-6f78a4009772",
     "layer": "mechanical",
     "severity": "minor",
@@ -3906,7 +3794,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.890644+00:00",
+    "first_seen": "2026-09-03T12:51:57.580487+00:00",
     "id": "ghost-d6f0e71ebd90",
     "layer": "mechanical",
     "severity": "minor",
@@ -3929,7 +3817,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.891236+00:00",
+    "first_seen": "2026-09-03T12:51:57.581139+00:00",
     "id": "ghost-5da50d76951b",
     "layer": "mechanical",
     "severity": "minor",
@@ -3952,7 +3840,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.891249+00:00",
+    "first_seen": "2026-09-03T12:51:57.581152+00:00",
     "id": "ghost-5d72c137b119",
     "layer": "mechanical",
     "severity": "minor",
@@ -3975,7 +3863,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.903116+00:00",
+    "first_seen": "2026-09-03T12:51:57.593434+00:00",
     "id": "ghost-34580efc024c",
     "layer": "mechanical",
     "severity": "minor",
@@ -3998,7 +3886,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.904270+00:00",
+    "first_seen": "2026-09-03T12:51:57.594557+00:00",
     "id": "ghost-212100f1c169",
     "layer": "mechanical",
     "severity": "minor",
@@ -4021,7 +3909,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.904961+00:00",
+    "first_seen": "2026-09-03T12:51:57.595246+00:00",
     "id": "ghost-8085f8e1ff18",
     "layer": "mechanical",
     "severity": "minor",
@@ -4044,7 +3932,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.904974+00:00",
+    "first_seen": "2026-09-03T12:51:57.595258+00:00",
     "id": "ghost-18030fb77a07",
     "layer": "mechanical",
     "severity": "minor",
@@ -4067,7 +3955,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.905287+00:00",
+    "first_seen": "2026-09-03T12:51:57.595633+00:00",
     "id": "ghost-0cdf14e40113",
     "layer": "mechanical",
     "severity": "minor",
@@ -4090,7 +3978,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.905300+00:00",
+    "first_seen": "2026-09-03T12:51:57.595646+00:00",
     "id": "ghost-43ae4d6fca5b",
     "layer": "mechanical",
     "severity": "minor",
@@ -4113,7 +4001,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.910007+00:00",
+    "first_seen": "2026-09-03T12:51:57.599513+00:00",
     "id": "ghost-ddee89ea06ce",
     "layer": "mechanical",
     "severity": "minor",
@@ -4136,7 +4024,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.912614+00:00",
+    "first_seen": "2026-09-03T12:51:57.601912+00:00",
     "id": "ghost-186b413de70f",
     "layer": "mechanical",
     "severity": "minor",
@@ -4159,7 +4047,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.930495+00:00",
+    "first_seen": "2026-09-03T12:51:57.616185+00:00",
     "id": "ghost-61dea7b6a05a",
     "layer": "mechanical",
     "severity": "minor",
@@ -4182,7 +4070,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.936892+00:00",
+    "first_seen": "2026-09-03T12:51:57.620353+00:00",
     "id": "ghost-4b5d9239daad",
     "layer": "mechanical",
     "severity": "minor",
@@ -4205,7 +4093,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.939914+00:00",
+    "first_seen": "2026-09-03T12:51:57.624927+00:00",
     "id": "ghost-c1baab7ca1c5",
     "layer": "mechanical",
     "severity": "minor",
@@ -4228,7 +4116,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.940187+00:00",
+    "first_seen": "2026-09-03T12:51:57.625455+00:00",
     "id": "ghost-eee4013fcfd2",
     "layer": "mechanical",
     "severity": "minor",
@@ -4251,7 +4139,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.940414+00:00",
+    "first_seen": "2026-09-03T12:51:57.625877+00:00",
     "id": "ghost-8a3ff7d20bcf",
     "layer": "mechanical",
     "severity": "minor",
@@ -4274,7 +4162,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.940678+00:00",
+    "first_seen": "2026-09-03T12:51:57.626251+00:00",
     "id": "ghost-4e8c8bd97181",
     "layer": "mechanical",
     "severity": "minor",
@@ -4297,7 +4185,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.949297+00:00",
+    "first_seen": "2026-09-03T12:51:57.635336+00:00",
     "id": "ghost-79a22a07e8b7",
     "layer": "mechanical",
     "severity": "minor",
@@ -4320,7 +4208,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.949323+00:00",
+    "first_seen": "2026-09-03T12:51:57.635365+00:00",
     "id": "ghost-89c1e96187ea",
     "layer": "mechanical",
     "severity": "minor",
@@ -4343,7 +4231,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.949333+00:00",
+    "first_seen": "2026-09-03T12:51:57.635377+00:00",
     "id": "ghost-798faea12ebb",
     "layer": "mechanical",
     "severity": "minor",
@@ -4366,7 +4254,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.949341+00:00",
+    "first_seen": "2026-09-03T12:51:57.635385+00:00",
     "id": "ghost-0d4cd608d35c",
     "layer": "mechanical",
     "severity": "minor",
@@ -4391,7 +4279,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.968745+00:00",
+    "first_seen": "2026-09-03T12:51:57.653511+00:00",
     "id": "ghost-4e9b888b4285",
     "layer": "mechanical",
     "severity": "major",
@@ -4414,7 +4302,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.975055+00:00",
+    "first_seen": "2026-09-03T12:51:57.658163+00:00",
     "id": "ghost-8d41053ad038",
     "layer": "mechanical",
     "severity": "minor",
@@ -4437,7 +4325,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.975108+00:00",
+    "first_seen": "2026-09-03T12:51:57.658186+00:00",
     "id": "ghost-9192326063fe",
     "layer": "mechanical",
     "severity": "minor",
@@ -4460,7 +4348,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:15.988977+00:00",
+    "first_seen": "2026-09-03T12:51:57.672837+00:00",
     "id": "ghost-e57dd61582f4",
     "layer": "mechanical",
     "severity": "minor",
@@ -4484,7 +4372,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.001466+00:00",
+    "first_seen": "2026-09-03T12:51:57.684775+00:00",
     "id": "ghost-b1c4ec36cd43",
     "layer": "mechanical",
     "severity": "major",
@@ -4507,7 +4395,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.001494+00:00",
+    "first_seen": "2026-09-03T12:51:57.684803+00:00",
     "id": "ghost-ba3a869d470f",
     "layer": "mechanical",
     "severity": "minor",
@@ -4530,7 +4418,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.001504+00:00",
+    "first_seen": "2026-09-03T12:51:57.684814+00:00",
     "id": "ghost-675eb41e189d",
     "layer": "mechanical",
     "severity": "minor",
@@ -4553,7 +4441,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.001513+00:00",
+    "first_seen": "2026-09-03T12:51:57.684823+00:00",
     "id": "ghost-e69ad832ed76",
     "layer": "mechanical",
     "severity": "minor",
@@ -4576,7 +4464,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.001528+00:00",
+    "first_seen": "2026-09-03T12:51:57.684831+00:00",
     "id": "ghost-fe3e1ab1098e",
     "layer": "mechanical",
     "severity": "minor",
@@ -4599,7 +4487,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.004044+00:00",
+    "first_seen": "2026-09-03T12:51:57.687517+00:00",
     "id": "ghost-d5cda74faa2d",
     "layer": "mechanical",
     "severity": "minor",
@@ -4623,7 +4511,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.004062+00:00",
+    "first_seen": "2026-09-03T12:51:57.687542+00:00",
     "id": "ghost-601d97036e19",
     "layer": "mechanical",
     "severity": "major",
@@ -4646,7 +4534,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.010775+00:00",
+    "first_seen": "2026-09-03T12:51:57.695641+00:00",
     "id": "ghost-de212ce16f8c",
     "layer": "mechanical",
     "severity": "minor",
@@ -4669,7 +4557,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.010802+00:00",
+    "first_seen": "2026-09-03T12:51:57.695668+00:00",
     "id": "ghost-7eb4db19a959",
     "layer": "mechanical",
     "severity": "minor",
@@ -4692,7 +4580,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.015856+00:00",
+    "first_seen": "2026-09-03T12:51:57.703417+00:00",
     "id": "ghost-7e815a83a357",
     "layer": "mechanical",
     "severity": "minor",
@@ -4715,7 +4603,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.015881+00:00",
+    "first_seen": "2026-09-03T12:51:57.703443+00:00",
     "id": "ghost-c70a5d83286c",
     "layer": "mechanical",
     "severity": "minor",
@@ -4738,7 +4626,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.016719+00:00",
+    "first_seen": "2026-09-03T12:51:57.704376+00:00",
     "id": "ghost-3fa60c3d5801",
     "layer": "mechanical",
     "severity": "minor",
@@ -4761,81 +4649,12 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.022567+00:00",
+    "first_seen": "2026-09-03T12:51:57.709661+00:00",
     "id": "ghost-e6eadb9c4cf7",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
     "summary": "'_score_components' repeats the same single statement 2 times (lines 395-395, 418-418): same shape, names/literals differ"
-  },
-  {
-    "category": "duplication",
-    "confidence": null,
-    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
-    "detector": "intra_function_duplicate_block",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/conservation/artifact_store.py",
-      "line_end": 237,
-      "line_start": 237,
-      "related_files": [
-        "sentinel_os/conservation/artifact_store.py:247-247"
-      ],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:16.039852+00:00",
-    "id": "ghost-c7ef68092e57",
-    "layer": "mechanical",
-    "severity": "minor",
-    "status": "suppressed",
-    "summary": "'list_artifacts' repeats the same single statement 2 times (lines 237-237, 247-247): same shape, names/literals differ"
-  },
-  {
-    "category": "duplication",
-    "confidence": null,
-    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
-    "detector": "intra_function_duplicate_block",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/conservation/receipt.py",
-      "line_end": 200,
-      "line_start": 200,
-      "related_files": [
-        "sentinel_os/conservation/receipt.py:205-205"
-      ],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:16.056245+00:00",
-    "id": "ghost-6a19a87c0b2e",
-    "layer": "mechanical",
-    "severity": "minor",
-    "status": "suppressed",
-    "summary": "'from_kernel_result' repeats the same single statement 2 times (lines 200-200, 205-205): same shape, names/literals differ"
-  },
-  {
-    "category": "duplication",
-    "confidence": null,
-    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
-    "detector": "intra_function_duplicate_block",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/conservation/transformation_factory.py",
-      "line_end": 241,
-      "line_start": 241,
-      "related_files": [
-        "sentinel_os/conservation/transformation_factory.py:245-245"
-      ],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:16.059422+00:00",
-    "id": "ghost-d48adbf16458",
-    "layer": "mechanical",
-    "severity": "minor",
-    "status": "suppressed",
-    "summary": "'_extract_authority_refs' repeats the same single statement 2 times (lines 241-241, 245-245): same shape, names/literals differ"
   },
   {
     "category": "duplication",
@@ -4854,7 +4673,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.069137+00:00",
+    "first_seen": "2026-09-03T12:51:57.733100+00:00",
     "id": "ghost-ded2accdfa3c",
     "layer": "mechanical",
     "severity": "major",
@@ -4877,7 +4696,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.069822+00:00",
+    "first_seen": "2026-09-03T12:51:57.733807+00:00",
     "id": "ghost-d5e358339f5b",
     "layer": "mechanical",
     "severity": "minor",
@@ -4900,7 +4719,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.069838+00:00",
+    "first_seen": "2026-09-03T12:51:57.733825+00:00",
     "id": "ghost-97181e8f7b18",
     "layer": "mechanical",
     "severity": "minor",
@@ -4923,7 +4742,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.070368+00:00",
+    "first_seen": "2026-09-03T12:51:57.734211+00:00",
     "id": "ghost-e8c04b994f27",
     "layer": "mechanical",
     "severity": "minor",
@@ -4946,7 +4765,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.071000+00:00",
+    "first_seen": "2026-09-03T12:51:57.734562+00:00",
     "id": "ghost-5a3d24279930",
     "layer": "mechanical",
     "severity": "minor",
@@ -4969,7 +4788,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.081869+00:00",
+    "first_seen": "2026-09-03T12:51:57.743390+00:00",
     "id": "ghost-7b7bb1676665",
     "layer": "mechanical",
     "severity": "minor",
@@ -4992,7 +4811,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.083895+00:00",
+    "first_seen": "2026-09-03T12:51:57.745763+00:00",
     "id": "ghost-4d1b359b48e8",
     "layer": "mechanical",
     "severity": "minor",
@@ -5019,7 +4838,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.083914+00:00",
+    "first_seen": "2026-09-03T12:51:57.745796+00:00",
     "id": "ghost-13c1d96ae16a",
     "layer": "mechanical",
     "severity": "major",
@@ -5042,7 +4861,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.085121+00:00",
+    "first_seen": "2026-09-03T12:51:57.747303+00:00",
     "id": "ghost-d772b5a4b407",
     "layer": "mechanical",
     "severity": "minor",
@@ -5065,7 +4884,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.085136+00:00",
+    "first_seen": "2026-09-03T12:51:57.747338+00:00",
     "id": "ghost-f92a83dcd8a9",
     "layer": "mechanical",
     "severity": "minor",
@@ -5089,7 +4908,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.085146+00:00",
+    "first_seen": "2026-09-03T12:51:57.747349+00:00",
     "id": "ghost-2fa362d76f1c",
     "layer": "mechanical",
     "severity": "major",
@@ -5116,7 +4935,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.098940+00:00",
+    "first_seen": "2026-09-03T12:51:57.761450+00:00",
     "id": "ghost-4a4a36ca6a87",
     "layer": "mechanical",
     "severity": "major",
@@ -5139,7 +4958,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.098972+00:00",
+    "first_seen": "2026-09-03T12:51:57.761478+00:00",
     "id": "ghost-76a3f0afc88c",
     "layer": "mechanical",
     "severity": "minor",
@@ -5162,7 +4981,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.108836+00:00",
+    "first_seen": "2026-09-03T12:51:57.769861+00:00",
     "id": "ghost-6f2ddd8cfb34",
     "layer": "mechanical",
     "severity": "minor",
@@ -5185,7 +5004,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.112424+00:00",
+    "first_seen": "2026-09-03T12:51:57.772669+00:00",
     "id": "ghost-f3daa19edad5",
     "layer": "mechanical",
     "severity": "minor",
@@ -5209,7 +5028,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.118653+00:00",
+    "first_seen": "2026-09-03T12:51:57.777762+00:00",
     "id": "ghost-ef9c553815f8",
     "layer": "mechanical",
     "severity": "major",
@@ -5232,7 +5051,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.119970+00:00",
+    "first_seen": "2026-09-03T12:51:57.779011+00:00",
     "id": "ghost-59bdc4483ed6",
     "layer": "mechanical",
     "severity": "minor",
@@ -5255,7 +5074,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.125364+00:00",
+    "first_seen": "2026-09-03T12:51:57.785699+00:00",
     "id": "ghost-f76c53d4fd50",
     "layer": "mechanical",
     "severity": "minor",
@@ -5278,7 +5097,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.130077+00:00",
+    "first_seen": "2026-09-03T12:51:57.790560+00:00",
     "id": "ghost-3a6df565ea69",
     "layer": "mechanical",
     "severity": "minor",
@@ -5301,7 +5120,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.137572+00:00",
+    "first_seen": "2026-09-03T12:51:57.798723+00:00",
     "id": "ghost-dc8becc184ba",
     "layer": "mechanical",
     "severity": "minor",
@@ -5324,7 +5143,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.163551+00:00",
+    "first_seen": "2026-09-03T12:51:57.819540+00:00",
     "id": "ghost-a35da2bdaf12",
     "layer": "mechanical",
     "severity": "minor",
@@ -5347,7 +5166,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.163794+00:00",
+    "first_seen": "2026-09-03T12:51:57.819799+00:00",
     "id": "ghost-a80a657221eb",
     "layer": "mechanical",
     "severity": "minor",
@@ -5370,7 +5189,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.168754+00:00",
+    "first_seen": "2026-09-03T12:51:57.825185+00:00",
     "id": "ghost-b7da2d8f59f0",
     "layer": "mechanical",
     "severity": "minor",
@@ -5393,7 +5212,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.168771+00:00",
+    "first_seen": "2026-09-03T12:51:57.825206+00:00",
     "id": "ghost-600e1ddf7493",
     "layer": "mechanical",
     "severity": "minor",
@@ -5416,7 +5235,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.170574+00:00",
+    "first_seen": "2026-09-03T12:51:57.826863+00:00",
     "id": "ghost-0b3e82beddfd",
     "layer": "mechanical",
     "severity": "minor",
@@ -5439,7 +5258,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.170588+00:00",
+    "first_seen": "2026-09-03T12:51:57.826876+00:00",
     "id": "ghost-0a285026b93a",
     "layer": "mechanical",
     "severity": "minor",
@@ -5462,7 +5281,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.172208+00:00",
+    "first_seen": "2026-09-03T12:51:57.829137+00:00",
     "id": "ghost-eaf558929cc3",
     "layer": "mechanical",
     "severity": "minor",
@@ -5485,7 +5304,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.172223+00:00",
+    "first_seen": "2026-09-03T12:51:57.829153+00:00",
     "id": "ghost-34fcc79469d1",
     "layer": "mechanical",
     "severity": "minor",
@@ -5509,7 +5328,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.173981+00:00",
+    "first_seen": "2026-09-03T12:51:57.830822+00:00",
     "id": "ghost-72480001b1b8",
     "layer": "mechanical",
     "severity": "major",
@@ -5532,7 +5351,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.175492+00:00",
+    "first_seen": "2026-09-03T12:51:57.832482+00:00",
     "id": "ghost-a9bc3dc874b4",
     "layer": "mechanical",
     "severity": "minor",
@@ -5555,7 +5374,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.175507+00:00",
+    "first_seen": "2026-09-03T12:51:57.832506+00:00",
     "id": "ghost-06f95c958ded",
     "layer": "mechanical",
     "severity": "minor",
@@ -5578,7 +5397,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.176941+00:00",
+    "first_seen": "2026-09-03T12:51:57.834047+00:00",
     "id": "ghost-abcb0c74cddf",
     "layer": "mechanical",
     "severity": "minor",
@@ -5601,7 +5420,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.178524+00:00",
+    "first_seen": "2026-09-03T12:51:57.837595+00:00",
     "id": "ghost-a9be57a321c0",
     "layer": "mechanical",
     "severity": "minor",
@@ -5625,7 +5444,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.182665+00:00",
+    "first_seen": "2026-09-03T12:51:57.843418+00:00",
     "id": "ghost-894f37b85b30",
     "layer": "mechanical",
     "severity": "major",
@@ -5650,7 +5469,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.183310+00:00",
+    "first_seen": "2026-09-03T12:51:57.844004+00:00",
     "id": "ghost-540dcc57d484",
     "layer": "mechanical",
     "severity": "major",
@@ -5673,7 +5492,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.209603+00:00",
+    "first_seen": "2026-09-03T12:51:57.871184+00:00",
     "id": "ghost-846ad08f1d88",
     "layer": "mechanical",
     "severity": "minor",
@@ -5696,7 +5515,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.209632+00:00",
+    "first_seen": "2026-09-03T12:51:57.871215+00:00",
     "id": "ghost-14061d867e43",
     "layer": "mechanical",
     "severity": "minor",
@@ -5719,7 +5538,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.209642+00:00",
+    "first_seen": "2026-09-03T12:51:57.871225+00:00",
     "id": "ghost-616544827c18",
     "layer": "mechanical",
     "severity": "minor",
@@ -5744,7 +5563,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.209652+00:00",
+    "first_seen": "2026-09-03T12:51:57.871236+00:00",
     "id": "ghost-f9b3608f9e7f",
     "layer": "mechanical",
     "severity": "major",
@@ -5767,7 +5586,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.233890+00:00",
+    "first_seen": "2026-09-03T12:51:57.894930+00:00",
     "id": "ghost-744f089c0111",
     "layer": "mechanical",
     "severity": "minor",
@@ -5790,7 +5609,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.239770+00:00",
+    "first_seen": "2026-09-03T12:51:57.900363+00:00",
     "id": "ghost-46578ba03484",
     "layer": "mechanical",
     "severity": "minor",
@@ -5813,7 +5632,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.243896+00:00",
+    "first_seen": "2026-09-03T12:51:57.904421+00:00",
     "id": "ghost-93187c8de278",
     "layer": "mechanical",
     "severity": "minor",
@@ -5836,7 +5655,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.248923+00:00",
+    "first_seen": "2026-09-03T12:51:57.909228+00:00",
     "id": "ghost-8d4ca840c68f",
     "layer": "mechanical",
     "severity": "minor",
@@ -5859,7 +5678,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.249590+00:00",
+    "first_seen": "2026-09-03T12:51:57.909859+00:00",
     "id": "ghost-a944780f0b26",
     "layer": "mechanical",
     "severity": "minor",
@@ -5884,7 +5703,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.271059+00:00",
+    "first_seen": "2026-09-03T12:51:57.927799+00:00",
     "id": "ghost-7c65fbb0d1b0",
     "layer": "mechanical",
     "severity": "major",
@@ -5907,7 +5726,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.274866+00:00",
+    "first_seen": "2026-09-03T12:51:57.931548+00:00",
     "id": "ghost-64b401a4996e",
     "layer": "mechanical",
     "severity": "minor",
@@ -5930,7 +5749,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.274890+00:00",
+    "first_seen": "2026-09-03T12:51:57.931576+00:00",
     "id": "ghost-306185d8708d",
     "layer": "mechanical",
     "severity": "minor",
@@ -5953,7 +5772,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.292376+00:00",
+    "first_seen": "2026-09-03T12:51:57.950978+00:00",
     "id": "ghost-518f45dbada0",
     "layer": "mechanical",
     "severity": "minor",
@@ -5976,7 +5795,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.292405+00:00",
+    "first_seen": "2026-09-03T12:51:57.951080+00:00",
     "id": "ghost-88ebcdd5c2bd",
     "layer": "mechanical",
     "severity": "minor",
@@ -5999,7 +5818,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.292415+00:00",
+    "first_seen": "2026-09-03T12:51:57.951112+00:00",
     "id": "ghost-34166f3490ae",
     "layer": "mechanical",
     "severity": "minor",
@@ -6022,7 +5841,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.301157+00:00",
+    "first_seen": "2026-09-03T12:51:57.959988+00:00",
     "id": "ghost-ab25fb8b8432",
     "layer": "mechanical",
     "severity": "minor",
@@ -6045,7 +5864,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.301183+00:00",
+    "first_seen": "2026-09-03T12:51:57.960013+00:00",
     "id": "ghost-e62d336d4aab",
     "layer": "mechanical",
     "severity": "minor",
@@ -6068,7 +5887,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.301192+00:00",
+    "first_seen": "2026-09-03T12:51:57.960046+00:00",
     "id": "ghost-0726e1310041",
     "layer": "mechanical",
     "severity": "minor",
@@ -6091,7 +5910,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.309647+00:00",
+    "first_seen": "2026-09-03T12:51:57.966505+00:00",
     "id": "ghost-e4f592c804f2",
     "layer": "mechanical",
     "severity": "minor",
@@ -6116,7 +5935,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.309681+00:00",
+    "first_seen": "2026-09-03T12:51:57.966543+00:00",
     "id": "ghost-2b444bb80f09",
     "layer": "mechanical",
     "severity": "major",
@@ -6139,7 +5958,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.313212+00:00",
+    "first_seen": "2026-09-03T12:51:57.969657+00:00",
     "id": "ghost-f46fa5abf5e0",
     "layer": "mechanical",
     "severity": "minor",
@@ -6162,7 +5981,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.344252+00:00",
+    "first_seen": "2026-09-03T12:51:57.996207+00:00",
     "id": "ghost-f32216431764",
     "layer": "mechanical",
     "severity": "minor",
@@ -6185,7 +6004,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.344299+00:00",
+    "first_seen": "2026-09-03T12:51:57.996234+00:00",
     "id": "ghost-233f57b82087",
     "layer": "mechanical",
     "severity": "minor",
@@ -6208,7 +6027,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.344316+00:00",
+    "first_seen": "2026-09-03T12:51:57.996245+00:00",
     "id": "ghost-51e465d21ce3",
     "layer": "mechanical",
     "severity": "minor",
@@ -6231,7 +6050,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.344349+00:00",
+    "first_seen": "2026-09-03T12:51:57.996253+00:00",
     "id": "ghost-15a5693d3e13",
     "layer": "mechanical",
     "severity": "minor",
@@ -6254,7 +6073,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.344379+00:00",
+    "first_seen": "2026-09-03T12:51:57.996260+00:00",
     "id": "ghost-09519b7984ee",
     "layer": "mechanical",
     "severity": "minor",
@@ -6277,7 +6096,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.345402+00:00",
+    "first_seen": "2026-09-03T12:51:57.996827+00:00",
     "id": "ghost-a4e5caf96462",
     "layer": "mechanical",
     "severity": "minor",
@@ -6301,7 +6120,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.356637+00:00",
+    "first_seen": "2026-09-03T12:51:58.011747+00:00",
     "id": "ghost-4c11a0b0f8cb",
     "layer": "mechanical",
     "severity": "major",
@@ -6324,7 +6143,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.356664+00:00",
+    "first_seen": "2026-09-03T12:51:58.011773+00:00",
     "id": "ghost-809ebaccc6de",
     "layer": "mechanical",
     "severity": "minor",
@@ -6347,7 +6166,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.356674+00:00",
+    "first_seen": "2026-09-03T12:51:58.011783+00:00",
     "id": "ghost-27d85254ccca",
     "layer": "mechanical",
     "severity": "minor",
@@ -6370,7 +6189,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.364360+00:00",
+    "first_seen": "2026-09-03T12:51:58.019591+00:00",
     "id": "ghost-8d05528e9709",
     "layer": "mechanical",
     "severity": "minor",
@@ -6393,7 +6212,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.364375+00:00",
+    "first_seen": "2026-09-03T12:51:58.019608+00:00",
     "id": "ghost-5328ce61b91e",
     "layer": "mechanical",
     "severity": "minor",
@@ -6416,7 +6235,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.364384+00:00",
+    "first_seen": "2026-09-03T12:51:58.019618+00:00",
     "id": "ghost-71f8bbb2462d",
     "layer": "mechanical",
     "severity": "minor",
@@ -6441,7 +6260,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.364393+00:00",
+    "first_seen": "2026-09-03T12:51:58.019628+00:00",
     "id": "ghost-c2a0ac541a95",
     "layer": "mechanical",
     "severity": "major",
@@ -6465,7 +6284,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.364402+00:00",
+    "first_seen": "2026-09-03T12:51:58.019636+00:00",
     "id": "ghost-bb0bb274dbf1",
     "layer": "mechanical",
     "severity": "major",
@@ -6488,7 +6307,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.365521+00:00",
+    "first_seen": "2026-09-03T12:51:58.020780+00:00",
     "id": "ghost-916ca91bee3e",
     "layer": "mechanical",
     "severity": "minor",
@@ -6511,7 +6330,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.368194+00:00",
+    "first_seen": "2026-09-03T12:51:58.023746+00:00",
     "id": "ghost-910376a62553",
     "layer": "mechanical",
     "severity": "minor",
@@ -6534,7 +6353,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.383382+00:00",
+    "first_seen": "2026-09-03T12:51:58.034066+00:00",
     "id": "ghost-a1f2b4cbcba6",
     "layer": "mechanical",
     "severity": "minor",
@@ -6559,7 +6378,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.390026+00:00",
+    "first_seen": "2026-09-03T12:51:58.038064+00:00",
     "id": "ghost-dba952e45d19",
     "layer": "mechanical",
     "severity": "major",
@@ -6582,7 +6401,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.390069+00:00",
+    "first_seen": "2026-09-03T12:51:58.038086+00:00",
     "id": "ghost-9c08828d9bab",
     "layer": "mechanical",
     "severity": "minor",
@@ -6605,7 +6424,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.399790+00:00",
+    "first_seen": "2026-09-03T12:51:58.044771+00:00",
     "id": "ghost-6726edbe4939",
     "layer": "mechanical",
     "severity": "minor",
@@ -6629,7 +6448,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.404184+00:00",
+    "first_seen": "2026-09-03T12:51:58.048405+00:00",
     "id": "ghost-a67a1c4db474",
     "layer": "mechanical",
     "severity": "major",
@@ -6652,7 +6471,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.404206+00:00",
+    "first_seen": "2026-09-03T12:51:58.048426+00:00",
     "id": "ghost-2e2f4faf9cbe",
     "layer": "mechanical",
     "severity": "minor",
@@ -6675,7 +6494,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.404487+00:00",
+    "first_seen": "2026-09-03T12:51:58.048692+00:00",
     "id": "ghost-a1efc8da4e51",
     "layer": "mechanical",
     "severity": "minor",
@@ -6698,7 +6517,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.404499+00:00",
+    "first_seen": "2026-09-03T12:51:58.048704+00:00",
     "id": "ghost-d8599d852caa",
     "layer": "mechanical",
     "severity": "minor",
@@ -6721,7 +6540,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.410433+00:00",
+    "first_seen": "2026-09-03T12:51:58.054787+00:00",
     "id": "ghost-71229d85d3c1",
     "layer": "mechanical",
     "severity": "minor",
@@ -6744,7 +6563,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.413642+00:00",
+    "first_seen": "2026-09-03T12:51:58.058106+00:00",
     "id": "ghost-29f17c022635",
     "layer": "mechanical",
     "severity": "minor",
@@ -6767,7 +6586,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.413677+00:00",
+    "first_seen": "2026-09-03T12:51:58.058148+00:00",
     "id": "ghost-a53c3b2bf946",
     "layer": "mechanical",
     "severity": "minor",
@@ -6790,7 +6609,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.418140+00:00",
+    "first_seen": "2026-09-03T12:51:58.067506+00:00",
     "id": "ghost-e91296cd5a3c",
     "layer": "mechanical",
     "severity": "minor",
@@ -6813,7 +6632,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.423620+00:00",
+    "first_seen": "2026-09-03T12:51:58.073759+00:00",
     "id": "ghost-cb537ca4d20a",
     "layer": "mechanical",
     "severity": "minor",
@@ -6837,7 +6656,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.437115+00:00",
+    "first_seen": "2026-09-03T12:51:58.085783+00:00",
     "id": "ghost-276c0bfc2261",
     "layer": "mechanical",
     "severity": "major",
@@ -6861,7 +6680,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.438587+00:00",
+    "first_seen": "2026-09-03T12:51:58.087924+00:00",
     "id": "ghost-ad224d2c5e63",
     "layer": "mechanical",
     "severity": "major",
@@ -6886,7 +6705,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.446119+00:00",
+    "first_seen": "2026-09-03T12:51:58.095270+00:00",
     "id": "ghost-b942733c1f7b",
     "layer": "mechanical",
     "severity": "major",
@@ -6909,7 +6728,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.452814+00:00",
+    "first_seen": "2026-09-03T12:51:58.101582+00:00",
     "id": "ghost-ab36154fa9ef",
     "layer": "mechanical",
     "severity": "minor",
@@ -6932,7 +6751,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.452842+00:00",
+    "first_seen": "2026-09-03T12:51:58.101608+00:00",
     "id": "ghost-a4312c05f4b0",
     "layer": "mechanical",
     "severity": "minor",
@@ -6955,7 +6774,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.460062+00:00",
+    "first_seen": "2026-09-03T12:51:58.107609+00:00",
     "id": "ghost-38d7b576d724",
     "layer": "mechanical",
     "severity": "minor",
@@ -6978,7 +6797,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.462475+00:00",
+    "first_seen": "2026-09-03T12:51:58.109775+00:00",
     "id": "ghost-0a0330b377ed",
     "layer": "mechanical",
     "severity": "minor",
@@ -7001,7 +6820,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.481717+00:00",
+    "first_seen": "2026-09-03T12:51:58.118460+00:00",
     "id": "ghost-bef744753fc2",
     "layer": "mechanical",
     "severity": "minor",
@@ -7024,7 +6843,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.483168+00:00",
+    "first_seen": "2026-09-03T12:51:58.119418+00:00",
     "id": "ghost-b6a67237d065",
     "layer": "mechanical",
     "severity": "minor",
@@ -7047,7 +6866,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.505602+00:00",
+    "first_seen": "2026-09-03T12:51:58.137368+00:00",
     "id": "ghost-2c3b54e1098d",
     "layer": "mechanical",
     "severity": "minor",
@@ -7070,7 +6889,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.505630+00:00",
+    "first_seen": "2026-09-03T12:51:58.137397+00:00",
     "id": "ghost-0d4b6bb054e4",
     "layer": "mechanical",
     "severity": "minor",
@@ -7093,7 +6912,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.505642+00:00",
+    "first_seen": "2026-09-03T12:51:58.137407+00:00",
     "id": "ghost-f0a874d17163",
     "layer": "mechanical",
     "severity": "minor",
@@ -7117,7 +6936,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.520922+00:00",
+    "first_seen": "2026-09-03T12:51:58.152489+00:00",
     "id": "ghost-8e5bdf68fcdb",
     "layer": "mechanical",
     "severity": "major",
@@ -7140,7 +6959,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.536605+00:00",
+    "first_seen": "2026-09-03T12:51:58.168609+00:00",
     "id": "ghost-624d63d21ca0",
     "layer": "mechanical",
     "severity": "minor",
@@ -7163,7 +6982,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.538678+00:00",
+    "first_seen": "2026-09-03T12:51:58.170228+00:00",
     "id": "ghost-a185631c7dca",
     "layer": "mechanical",
     "severity": "minor",
@@ -7186,7 +7005,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.546732+00:00",
+    "first_seen": "2026-09-03T12:51:58.177824+00:00",
     "id": "ghost-cfa39956f8d5",
     "layer": "mechanical",
     "severity": "minor",
@@ -7210,7 +7029,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.552939+00:00",
+    "first_seen": "2026-09-03T12:51:58.184047+00:00",
     "id": "ghost-017788db91c0",
     "layer": "mechanical",
     "severity": "major",
@@ -7233,7 +7052,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.552960+00:00",
+    "first_seen": "2026-09-03T12:51:58.184077+00:00",
     "id": "ghost-0c050934c58d",
     "layer": "mechanical",
     "severity": "minor",
@@ -7256,7 +7075,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.553724+00:00",
+    "first_seen": "2026-09-03T12:51:58.184862+00:00",
     "id": "ghost-7ee8afebf74e",
     "layer": "mechanical",
     "severity": "minor",
@@ -7279,7 +7098,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.554541+00:00",
+    "first_seen": "2026-09-03T12:51:58.186001+00:00",
     "id": "ghost-7dab1358e001",
     "layer": "mechanical",
     "severity": "minor",
@@ -7302,7 +7121,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.568121+00:00",
+    "first_seen": "2026-09-03T12:51:58.199462+00:00",
     "id": "ghost-860f6d734f13",
     "layer": "mechanical",
     "severity": "minor",
@@ -7325,7 +7144,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.568434+00:00",
+    "first_seen": "2026-09-03T12:51:58.199831+00:00",
     "id": "ghost-28a24d5ea8a3",
     "layer": "mechanical",
     "severity": "minor",
@@ -7350,7 +7169,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.569127+00:00",
+    "first_seen": "2026-09-03T12:51:58.200532+00:00",
     "id": "ghost-84b28f08cb6d",
     "layer": "mechanical",
     "severity": "major",
@@ -7375,7 +7194,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.569142+00:00",
+    "first_seen": "2026-09-03T12:51:58.200548+00:00",
     "id": "ghost-0ea63d84f53a",
     "layer": "mechanical",
     "severity": "major",
@@ -7398,7 +7217,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.569789+00:00",
+    "first_seen": "2026-09-03T12:51:58.201253+00:00",
     "id": "ghost-32f48773fa82",
     "layer": "mechanical",
     "severity": "minor",
@@ -7421,7 +7240,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.569800+00:00",
+    "first_seen": "2026-09-03T12:51:58.201268+00:00",
     "id": "ghost-1ab41e800307",
     "layer": "mechanical",
     "severity": "minor",
@@ -7444,58 +7263,12 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.571754+00:00",
+    "first_seen": "2026-09-03T12:51:58.203646+00:00",
     "id": "ghost-7d004f81c333",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
     "summary": "'test_constructor_rejects_invalid_config' repeats the same single statement 2 times (lines 219-219, 221-221): same shape, names/literals differ"
-  },
-  {
-    "category": "duplication",
-    "confidence": null,
-    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
-    "detector": "intra_function_duplicate_block",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/test_conservation_gateway_security.py",
-      "line_end": 66,
-      "line_start": 66,
-      "related_files": [
-        "sentinel_os/test_conservation_gateway_security.py:80-80"
-      ],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:16.576822+00:00",
-    "id": "ghost-cfca4182ec6c",
-    "layer": "mechanical",
-    "severity": "minor",
-    "status": "suppressed",
-    "summary": "'test_A1_substring_attacks_collection' repeats the same single statement 2 times (lines 66-66, 80-80): same shape, names/literals differ"
-  },
-  {
-    "category": "duplication",
-    "confidence": null,
-    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
-    "detector": "intra_function_duplicate_block",
-    "disposition": null,
-    "disposition_note": "",
-    "evidence": {
-      "file": "sentinel_os/test_conservation_gateway_security.py",
-      "line_end": 68,
-      "line_start": 68,
-      "related_files": [
-        "sentinel_os/test_conservation_gateway_security.py:85-85"
-      ],
-      "snippet": null
-    },
-    "first_seen": "2026-09-03T12:22:16.576850+00:00",
-    "id": "ghost-502f6ba5fb8c",
-    "layer": "mechanical",
-    "severity": "minor",
-    "status": "suppressed",
-    "summary": "'test_A1_substring_attacks_collection' repeats the same single statement 2 times (lines 68-68, 85-85): same shape, names/literals differ"
   },
   {
     "category": "duplication",
@@ -7513,7 +7286,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.587341+00:00",
+    "first_seen": "2026-09-03T12:51:58.211816+00:00",
     "id": "ghost-37704d0ceefd",
     "layer": "mechanical",
     "severity": "minor",
@@ -7536,7 +7309,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.591532+00:00",
+    "first_seen": "2026-09-03T12:51:58.215233+00:00",
     "id": "ghost-68a8e64008d6",
     "layer": "mechanical",
     "severity": "minor",
@@ -7559,7 +7332,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.604580+00:00",
+    "first_seen": "2026-09-03T12:51:58.227375+00:00",
     "id": "ghost-8a816f4e3f85",
     "layer": "mechanical",
     "severity": "minor",
@@ -7582,7 +7355,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.611309+00:00",
+    "first_seen": "2026-09-03T12:51:58.233730+00:00",
     "id": "ghost-476d760298eb",
     "layer": "mechanical",
     "severity": "minor",
@@ -7605,7 +7378,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.622972+00:00",
+    "first_seen": "2026-09-03T12:51:58.243927+00:00",
     "id": "ghost-eb86927a8fb8",
     "layer": "mechanical",
     "severity": "minor",
@@ -7628,7 +7401,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.623710+00:00",
+    "first_seen": "2026-09-03T12:51:58.244784+00:00",
     "id": "ghost-26407f47e4c9",
     "layer": "mechanical",
     "severity": "minor",
@@ -7652,7 +7425,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.623728+00:00",
+    "first_seen": "2026-09-03T12:51:58.244823+00:00",
     "id": "ghost-07d01b96ff3f",
     "layer": "mechanical",
     "severity": "major",
@@ -7675,7 +7448,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.623738+00:00",
+    "first_seen": "2026-09-03T12:51:58.244840+00:00",
     "id": "ghost-4abe4a6ee2d9",
     "layer": "mechanical",
     "severity": "minor",
@@ -7698,7 +7471,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.624599+00:00",
+    "first_seen": "2026-09-03T12:51:58.246092+00:00",
     "id": "ghost-2ccaee954c0c",
     "layer": "mechanical",
     "severity": "minor",
@@ -7721,7 +7494,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.633506+00:00",
+    "first_seen": "2026-09-03T12:51:58.253822+00:00",
     "id": "ghost-e9f1165dc00a",
     "layer": "mechanical",
     "severity": "minor",
@@ -7744,7 +7517,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.659996+00:00",
+    "first_seen": "2026-09-03T12:51:58.278293+00:00",
     "id": "ghost-65b2e4f59a49",
     "layer": "mechanical",
     "severity": "minor",
@@ -7767,7 +7540,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.660031+00:00",
+    "first_seen": "2026-09-03T12:51:58.278320+00:00",
     "id": "ghost-75dff6161aa2",
     "layer": "mechanical",
     "severity": "minor",
@@ -7790,7 +7563,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.671608+00:00",
+    "first_seen": "2026-09-03T12:51:58.292822+00:00",
     "id": "ghost-37294202a644",
     "layer": "mechanical",
     "severity": "minor",
@@ -7813,7 +7586,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.678682+00:00",
+    "first_seen": "2026-09-03T12:51:58.300135+00:00",
     "id": "ghost-a6eff9ebdd5b",
     "layer": "mechanical",
     "severity": "minor",
@@ -7836,7 +7609,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.688811+00:00",
+    "first_seen": "2026-09-03T12:51:58.310562+00:00",
     "id": "ghost-cdfe1a50fff8",
     "layer": "mechanical",
     "severity": "minor",
@@ -7859,7 +7632,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.688838+00:00",
+    "first_seen": "2026-09-03T12:51:58.310603+00:00",
     "id": "ghost-ff0d0ae283d2",
     "layer": "mechanical",
     "severity": "minor",
@@ -7883,7 +7656,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.692498+00:00",
+    "first_seen": "2026-09-03T12:51:58.315164+00:00",
     "id": "ghost-84ef6c55221a",
     "layer": "mechanical",
     "severity": "major",
@@ -7906,7 +7679,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.696350+00:00",
+    "first_seen": "2026-09-03T12:51:58.319350+00:00",
     "id": "ghost-660af07a3711",
     "layer": "mechanical",
     "severity": "minor",
@@ -7929,7 +7702,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.696378+00:00",
+    "first_seen": "2026-09-03T12:51:58.319376+00:00",
     "id": "ghost-cb18300b267a",
     "layer": "mechanical",
     "severity": "minor",
@@ -7952,7 +7725,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.696389+00:00",
+    "first_seen": "2026-09-03T12:51:58.319386+00:00",
     "id": "ghost-b7281d91241a",
     "layer": "mechanical",
     "severity": "minor",
@@ -7975,7 +7748,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.696399+00:00",
+    "first_seen": "2026-09-03T12:51:58.319396+00:00",
     "id": "ghost-0a4071b490f6",
     "layer": "mechanical",
     "severity": "minor",
@@ -7998,7 +7771,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.696407+00:00",
+    "first_seen": "2026-09-03T12:51:58.319404+00:00",
     "id": "ghost-847a2b06896e",
     "layer": "mechanical",
     "severity": "minor",
@@ -8021,7 +7794,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.696415+00:00",
+    "first_seen": "2026-09-03T12:51:58.319411+00:00",
     "id": "ghost-b2973728d8ac",
     "layer": "mechanical",
     "severity": "minor",
@@ -8044,7 +7817,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.696424+00:00",
+    "first_seen": "2026-09-03T12:51:58.319420+00:00",
     "id": "ghost-eb2d0a3c49bd",
     "layer": "mechanical",
     "severity": "minor",
@@ -8067,7 +7840,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.698735+00:00",
+    "first_seen": "2026-09-03T12:51:58.322180+00:00",
     "id": "ghost-605b6eeb03e2",
     "layer": "mechanical",
     "severity": "minor",
@@ -8090,7 +7863,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.698755+00:00",
+    "first_seen": "2026-09-03T12:51:58.322206+00:00",
     "id": "ghost-fe0bd4fb9b95",
     "layer": "mechanical",
     "severity": "minor",
@@ -8115,7 +7888,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.718557+00:00",
+    "first_seen": "2026-09-03T12:51:58.339820+00:00",
     "id": "ghost-9e6cfb3ded80",
     "layer": "mechanical",
     "severity": "major",
@@ -8138,7 +7911,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.737731+00:00",
+    "first_seen": "2026-09-03T12:51:58.360396+00:00",
     "id": "ghost-77f09840e517",
     "layer": "mechanical",
     "severity": "minor",
@@ -8161,7 +7934,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.737760+00:00",
+    "first_seen": "2026-09-03T12:51:58.360425+00:00",
     "id": "ghost-7628538cba19",
     "layer": "mechanical",
     "severity": "minor",
@@ -8184,7 +7957,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.748753+00:00",
+    "first_seen": "2026-09-03T12:51:58.374483+00:00",
     "id": "ghost-4e60dce584b8",
     "layer": "mechanical",
     "severity": "minor",
@@ -8207,7 +7980,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.748781+00:00",
+    "first_seen": "2026-09-03T12:51:58.374509+00:00",
     "id": "ghost-034b177344e6",
     "layer": "mechanical",
     "severity": "minor",
@@ -8233,7 +8006,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.748795+00:00",
+    "first_seen": "2026-09-03T12:51:58.374522+00:00",
     "id": "ghost-16752a8cdcf9",
     "layer": "mechanical",
     "severity": "major",
@@ -8256,7 +8029,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.748807+00:00",
+    "first_seen": "2026-09-03T12:51:58.374533+00:00",
     "id": "ghost-f53795d3e65f",
     "layer": "mechanical",
     "severity": "minor",
@@ -8279,7 +8052,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.764708+00:00",
+    "first_seen": "2026-09-03T12:51:58.391370+00:00",
     "id": "ghost-e34e3fbe5da8",
     "layer": "mechanical",
     "severity": "minor",
@@ -8302,7 +8075,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.788772+00:00",
+    "first_seen": "2026-09-03T12:51:58.423755+00:00",
     "id": "ghost-c9cc1a98cdc8",
     "layer": "mechanical",
     "severity": "minor",
@@ -8325,7 +8098,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.803145+00:00",
+    "first_seen": "2026-09-03T12:51:58.437280+00:00",
     "id": "ghost-ff3b4274f1b7",
     "layer": "mechanical",
     "severity": "minor",
@@ -8348,7 +8121,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.803190+00:00",
+    "first_seen": "2026-09-03T12:51:58.437306+00:00",
     "id": "ghost-b7308f6075b2",
     "layer": "mechanical",
     "severity": "minor",
@@ -8371,7 +8144,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.803207+00:00",
+    "first_seen": "2026-09-03T12:51:58.437315+00:00",
     "id": "ghost-d483faf4e05b",
     "layer": "mechanical",
     "severity": "minor",
@@ -8394,7 +8167,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.803223+00:00",
+    "first_seen": "2026-09-03T12:51:58.437323+00:00",
     "id": "ghost-2e6d40f81ee3",
     "layer": "mechanical",
     "severity": "minor",
@@ -8417,7 +8190,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.803237+00:00",
+    "first_seen": "2026-09-03T12:51:58.437332+00:00",
     "id": "ghost-be23604cfeea",
     "layer": "mechanical",
     "severity": "minor",
@@ -8440,7 +8213,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.812534+00:00",
+    "first_seen": "2026-09-03T12:51:58.443682+00:00",
     "id": "ghost-1c41002d7ff7",
     "layer": "mechanical",
     "severity": "minor",
@@ -8463,7 +8236,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.812565+00:00",
+    "first_seen": "2026-09-03T12:51:58.443706+00:00",
     "id": "ghost-cc2e32609cde",
     "layer": "mechanical",
     "severity": "minor",
@@ -8486,7 +8259,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.817976+00:00",
+    "first_seen": "2026-09-03T12:51:58.447678+00:00",
     "id": "ghost-91c75e0e779b",
     "layer": "mechanical",
     "severity": "minor",
@@ -8510,7 +8283,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.818010+00:00",
+    "first_seen": "2026-09-03T12:51:58.447699+00:00",
     "id": "ghost-0e10b99d95d5",
     "layer": "mechanical",
     "severity": "major",
@@ -8533,7 +8306,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.818030+00:00",
+    "first_seen": "2026-09-03T12:51:58.447708+00:00",
     "id": "ghost-7beb86b999c1",
     "layer": "mechanical",
     "severity": "minor",
@@ -8556,7 +8329,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.834071+00:00",
+    "first_seen": "2026-09-03T12:51:58.456920+00:00",
     "id": "ghost-6b78c0c493c5",
     "layer": "mechanical",
     "severity": "minor",
@@ -8579,7 +8352,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.840904+00:00",
+    "first_seen": "2026-09-03T12:51:58.460300+00:00",
     "id": "ghost-cd3446448e24",
     "layer": "mechanical",
     "severity": "minor",
@@ -8604,7 +8377,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.869076+00:00",
+    "first_seen": "2026-09-03T12:51:58.474184+00:00",
     "id": "ghost-e6ada1987881",
     "layer": "mechanical",
     "severity": "major",
@@ -8628,7 +8401,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.869105+00:00",
+    "first_seen": "2026-09-03T12:51:58.474213+00:00",
     "id": "ghost-9fd0eba83005",
     "layer": "mechanical",
     "severity": "major",
@@ -8653,7 +8426,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.869876+00:00",
+    "first_seen": "2026-09-03T12:51:58.474888+00:00",
     "id": "ghost-338c6d50ceae",
     "layer": "mechanical",
     "severity": "major",
@@ -8676,7 +8449,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.871633+00:00",
+    "first_seen": "2026-09-03T12:51:58.476523+00:00",
     "id": "ghost-8da6147212f9",
     "layer": "mechanical",
     "severity": "minor",
@@ -8699,7 +8472,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.877086+00:00",
+    "first_seen": "2026-09-03T12:51:58.481958+00:00",
     "id": "ghost-dcb8ff4e5bcf",
     "layer": "mechanical",
     "severity": "minor",
@@ -8722,7 +8495,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.879786+00:00",
+    "first_seen": "2026-09-03T12:51:58.484625+00:00",
     "id": "ghost-ccc4e91fcce3",
     "layer": "mechanical",
     "severity": "minor",
@@ -8745,7 +8518,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.879810+00:00",
+    "first_seen": "2026-09-03T12:51:58.484654+00:00",
     "id": "ghost-f937c9eca0f5",
     "layer": "mechanical",
     "severity": "minor",
@@ -8768,7 +8541,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.883825+00:00",
+    "first_seen": "2026-09-03T12:51:58.488658+00:00",
     "id": "ghost-413d25a4892e",
     "layer": "mechanical",
     "severity": "minor",
@@ -8791,7 +8564,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.883851+00:00",
+    "first_seen": "2026-09-03T12:51:58.488691+00:00",
     "id": "ghost-57f2f3f2fcb8",
     "layer": "mechanical",
     "severity": "minor",
@@ -8814,7 +8587,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.884382+00:00",
+    "first_seen": "2026-09-03T12:51:58.489221+00:00",
     "id": "ghost-2e6d331c5849",
     "layer": "mechanical",
     "severity": "minor",
@@ -8837,7 +8610,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.891556+00:00",
+    "first_seen": "2026-09-03T12:51:58.493377+00:00",
     "id": "ghost-c51657a2e84e",
     "layer": "mechanical",
     "severity": "minor",
@@ -8862,7 +8635,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.891609+00:00",
+    "first_seen": "2026-09-03T12:51:58.493394+00:00",
     "id": "ghost-bcb4a5d86208",
     "layer": "mechanical",
     "severity": "major",
@@ -8887,7 +8660,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.891635+00:00",
+    "first_seen": "2026-09-03T12:51:58.493405+00:00",
     "id": "ghost-fddb456d96eb",
     "layer": "mechanical",
     "severity": "major",
@@ -8910,7 +8683,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.910432+00:00",
+    "first_seen": "2026-09-03T12:51:58.503905+00:00",
     "id": "ghost-55ace9ef5be7",
     "layer": "mechanical",
     "severity": "minor",
@@ -8933,7 +8706,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.910479+00:00",
+    "first_seen": "2026-09-03T12:51:58.503931+00:00",
     "id": "ghost-47a0c1cb050b",
     "layer": "mechanical",
     "severity": "minor",
@@ -8956,7 +8729,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.910499+00:00",
+    "first_seen": "2026-09-03T12:51:58.503941+00:00",
     "id": "ghost-718d52f81da9",
     "layer": "mechanical",
     "severity": "minor",
@@ -8979,7 +8752,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.910541+00:00",
+    "first_seen": "2026-09-03T12:51:58.503949+00:00",
     "id": "ghost-eae6a5efebf3",
     "layer": "mechanical",
     "severity": "minor",
@@ -9002,7 +8775,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.910560+00:00",
+    "first_seen": "2026-09-03T12:51:58.503956+00:00",
     "id": "ghost-1c97944d5148",
     "layer": "mechanical",
     "severity": "minor",
@@ -9025,7 +8798,7 @@
       ],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:16.917207+00:00",
+    "first_seen": "2026-09-03T12:51:58.506563+00:00",
     "id": "ghost-78c673910794",
     "layer": "mechanical",
     "severity": "minor",
@@ -9046,12 +8819,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.492642+00:00",
-    "id": "ghost-e228611de44b",
+    "first_seen": "2026-09-03T12:51:58.959522+00:00",
+    "id": "ghost-902414fcd811",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'CONTRIBUTING.md' claims 110 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'CONTRIBUTING.md' claims 110 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9067,12 +8840,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.493504+00:00",
-    "id": "ghost-4bb1ad66e3a1",
+    "first_seen": "2026-09-03T12:51:58.960332+00:00",
+    "id": "ghost-d349bdafc389",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'README.md' claims 270 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'README.md' claims 270 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9083,17 +8856,17 @@
     "disposition_note": "",
     "evidence": {
       "file": "docs/CHANGELOG.md",
-      "line_end": 53,
-      "line_start": 53,
+      "line_end": 63,
+      "line_start": 63,
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.494186+00:00",
-    "id": "ghost-5f5b4f0e75ac",
+    "first_seen": "2026-09-03T12:51:58.960919+00:00",
+    "id": "ghost-e43b53c99090",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'CHANGELOG.md' claims 22 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'CHANGELOG.md' claims 22 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9109,12 +8882,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.504125+00:00",
-    "id": "ghost-22d53975ae0b",
+    "first_seen": "2026-09-03T12:51:58.969948+00:00",
+    "id": "ghost-4724f0473cb1",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'SENTINEL_OS_05_INVESTOR_SYSTEM_BRIEF_v3.md' claims 670 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'SENTINEL_OS_05_INVESTOR_SYSTEM_BRIEF_v3.md' claims 670 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9130,12 +8903,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.505096+00:00",
-    "id": "ghost-3c81434c9d5f",
+    "first_seen": "2026-09-03T12:51:58.970963+00:00",
+    "id": "ghost-49d3e26d1e97",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md' claims 670 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md' claims 670 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9151,12 +8924,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.505385+00:00",
-    "id": "ghost-ecfed8a7f9bc",
+    "first_seen": "2026-09-03T12:51:58.971304+00:00",
+    "id": "ghost-6a38d9d6a858",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md' claims 19 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md' claims 19 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9172,12 +8945,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.506614+00:00",
-    "id": "ghost-a25a5ac0073f",
+    "first_seen": "2026-09-03T12:51:58.972226+00:00",
+    "id": "ghost-94b24da2b0ac",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'SENTINEL_OS_09_DOCUMENTATION_INTEGRITY_REVIEW_v3.md' claims 670 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'SENTINEL_OS_09_DOCUMENTATION_INTEGRITY_REVIEW_v3.md' claims 670 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9193,12 +8966,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.507324+00:00",
-    "id": "ghost-167f8f253468",
+    "first_seen": "2026-09-03T12:51:58.972744+00:00",
+    "id": "ghost-b06a8b5d9773",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'sentinel-os-status-v1.md' claims 270 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'sentinel-os-status-v1.md' claims 270 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9214,12 +8987,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.507998+00:00",
-    "id": "ghost-488f847c2764",
+    "first_seen": "2026-09-03T12:51:58.973402+00:00",
+    "id": "ghost-9501f56d4ba1",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'COMPLIANCE.md' claims 161 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'COMPLIANCE.md' claims 161 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9235,12 +9008,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.510768+00:00",
-    "id": "ghost-d80d28d4a666",
+    "first_seen": "2026-09-03T12:51:58.975713+00:00",
+    "id": "ghost-227fcfb55112",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'roadster_breakers_verification_report_v1.md' claims 7 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 7 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9256,12 +9029,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.510941+00:00",
-    "id": "ghost-61fac487c83c",
+    "first_seen": "2026-09-03T12:51:58.975842+00:00",
+    "id": "ghost-d09fdcbd5abe",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'roadster_breakers_verification_report_v1.md' claims 16 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 16 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9277,12 +9050,12 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.510976+00:00",
-    "id": "ghost-aebf31fbcc5e",
+    "first_seen": "2026-09-03T12:51:58.975871+00:00",
+    "id": "ghost-eec45c96c0f5",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'roadster_breakers_verification_report_v1.md' claims 6 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 6 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   },
   {
     "category": "doc_drift",
@@ -9298,11 +9071,11 @@
       "related_files": [],
       "snippet": null
     },
-    "first_seen": "2026-09-03T12:22:17.511220+00:00",
-    "id": "ghost-0eaff321fbca",
+    "first_seen": "2026-09-03T12:51:58.976049+00:00",
+    "id": "ghost-356f9f739807",
     "layer": "mechanical",
     "severity": "minor",
     "status": "suppressed",
-    "summary": "'roadster_breakers_verification_report_v1.md' claims 4 test(s), but at least 896 test_* function(s) exist in the scanned .py files -- this claim is stale"
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 4 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
   }
 ]
