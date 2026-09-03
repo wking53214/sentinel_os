@@ -350,7 +350,7 @@ class SentinelConservationGateway:
         known channel, put forward for the ledger, not a substantiated human
         sign-off"); an unrecognised string still fails closed to NONE. When the
         attestation is wired, the entries below whose authorization is real get
-        re-elevated (with the refs to back them). See AUTHORIZATION_REFS_TODO.
+        re-elevated (with the refs to back them). See conservation/CONFORMANCE.md.
         """
         # Explicit whitelist of known, verified governance channels.
         # Add entries only after verifying the actor against the registry.

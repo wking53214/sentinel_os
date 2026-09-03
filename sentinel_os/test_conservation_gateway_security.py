@@ -273,7 +273,7 @@ class TestAuthorityWhitelistBoundary:
 
         # Recognised governance channels map to PROPOSED. They cannot honestly
         # reach HUMAN_AUTHORIZED / CANONICAL until the `authorized_by` attestation
-        # is carried through as authorization_refs (see AUTHORIZATION_REFS_TODO);
+        # is carried through as authorization_refs (see conservation/CONFORMANCE.md);
         # an unbacked elevated claim is exactly what the boundary rejects.
         assert gateway._map_authority_status("human") == KernelAuthorityStatus.PROPOSED
         assert gateway._map_authority_status("governor_claude_api") == KernelAuthorityStatus.PROPOSED
