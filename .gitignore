@@ -10,3 +10,9 @@ sentinel_os.zip
 secret.yaml.local
 k8s/secret.yaml.local
 sentinel_os/ledger_data/
+venv/
+.venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

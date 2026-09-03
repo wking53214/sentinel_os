@@ -1134,3 +1134,9 @@ The governance foundation remains intelligible, modular, and verifiable.
 Sentinel OS
 
 Governance that remains stable while everything it governs changes.
+
+---
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE).
