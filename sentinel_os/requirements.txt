@@ -14,3 +14,9 @@ opentelemetry-exporter-otlp-proto-grpc>=1.20  # only needed if OTEL_EXPORTER_OTL
 redis==8.0.1
 httpx2==2.7.0
 cryptography>=41.0  # twin_custody.py: ECIES envelopes, Ed25519/X25519, AES-GCM, HKDF
+# The mandatory conservation boundary: governance_harness._write_decision routes
+# every governed decision through conservation/gateway.py, which imports this at
+# module load and fail-closes the ledger write if it is absent. Not on PyPI;
+# installed from the sibling repo. Pinned to a commit because gateway.py's
+# enum/dimension mapping mirrors this kernel's public API -- bump deliberately.
+conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@feaf6609c4af00b3451d5b02c2face30fd7fb34c
