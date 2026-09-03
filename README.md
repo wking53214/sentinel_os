@@ -1137,6 +1137,21 @@ Governance that remains stable while everything it governs changes.
 
 ---
 
+## Security
+
+Vulnerability reporting and scope: [SECURITY.md](SECURITY.md).
+
+Before relying on the ledger for anything adversarial, read
+[`sentinel_os/AUDIT_PLAYBOOK.md`](sentinel_os/AUDIT_PLAYBOOK.md) — the honest
+account of what `verify_chain()` proves and does not. The short version: it
+catches accidental corruption and naive edits; it does not prove an operator
+with database superuser access has not rewritten history. The control that
+closes that gap (the customer-held-key twin) is built and tested but not yet
+accepted as a formal control. Accurate claim today: *internally consistent and
+operator-attestable; independently verifiable once the twin is accepted.*
+
+---
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE).

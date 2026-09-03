@@ -206,3 +206,25 @@ jobs:
           # URL, not on PyPI) -- expected, not a coverage gap.
           pip install pip-audit==2.10.1
           pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-1845
+
+  secrets:
+    # Secret scan. Separate job, no setup -- runs in parallel with the suite.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan the working tree for secrets
+        run: |
+          # Hard gate: gitleaks over the working tree (`gitleaks dir`), NOT git
+          # history. A self-signed dev TLS cert (sentinel_os/certs/key.pem) was
+          # committed once in 8dfa1c6 and removed in 8ce3e0c -- it is in
+          # history but not in any checkout, `certs/` and `*.pem` are
+          # gitignored, and "is there a secret in the code now" is what a
+          # working-tree scan answers. .gitleaks.toml carries the one allowlist
+          # entry (a fixed fake key in api_server_v2's auth tests), justified
+          # there. Pinned, same reasoning as the other static-analysis gates.
+          VERSION=8.30.1
+          curl --fail --silent --show-error --location \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks version
+          ./gitleaks dir . --config .gitleaks.toml --no-banner --redact --verbose
