@@ -3,9 +3,11 @@
 The judgment is one new proposition added to the episode source artifact:
 a DECISION-status, MACHINE-originated claim at PROPOSED authority, rooted to
 the observed-fact propositions it was drawn from. It does not restate facts
-as its own; it does not claim human authorization (that needs the keyed
-`authorized_by` attestation threaded through as authorization_refs -- see
-conservation/CONFORMANCE.md).
+as its own; it does not claim human authorization. The judgment is fixed at
+MACHINE_ORIGINATED / PROPOSED regardless of `record.authorized_by`: the keyed
+`authorized_by` attestation proves writer integrity, not that anyone
+authorized anything, so it is deliberately not mapped onto a kernel authority
+status -- see conservation/CONFORMANCE.md ("Not bridged, by design").
 """
 from __future__ import annotations
 

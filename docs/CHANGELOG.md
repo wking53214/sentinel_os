@@ -5,6 +5,23 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **Conservation boundary: `authorized_by` deferral reframed as a deliberate
+  boundary.** `conservation/CONFORMANCE.md` no longer lists "thread the keyed
+  `authorized_by` attestation through as `authorization_refs`" as deferred
+  work. It is not planned work: the kernel's `HUMAN_AUTHORIZED` asserts an
+  authorization *event* (needs an `AuthorityReference`); the `authorized_by`
+  attestation proves writer *integrity* (a key-holder wrote a string,
+  unchanged since) — a weaker, different claim, and mapping one onto the other
+  would let key-holder integrity masquerade as a human sign-off. There is also
+  no path that could exercise it: `verify_governed_decision` is reached only
+  from `_write_decision`, which sets `authorized_by=None`. `judgment.py`'s
+  docstring and `test_authorized_by_string_cannot_raise_kernel_authority`
+  updated to state the invariant (judgment stays `MACHINE_ORIGINATED` /
+  `PROPOSED` for every spoofed value — the test now asserts origin too).
+- **Conservation-kernel pin bumped** `feaf6609` → `e377093` (current
+  `Conservation_Kernel` main). The one commit between them adds a
+  `.ghost_baseline.json` and touches no Python or packaging — verified by
+  diff; the conservation boundary tests pass unchanged on the new SHA.
 - **Cruft sweep.** Removed `sentinel_os/Deploy/` (5 k8s/argocd files DEPLOYMENT.md
   itself flagged as dead — wrong image/port, deployed `Engines/` workers that no
   longer exist); `DEPLOYMENT.md`'s Kubernetes section rewritten to match.

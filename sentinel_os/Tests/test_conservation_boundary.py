@@ -90,12 +90,14 @@ def test_keys_that_slug_to_the_same_id_stay_distinct():
 
 
 def test_authorized_by_string_cannot_raise_kernel_authority():
-    """The judgment lands at PROPOSED no matter what `authorized_by` says --
-    the transport path does no string->authority mapping, so the substring
-    attacks the old gateway defended against (A1/A2: 'inhumane' contains
-    'human', 'x_canonical_fraud' contains 'canonical') have no surface here.
-    Tripwire for the day CONFORMANCE.md's deferred authorization_refs work
-    reintroduces string handling."""
+    """The judgment stays MACHINE_ORIGINATED / PROPOSED no matter what
+    `authorized_by` says -- the transport path does no string->authority
+    mapping, so the substring attacks the old gateway defended against (A1/A2:
+    'inhumane' contains 'human', 'x_canonical_fraud' contains 'canonical')
+    have no surface here. This is the invariant CONFORMANCE.md's "Not bridged,
+    by design" section commits to: the keyed `authorized_by` attestation is
+    never mapped onto a kernel authority status. Tripwire for the day any
+    authorization_refs work reintroduces string handling on this path."""
     for spoof in ("human", "inhumane_canonical_fraud", "CANONICAL", "governor_claude_api x"):
         rec = _Record()
         rec.authorized_by = spoof
@@ -108,6 +110,7 @@ def test_authorized_by_string_cannot_raise_kernel_authority():
         proposal = tx.build_proposal(req, rec)
         judgment = proposal.output_artifact.proposition_map()["p-governance-judgment"]
         assert judgment.authority == AuthorityStatus.PROPOSED
+        assert judgment.origin == OriginStatus.MACHINE_ORIGINATED
         assert gw.submit(req, proposal).accepted
 
 
