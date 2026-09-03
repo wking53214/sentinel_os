@@ -30,6 +30,17 @@ full detail; this is the skim version.
   `Tests/test_telemetry_pipeline.py` (an in-memory call-telemetry collector,
   Iceberg/telephony-shaped, orphaned here — moved to GSA-815, PR #5).
   Collection 698 → 694; ghost_buster baseline 401 → 395.
+- **Conservation boundary — three prerequisites, still not conformant.**
+  `conservation_kernel` added to `requirements.txt` (git-pin; not on PyPI) —
+  it was undeclared, so the two `test_conservation_*` files could not be
+  collected and CI never ran the suite. `governance_harness` now passes
+  `epistemic_status` as `.value`, not `str(enum)` (the Kernel rejected
+  `"EpistemicStatus.ESTIMATED"`). `_map_authority_status` maps recognised
+  channels to `PROPOSED`, not an unbacked `HUMAN_AUTHORIZED`/`CANONICAL` (the
+  Kernel requires `authorization_refs` for those, which Sentinel does not
+  carry down). The gateway is still not Kernel-conformant — it submits
+  governed decisions as input-less transformations; `~6 @requires_pg` tests
+  fail-close on the verifier. See `sentinel_os/conservation/CONFORMANCE.md`.
 
 ## 2026-08-28
 

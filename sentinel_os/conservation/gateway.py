@@ -134,8 +134,10 @@ class SentinelConservationGateway:
                 self._kernel_lazy_loaded = True
             except ImportError as e:
                 raise ConservationGatewayError(
-                    "Conservation Kernel not installed. "
-                    "Install with: pip install conservation-kernel"
+                    "Conservation Kernel not installed. It is a required dependency "
+                    "of the governed decision path (see requirements.txt); install "
+                    "with: pip install "
+                    "'conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git'"
                 ) from e
         return self._kernel
 
@@ -144,7 +146,7 @@ class SentinelConservationGateway:
         artifact_id: str,
         content: Dict[str, Any],
         authority_source: str,
-        epistemic_status: str = "estimated",
+        epistemic_status: Union[str, EpistemicStatus] = "estimated",
         evidence_refs: Optional[List[str]] = None,
         lineage: Optional[List[str]] = None,
         input_artifact_ids: Optional[List[str]] = None,
@@ -183,6 +185,11 @@ class SentinelConservationGateway:
         Raises:
             ConservationGatewayError: If kernel submission fails
         """
+        # Accept either the enum or its string value; normalize to the value so
+        # from_sentinel_artifact's EpistemicStatus(...) lookup always resolves.
+        if isinstance(epistemic_status, EpistemicStatus):
+            epistemic_status = epistemic_status.value
+
         try:
             metadata = ArtifactMetadata.from_sentinel_artifact(
                 artifact_id=artifact_id,
@@ -332,13 +339,25 @@ class SentinelConservationGateway:
         before passing it here.
 
         Fails closed: unknown authorities return NONE.
+
+        Authority ceiling is PROPOSED until the authorization attestation is
+        threaded through. The Kernel requires authorization_refs for
+        HUMAN_AUTHORIZED / CANONICAL / EXECUTED, and Sentinel does not yet carry
+        the keyed `authorized_by` attestation (governance ledger, PR #28) down
+        to this point -- so claiming those levels here would be an unbacked
+        assertion, exactly what the conservation boundary exists to reject. A
+        recognised governance channel maps to PROPOSED ("produced through a
+        known channel, put forward for the ledger, not a substantiated human
+        sign-off"); an unrecognised string still fails closed to NONE. When the
+        attestation is wired, the entries below whose authorization is real get
+        re-elevated (with the refs to back them). See conservation/CONFORMANCE.md.
         """
-        # Explicit whitelist of known, verified actor identities.
+        # Explicit whitelist of known, verified governance channels.
         # Add entries only after verifying the actor against the registry.
         VERIFIED_AUTHORITIES = {
-            "human": KernelAuthorityStatus.HUMAN_AUTHORIZED,
-            "governor_claude_api": KernelAuthorityStatus.HUMAN_AUTHORIZED,  # API governed by human policy
-            "regulatory_system": KernelAuthorityStatus.CANONICAL,
+            "human": KernelAuthorityStatus.PROPOSED,
+            "governor_claude_api": KernelAuthorityStatus.PROPOSED,
+            "regulatory_system": KernelAuthorityStatus.PROPOSED,
         }
 
         # Normalize but do NOT infer - exact match only

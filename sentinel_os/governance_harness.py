@@ -366,7 +366,10 @@ class GovernanceHarness:
                 artifact_id=artifact.artifact_id,
                 content=artifact.content,
                 authority_source=artifact.metadata.authority_source,
-                epistemic_status=str(artifact.metadata.epistemic_status),
+                # .value, not str(): for a (str, Enum), str(EpistemicStatus.ESTIMATED)
+                # is "EpistemicStatus.ESTIMATED", which the gateway then rejects as an
+                # invalid status. .value is "estimated" -- same form artifact_factory uses.
+                epistemic_status=artifact.metadata.epistemic_status.value,
                 evidence_refs=artifact.metadata.evidence_refs,
                 lineage=artifact.metadata.lineage
             )
