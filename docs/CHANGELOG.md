@@ -3,6 +3,47 @@
 Dated, human-readable summary of notable changes. Git history has the
 full detail; this is the skim version.
 
+## 2026-09-03
+
+- **Removed the orphaned IVR/Iceberg simulator support island.** PR #30
+  (2026-08-28) extracted the IVR application to GSA-815 but left the
+  standalone simulator's `Domain/` `Sim/` `Engines/` `Latent/` `Model/`
+  `Training/` `observe/` support tree behind, orphaned once
+  `iceberg_complete_simulator.py` itself was gone. All of it (verified
+  identical to, or older than, GSA-815's copies) and its three tests
+  (`test_rl_learning`, `test_rl_governance_integration`, `test_graph_integrity`
+  — the RL ones already in GSA-815), a dead manual runner
+  (`test_all_suites.py`), a stale `structure.txt`, and the `Domain.*` import
+  shim in `Tests/conftest.py` are removed. `cassettes/ivr_cassette.py` stays
+  — it is the kernel's full-capability example and the negative fixture for
+  the capability gate. Test collection 706 → 698.
+- Docs: reframed `sentinel_os/README.md` (was "Iceberg: Self-Healing IVR
+  Platform") to point at the root README as canonical; added
+  point-in-time-snapshot banners to the five July-2026 architecture/status
+  docs under `docs/`.
+
+## 2026-08-28
+
+- **Extracted the IVR/Iceberg application layer to GSA-815** (PR #30). The
+  kernel is domain-blind: `episode`/`event_v1`, the Postgres hash-chained
+  ledger + twin + `authorized_by` attestation, the cassette framework,
+  `GovernanceHarness`, and the transmission-queue workers stay. The
+  telephony harness, Twilio ingestion, Claude governor client,
+  queue/staffing/Bayes layer, standalone simulator, and resilient API
+  server (12 modules, 22 tests, the `k8s/` Deployment and
+  `docker-compose-prod.yml`) moved out. `api_server_v2.py` stays as the
+  governed ingress.
+- **Persisted observed-event layer** (PR #29): the `EventV1` stream is
+  durable and `reconstruct_decision` replays from it.
+
+## 2026-08-27
+
+- **Keyed HMAC attestation for the ledger `authorized_by` claim** (PR #28),
+  with key rotation — previous/retired key sets, per-signature key
+  fingerprint, `ICEBERG_LEDGER_ATTESTATION_KEY[_FILE]` and
+  `..._KEYS_PREVIOUS`/`..._RETIRED` env vars, `ICEBERG_LEDGER_REQUIRE_ATTESTATION`
+  enforcement mode.
+
 ## 2026-07-24
 
 - **C2 dimension 4: statistical outcome-equity** — the fourth C2

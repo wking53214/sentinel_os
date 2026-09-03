@@ -1,3 +1,7 @@
+> **⚠ Point-in-time snapshot — not maintained.** Documented baseline `68cadfb` (July 29, 2026). Since then PRs #28–30 landed: keyed `authorized_by` ledger attestation with key rotation, the persisted observed-event layer, and — most relevant to anything below that names a directory — the **extraction of the IVR/Iceberg application to the [GSA-815](https://github.com/wking53214/GSA-815) repo** (2026-08-28). The standalone simulator and its `Domain/` `Sim/` `Engines/` `Model/` `observe/` tree, Twilio ingestion, the Claude governor client, and the queue/staffing/Bayes layer are no longer in this repo. Treat directory maps, module inventories, and test counts here as historical. The canonical current description is the [repository root README](../../README.md).
+
+---
+
 # DOCUMENT 2 — ENGINEERING ARCHITECTURE GUIDE
 
 **System:** Sentinel OS

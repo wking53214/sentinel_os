@@ -2,6 +2,8 @@
 
 Can't get Sentinel OS running? Don't worry—this guide covers the most common issues and how to fix them.
 
+> **Note (2026-09-03):** the standalone IVR simulator (`iceberg_complete_simulator.py`) and its `Domain/` `Sim/` `Engines/` `Model/` `observe/` support tree moved to the [GSA-815](https://github.com/wking53214/GSA-815) repo. Recipes below that invoke the simulator apply there, not here. Test-count figures in this guide predate that change.
+
 ---
 
 ## Table of Contents
