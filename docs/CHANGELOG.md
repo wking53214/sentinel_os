@@ -5,6 +5,17 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **Cruft sweep.** Removed `sentinel_os/Deploy/` (5 k8s/argocd files DEPLOYMENT.md
+  itself flagged as dead — wrong image/port, deployed `Engines/` workers that no
+  longer exist); `DEPLOYMENT.md`'s Kubernetes section rewritten to match.
+  `tools/wiring_verify/` (the static "code exists but nothing calls it"
+  detector) had rotted since the IVR extraction — its entry-point list and
+  acceptance tests still expected `production_harness.py` /
+  `api_server_resilient.py` / an `iceberg` compose service, all in GSA-815 now,
+  and hardcoded a `~/sentinel_os` path; fixed to current reality (6 passed, was
+  1 failed / 3 errors) and the src root is now derived from the tool's own
+  location. Corrected stale `Deploy/grafana/` references in `MODEL_CARD.md` and
+  `COMPLIANCE.md` (that export is GSA-815's).
 - **Ledger operations runbook.** `DEPLOYMENT.md`'s thin "Database" section now
   covers backups (encrypt at rest, key custody separate from the DBA), a
   restore-and-verify drill, a ledger-integrity incident procedure, and a note
