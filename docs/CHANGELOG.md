@@ -5,6 +5,16 @@ full detail; this is the skim version.
 
 ## 2026-09-03
 
+- **Ledger operations runbook.** `DEPLOYMENT.md`'s thin "Database" section now
+  covers backups (encrypt at rest, key custody separate from the DBA), a
+  restore-and-verify drill, a ledger-integrity incident procedure, and a note
+  on append-only growth. New `scripts/verify_ledger.py` (a CLI over
+  `PostgreSQLLedger.verify_chain()` — the check an auditor runs) and
+  `scripts/ledger_backup_verify.sh` (`pg_dump` → restore into a throwaway DB →
+  `verify_ledger.py` → drop it); both tested against the live ledger. Also
+  fixed two phantom references DEPLOYMENT.md already carried — a `verify_ledger`
+  tool and a `/verify` endpoint, neither of which existed; `verify_ledger.py`
+  now makes the first one real and the endpoint reference is dropped.
 - **Real `SECURITY.md` + a secret-scanning gate.** `SECURITY.md` was still the
   GitHub template (placeholder version table, "tell people how to report..."
   boilerplate); it now carries a real disclosure path, states that `main` is
