@@ -1,60 +1,56 @@
 # Conservation boundary — conformance status
 
-`governance_harness._write_decision` routes every governed decision through
-`conservation/gateway.py` and fail-closes the ledger write if the Conservation
-Kernel does not accept it ("no durable state without conservation
-verification").
+`governance_harness._write_decision` calls `conservation.boundary.verify_governed_decision(episode, record)`
+before persisting to the ledger and fail-closes on anything other than a clean
+acceptance ("no durable state without conservation verification").
 
-## Done (2026-09-03)
+## Conformant (2026-09-03)
 
-- **`conservation_kernel` is a declared dependency** (`requirements.txt`,
-  git-pinned; not on PyPI). Before this, the two `test_conservation_*` files
-  could not be collected and the whole CI run aborted — so the ~890-test suite
-  never ran.
-- **Epistemic status is passed correctly** — `governance_harness` passed
-  `str(EpistemicStatus.ESTIMATED)` (`"EpistemicStatus.ESTIMATED"`), which the
-  Kernel rejects; now `.value` (`"estimated"`).
-- **Authority claims are honest** — `_map_authority_status` mapped every
-  recognised channel to `HUMAN_AUTHORIZED` / `CANONICAL`, both of which the
-  Kernel requires `authorization_refs` for, which Sentinel does not carry down
-  here. Now they map to `PROPOSED` ("produced through a known channel, put
-  forward for the ledger, not a substantiated human sign-off"). Unrecognised
-  strings still fail closed to `NONE`.
+A governance decision is modelled as a **conservation transformation**:
+`episode (the observed record) -> judgment`.
 
-## Not done — the gateway is not Kernel-conformant
+- `conservation/transport/` — an enforced `ConservationGateway` around
+  `conservation_kernel` (register-root + verify-transformation + fail-closed
+  choke point), vendored near-verbatim from `GEMS/transport/` where its
+  20-attack hostile corpus blocks all 20. See `transport/PROVENANCE.md`.
+- `conservation/episode_source.py` — `Episode` -> a root source `Artifact`:
+  `actual` -> `OBSERVATION` (external origin), `requested` -> `ASSUMPTION`,
+  `actor_report` -> `INFERENCE` (machine origin, `Uncertainty`,
+  `derivation_method`) — never `FACT`/`OBSERVATION`, the same distinction
+  `Episode` itself enforces via `discrepancies`; `outcome_reasons` ->
+  `OBSERVATION`.
+- `conservation/judgment.py` — the judgment: one new `DECISION`-status,
+  `MACHINE_ORIGINATED`, `PROPOSED`-authority proposition rooted to the observed
+  facts. `BaseGem.declared_changes_for` / `_proposal` do the canonical-JSON
+  hash alignment and per-dimension declared-change diffing.
+- `conservation/boundary.py` — a fresh gateway per call. The kernel is a
+  **stateless verifier + choke point** here, not an accumulating ledger:
+  Postgres stays the durable ledger; reconstruction stays Sentinel's own
+  event-sourced path.
 
-The gateway submits a governance decision as a **transformation with no input
-artifact** (`kernel.submit(input_artifacts=(), ...)`). A governance decision
-is `episode (observed events + requested outcome) -> judgment`; the Kernel's
-verifier rejects the current shape with:
+The kernel accepts an honest judgment (`PASS_WITH_DECLARED_TRANSFORMATION`) and
+rejects: judgments claiming human-originated facts (`FALSE_HUMAN_ATTRIBUTION`),
+unrooted claims (`UNROOTED_NEW_PROPOSITION`), unbacked human authority
+(rejected at construction). All ~18 `@requires_pg` tests that previously
+fail-closed on the pre-transport gateway now pass.
 
-| Violation | Cause |
-|---|---|
-| `NO_INPUT_ARTIFACT` | no input artifact identified |
-| `OUTPUT_HASH_MISMATCH` | gateway hashes with `json.dumps`; Kernel recomputes with `canonical_json` |
-| `UNDECLARED_CHANGE` | a protected dimension changed without a `DeclaredChange` |
-| `UNROOTED_NEW_PROPOSITION` | output proposition has no parent and no external source |
-| `FALSE_HUMAN_ATTRIBUTION` | `origin=HUMAN_ORIGINATED` on content a `SYSTEM` actor produced |
+## Deferred
 
-Consequence: every `@requires_pg` test that persists a governed decision
-(`test_governance_harness`, `test_governance_harness_outcome_obligation`,
-`test_governance_harness_regulatory_wiring`, `test_governance_harness_stress`,
-`test_critical_integration`, ...) fail-closes on this. Those tests **also fail
-on `main` today** — via `No module named 'conservation_kernel'` — they were
-just hidden behind the collection abort.
+- **The keyed `authorized_by` attestation is not threaded through** as
+  `authorization_refs`. Not on the critical path — a machine judgment at
+  `DECISION`/`PROPOSED` passes cleanly. It is only needed the day a judgment
+  should legitimately claim `HUMAN_AUTHORIZED` (a genuine human sign-off). At
+  that point `judgment.py` gets an `AuthorityReference` and
+  `episode_source.py` / the ledger's PR-#28 attestation feed it.
 
-## Fix direction
+## To be removed (follow-up)
 
-Model the decision as a real transformation: register the episode as a root
-source artifact, submit the judgment as its transformation, use a machine
-transformer + `MACHINE_ORIGINATED` origin, declare the changed dimensions,
-align hashing with the Kernel, and thread the keyed `authorized_by`
-attestation (governance ledger, PR #28) through as `authorization_refs` so a
-genuine human sign-off can legitimately reach `HUMAN_AUTHORIZED`.
+The pre-transport modules are OFF the governed hot path and kept only so their
+own isolated tests keep passing until a dedicated cleanup PR:
 
-**`gems_transport` (`GEMS/transport/`) already implements this** — an enforced
-`ConservationGateway` (register-root + verify-transformation + fail-closed
-choke point) with a 20-attack hostile corpus, all 20 blocked. It is the
-candidate to extract and wire in rather than rebuild. `tie_adapter.py` there
-is a deliberate stub for exactly the source-ingestion adapter Sentinel would
-write (`Episode -> Artifact`).
+- `gateway.py`, `artifact_factory.py`, `transformation_factory.py`,
+  `artifact_store.py`, `types.py`, `receipt.py`
+- `test_conservation_integration.py`, `test_conservation_gateway_security.py`
+
+Their coverage is re-expressed against the transport path in
+`Tests/test_conservation_boundary.py`.
