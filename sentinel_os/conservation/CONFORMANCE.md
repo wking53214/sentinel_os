@@ -35,14 +35,40 @@ unrooted claims (`UNROOTED_NEW_PROPOSITION`), unbacked human authority
 fail-closed on the pre-transport gateway now pass (PR #35: CI 855→881 passed,
 0 failed).
 
-## Deferred
+## Not bridged, by design: `authorized_by` attestation ≠ kernel authority
 
-- **The keyed `authorized_by` attestation is not threaded through** as
-  `authorization_refs`. Not on the critical path — a machine judgment at
-  `DECISION`/`PROPOSED` passes cleanly. It is only needed the day a judgment
-  should legitimately claim `HUMAN_AUTHORIZED` (a genuine human sign-off). At
-  that point `judgment.py` gets an `AuthorityReference` and
-  `episode_source.py` / the ledger's PR-#28 attestation feed it.
+The keyed `authorized_by` attestation (PR #28) is **not** threaded into the
+transformation as an `authorization_refs` / `AuthorityReference`. The judgment
+is fixed at `MACHINE_ORIGINATED` origin and `PROPOSED` authority regardless of
+what `record.authorized_by` says. This is a deliberate boundary, not
+unfinished work.
+
+The kernel's `HUMAN_AUTHORIZED` — and every authority status above
+`PROPOSED` — asserts that **a specific authorization event happened**; the
+kernel requires an `AuthorityReference` pointing at that event. The
+`authorized_by` attestation proves something different and weaker: that a
+named string was written by a component holding the service signing key and
+has not changed since (`governance/ledger_postgres.py` documents this scope
+inline, on the `authorized_by` field). One shared key, any holder
+indistinguishable from any other, a leaked key forges it — it establishes
+writer integrity, not that the named party authorized anything. Mapping it
+onto a kernel authority status would let key-holder integrity masquerade as a
+human sign-off — the exact false attribution the kernel exists to reject.
+
+Nor is there a code path that could exercise such a mapping today.
+`verify_governed_decision` is reached only from
+`governance_harness._write_decision`, which builds its
+`GovernanceDecisionRecord` with `authorized_by=None`. The other writers that
+do set `authorized_by` (`regulatory_deck.py`, `contract_egress.py`) produce
+different record kinds that never enter the conservation boundary.
+
+The day a judgment should legitimately claim `HUMAN_AUTHORIZED`, the
+requirement is a real registered authorization event feeding an
+`AuthorityReference` — `conservation/transport/` already carries the type and
+`builder._proposal`'s `authority_refs=` parameter — not a re-interpretation of
+the attestation string. `Tests/test_conservation_boundary.py::test_authorized_by_string_cannot_raise_kernel_authority`
+pins the invariant: the judgment stays `MACHINE_ORIGINATED` / `PROPOSED` for
+every spoofed `authorized_by` value.
 
 ## Pre-transport modules removed (2026-09-03)
 
