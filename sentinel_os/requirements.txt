@@ -20,4 +20,4 @@ cryptography>=41.0  # twin_custody.py: ECIES envelopes, Ed25519/X25519, AES-GCM,
 # sibling repo. Pinned to a commit because conservation/transport/ + judgment.py
 # mirror this kernel version's enums / Proposition rules / rejection codes --
 # bump deliberately (re-run the conservation boundary tests on the new SHA).
-conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@feaf6609c4af00b3451d5b02c2face30fd7fb34c
+conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@e37709321da4c2a224a6e1144036fbfc41cf64d4
