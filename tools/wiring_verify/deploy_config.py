@@ -1,9 +1,9 @@
 """
 Deployment-config parsing: which .py entry point(s) actually get run in
 a container built and shipped from this repo, per Dockerfile,
-docker-compose*.yml, and k8s/**/*.yaml (Deploy/k8s included -- it's the
-same deployment surface, just split across two directories in this
-repo).
+docker-compose*.yml, and a `k8s/` or `Deploy/k8s/` directory if one
+exists (neither does today -- the kernel ships docker-compose only --
+but the parser still checks so a future k8s target is covered).
 
 This is intentionally narrow: it answers "what does the CMD/command/args
 resolve to", not "is this deployment config itself correct or complete".
