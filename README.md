@@ -998,7 +998,7 @@ The documented system has included:
 * API interfaces;
 * and automated testing.
 
-The repository’s July 2026 governance status recorded 270 tests passing against real PostgreSQL and Redis in GitHub Actions, while also explicitly documenting remaining gaps rather than presenting the system as finished.
+The repository’s July 2026 governance status recorded 270 tests passing against real PostgreSQL and Redis in GitHub Actions (the suite has since grown to roughly 700), while also explicitly documenting remaining gaps rather than presenting the system as finished.
 
 That distinction matters.
 
