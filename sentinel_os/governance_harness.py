@@ -70,6 +70,9 @@ from episode import Episode, explain_episode, judge_episode
 from governance_decider import GovernanceDecider
 from regulatory_cassette_interface import RegulatoryBlock
 from regulatory_deck import RegulatoryDeck
+import logging
+
+logger = logging.getLogger("sentinel_os.governance_harness")
 
 
 class GovernanceHarness:
@@ -223,6 +226,7 @@ class GovernanceHarness:
                     "reasoning": (f"regulatory_block: lens '{exc.lens_identity}' "
                                  f"({exc.regulation})"),
                     "regulatory_findings": [f.as_dict() for f in exc.findings],
+                    "ledger_bound": self.ledger is not None,
                 }
             quality = governed.quality
             factors = self.regulatory_deck.explain(self.cassette, episode)
@@ -245,6 +249,11 @@ class GovernanceHarness:
             "governance_approved": False,
             "governance_blocked": False,
             "regulatory_findings": [f.as_dict() for f in regulatory_findings],
+            # Whether this harness has a ledger at all. A harness built
+            # with require_cassette_binding=False and no reachable ledger
+            # runs, judges and governs exactly like a bound one; until
+            # this key existed nothing in its output said so.
+            "ledger_bound": self.ledger is not None,
         }
         if not governance_required:
             return result
@@ -292,6 +301,22 @@ class GovernanceHarness:
 
         if self.ledger is not None:
             self._write_decision(episode, params, issue_count, decision)
+            result["decision_recorded"] = True
+        else:
+            # Unbound by explicit opt-out (require_cassette_binding=False
+            # is the only way to get here). The decision was made and is
+            # returned, but written nowhere -- which is the one thing this
+            # harness exists to guarantee does not happen silently.
+            # Measured before this existed: the result of an unbound
+            # governed decision carried no key naming the ledger at all.
+            result["decision_recorded"] = False
+            logger.warning(
+                f"episode {episode.episode_id}: governed decision was NOT written "
+                "to any ledger -- this harness is running unbound "
+                "(require_cassette_binding=False, no reachable ledger). "
+                "Connect a ledger, or construct with require_cassette_binding=True "
+                "(the default) to refuse to start unbound."
+            )
 
         return result
 
