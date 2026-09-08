@@ -9077,5 +9077,744 @@
     "severity": "minor",
     "status": "suppressed",
     "summary": "'roadster_breakers_verification_report_v1.md' claims 4 test(s), but at least 872 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "complexity",
+    "confidence": null,
+    "detail": "Line-count proxy for the 'Long Method' smell, not true cyclomatic complexity -- a long function that's mostly a flat sequence of simple statements is a weaker signal than a short function with deep branching. Treat as a prompt to look, not a verdict.",
+    "detector": "long_function",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/run_mortgage_population.py",
+      "line_end": 197,
+      "line_start": 114,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:09.877900+00:00",
+    "id": "ghost-e8b729efcf1b",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'main' spans 83 lines (threshold 80)"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match, not textual diff -- this is the 'copy-pasted then renamed' shape specifically. Confirm these are actually solving the same problem before merging; some structural matches are coincidental (e.g. two unrelated simple validators).",
+    "detector": "near_duplicate_function",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 3249,
+      "line_start": 3232,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:10.877252+00:00",
+    "id": "ghost-144cff958e14",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "2 functions share identical AST structure (names/literals differ, control flow and shape don't): ledger_postgres.py:3232:sid_exists, ledger_postgres.py:3251:episode_decision_exists"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 370,
+      "line_start": 370,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:402-402"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.401830+00:00",
+    "id": "ghost-19f835d1dad6",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'_initialize_schema' repeats the same single statement 2 times (lines 370-370, 402-402): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 603,
+      "line_start": 603,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:615-615"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.402251+00:00",
+    "id": "ghost-ad6131ad6431",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'_immutability_already_applied' repeats the same single statement 2 times (lines 603-603, 615-615): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 804,
+      "line_start": 804,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:811-811"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.407577+00:00",
+    "id": "ghost-d63f1619c70b",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'append_decision' repeats the same single statement 2 times (lines 804-804, 811-811): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 937,
+      "line_start": 937,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:978-978"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.407691+00:00",
+    "id": "ghost-cbdb1d2a6bde",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'append_decision' repeats the same single statement 2 times (lines 937-937, 978-978): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1033,
+      "line_start": 1033,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1035-1035"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.409572+00:00",
+    "id": "ghost-5cc3d6966fe3",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'bind_cassette_version' repeats the same single statement 2 times (lines 1033-1033, 1035-1035): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1117,
+      "line_start": 1117,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1068-1068"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.409675+00:00",
+    "id": "ghost-48fc7139ccc8",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'bind_cassette_version' repeats the same single statement 2 times (lines 1117-1117, 1068-1068): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1170,
+      "line_start": 1170,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1173-1173"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.411281+00:00",
+    "id": "ghost-75c8f982c3ce",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'record_regulatory_cassette_event' repeats the same single statement 2 times (lines 1170-1170, 1173-1173): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1179,
+      "line_start": 1179,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1182-1182"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.411376+00:00",
+    "id": "ghost-db2c2e71ae2f",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'record_regulatory_cassette_event' repeats the same single statement 2 times (lines 1179-1179, 1182-1182): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1278,
+      "line_start": 1278,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1280-1280",
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1287-1287"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.413643+00:00",
+    "id": "ghost-47771eb9951b",
+    "layer": "mechanical",
+    "severity": "major",
+    "status": "suppressed",
+    "summary": "'record_regulatory_disclosure' repeats the same single statement 3 times (lines 1278-1278, 1280-1280, 1287-1287): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1388,
+      "line_start": 1388,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1391-1391"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.415822+00:00",
+    "id": "ghost-36d23044d9f3",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'record_recommendation_shadow_run' repeats the same single statement 2 times (lines 1388-1388, 1391-1391): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1400,
+      "line_start": 1400,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1401-1401"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.416005+00:00",
+    "id": "ghost-82c893a17e1f",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'record_recommendation_shadow_run' repeats the same single statement 2 times (lines 1400-1400, 1401-1401): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1486,
+      "line_start": 1486,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1487-1487"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.417473+00:00",
+    "id": "ghost-717a81f142be",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'record_recommendation_shadow_score' repeats the same single statement 2 times (lines 1486-1486, 1487-1487): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1577,
+      "line_start": 1577,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1583-1583"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.419202+00:00",
+    "id": "ghost-002bac857a46",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'record_human_selection' repeats the same single statement 2 times (lines 1577-1577, 1583-1583): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1784,
+      "line_start": 1784,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1788-1788",
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1792-1792"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.423092+00:00",
+    "id": "ghost-e38b36ec200b",
+    "layer": "mechanical",
+    "severity": "major",
+    "status": "suppressed",
+    "summary": "'record_outcome_harm_event' repeats the same single statement 3 times (lines 1784-1784, 1788-1788, 1792-1792): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 1902,
+      "line_start": 1902,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1905-1905",
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1909-1909",
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:1911-1911"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.423742+00:00",
+    "id": "ghost-04f3b82862b2",
+    "layer": "mechanical",
+    "severity": "major",
+    "status": "suppressed",
+    "summary": "'record_contract_ingest' repeats the same single statement 4 times (lines 1902-1902, 1905-1905, 1909-1909, 1911-1911): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 2796,
+      "line_start": 2796,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:2813-2813"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.453959+00:00",
+    "id": "ghost-690a2b892406",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'verify_chain' repeats the same single statement 2 times (lines 2796-2796, 2813-2813): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 2833,
+      "line_start": 2822,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:2845-2856"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.454218+00:00",
+    "id": "ghost-bac679299c8c",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'verify_chain' repeats the same 3-statement block 2 times (lines 2822-2833, 2845-2856): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 2823,
+      "line_start": 2823,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:2846-2846"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.454359+00:00",
+    "id": "ghost-f2906e216c03",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'verify_chain' repeats the same single statement 2 times (lines 2823-2823, 2846-2846): same shape, names/literals differ"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py",
+      "line_end": 3031,
+      "line_start": 3031,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:3036-3036",
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:3042-3042",
+        "/home/wking53214/sentinel_os/sentinel_os/governance/ledger_postgres.py:3049-3049"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:11.454482+00:00",
+    "id": "ghost-993dbe285fc6",
+    "layer": "mechanical",
+    "severity": "major",
+    "status": "suppressed",
+    "summary": "'verify_chain' repeats the same single statement 4 times (lines 3031-3031, 3036-3036, 3042-3042, 3049-3049): same shape, names/literals differ"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/README.md",
+      "line_end": 1001,
+      "line_start": 1001,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.714971+00:00",
+    "id": "ghost-936e64dad720",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'README.md' claims 270 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/CHANGELOG.md",
+      "line_end": 173,
+      "line_start": 173,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.715868+00:00",
+    "id": "ghost-bd43559b0434",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'CHANGELOG.md' claims 22 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/pass3/SENTINEL_OS_05_INVESTOR_SYSTEM_BRIEF_v3.md",
+      "line_end": 62,
+      "line_start": 62,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.732359+00:00",
+    "id": "ghost-3c52d5334c79",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'SENTINEL_OS_05_INVESTOR_SYSTEM_BRIEF_v3.md' claims 670 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/pass3/SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md",
+      "line_end": 54,
+      "line_start": 54,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.733599+00:00",
+    "id": "ghost-b2255debe885",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md' claims 670 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/pass3/SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md",
+      "line_end": 209,
+      "line_start": 209,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.733976+00:00",
+    "id": "ghost-7ad4c3eb53cf",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md' claims 19 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/pass3/SENTINEL_OS_09_DOCUMENTATION_INTEGRITY_REVIEW_v3.md",
+      "line_end": 70,
+      "line_start": 70,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.734988+00:00",
+    "id": "ghost-55fc669b6db1",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'SENTINEL_OS_09_DOCUMENTATION_INTEGRITY_REVIEW_v3.md' claims 670 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/sentinel-os-status-v1.md",
+      "line_end": 24,
+      "line_start": 24,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.735591+00:00",
+    "id": "ghost-3f04ff2ca2ca",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'sentinel-os-status-v1.md' claims 270 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/COMPLIANCE.md",
+      "line_end": 28,
+      "line_start": 28,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.736373+00:00",
+    "id": "ghost-e566072e7481",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'COMPLIANCE.md' claims 161 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/roadster_breakers_verification_report_v1.md",
+      "line_end": 22,
+      "line_start": 22,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.738835+00:00",
+    "id": "ghost-9ba415d70edb",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 7 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/roadster_breakers_verification_report_v1.md",
+      "line_end": 58,
+      "line_start": 58,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.739052+00:00",
+    "id": "ghost-4d0050243216",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 16 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/roadster_breakers_verification_report_v1.md",
+      "line_end": 59,
+      "line_start": 59,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.739143+00:00",
+    "id": "ghost-2a9337cbe65c",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 6 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/roadster_breakers_verification_report_v1.md",
+      "line_end": 92,
+      "line_start": 92,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:44:12.739367+00:00",
+    "id": "ghost-3980135c3782",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 4 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
   }
 ]
