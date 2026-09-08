@@ -9816,5 +9816,301 @@
     "severity": "minor",
     "status": "suppressed",
     "summary": "'roadster_breakers_verification_report_v1.md' claims 4 test(s), but at least 879 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "complexity",
+    "confidence": null,
+    "detail": "Line-count proxy for the 'Long Method' smell, not true cyclomatic complexity -- a long function that's mostly a flat sequence of simple statements is a weaker signal than a short function with deep branching. Treat as a prompt to look, not a verdict.",
+    "detector": "long_function",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance_harness.py",
+      "line_end": 321,
+      "line_start": 184,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:30.866075+00:00",
+    "id": "ghost-03c60b2be6ce",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'process' spans 137 lines (threshold 80)"
+  },
+  {
+    "category": "duplication",
+    "confidence": null,
+    "detail": "Structural fingerprint match within one function, not a whole-function match (near_duplicate_function's detection is blind to this shape). Typical real cause: several branches each hand-build the same kind of object or perform the same sequence of calls -- worth a single shared helper if the branches really are doing the same thing, not just a coincidental resemblance.",
+    "detector": "intra_function_duplicate_block",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/governance_harness.py",
+      "line_end": 232,
+      "line_start": 232,
+      "related_files": [
+        "/home/wking53214/sentinel_os/sentinel_os/governance_harness.py:213-213"
+      ],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:32.620267+00:00",
+    "id": "ghost-d1d26bf72ad8",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'process' repeats the same single statement 2 times (lines 232-232, 213-213): same shape, names/literals differ"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/README.md",
+      "line_end": 1001,
+      "line_start": 1001,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.857764+00:00",
+    "id": "ghost-39b52dc9df7e",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'README.md' claims 270 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/CHANGELOG.md",
+      "line_end": 173,
+      "line_start": 173,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.858656+00:00",
+    "id": "ghost-e4c4f81e2d76",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'CHANGELOG.md' claims 22 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/pass3/SENTINEL_OS_05_INVESTOR_SYSTEM_BRIEF_v3.md",
+      "line_end": 62,
+      "line_start": 62,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.866758+00:00",
+    "id": "ghost-e573ae66b863",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'SENTINEL_OS_05_INVESTOR_SYSTEM_BRIEF_v3.md' claims 670 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/pass3/SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md",
+      "line_end": 54,
+      "line_start": 54,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.867807+00:00",
+    "id": "ghost-0df4c2af11b1",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md' claims 670 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/pass3/SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md",
+      "line_end": 209,
+      "line_start": 209,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.868167+00:00",
+    "id": "ghost-2e12554821be",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'SENTINEL_OS_07_INVESTOR_PITCH_DECK_STRUCTURE_v3.md' claims 19 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/pass3/SENTINEL_OS_09_DOCUMENTATION_INTEGRITY_REVIEW_v3.md",
+      "line_end": 70,
+      "line_start": 70,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.869164+00:00",
+    "id": "ghost-3d1f40cffb60",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'SENTINEL_OS_09_DOCUMENTATION_INTEGRITY_REVIEW_v3.md' claims 670 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/docs/sentinel-os-status-v1.md",
+      "line_end": 24,
+      "line_start": 24,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.869771+00:00",
+    "id": "ghost-c94e4f20e81a",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'sentinel-os-status-v1.md' claims 270 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/COMPLIANCE.md",
+      "line_end": 28,
+      "line_start": 28,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.870531+00:00",
+    "id": "ghost-60d502cb29c7",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'COMPLIANCE.md' claims 161 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/roadster_breakers_verification_report_v1.md",
+      "line_end": 22,
+      "line_start": 22,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.873014+00:00",
+    "id": "ghost-8b24ac3acdc7",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 7 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/roadster_breakers_verification_report_v1.md",
+      "line_end": 58,
+      "line_start": 58,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.873224+00:00",
+    "id": "ghost-a4f94536b905",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 16 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/roadster_breakers_verification_report_v1.md",
+      "line_end": 59,
+      "line_start": 59,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.873314+00:00",
+    "id": "ghost-b07dda757b2e",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 6 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
+  },
+  {
+    "category": "doc_drift",
+    "confidence": null,
+    "detail": "actual is a static AST lower bound (functions named test_*, counted directly, no pytest run) -- the true collected count can only be higher (pytest.mark.parametrize expands one function into several cases), never lower, so this can only under-flag, not over-flag. Confirm by running the real suite and update the claim, or remove the specific number if it will keep going stale.",
+    "detector": "doc_test_count_drift",
+    "disposition": null,
+    "disposition_note": "",
+    "evidence": {
+      "file": "/home/wking53214/sentinel_os/sentinel_os/roadster_breakers_verification_report_v1.md",
+      "line_end": 92,
+      "line_start": 92,
+      "related_files": [],
+      "snippet": null
+    },
+    "first_seen": "2026-09-08T03:47:33.873537+00:00",
+    "id": "ghost-5c3ed73ed0f4",
+    "layer": "mechanical",
+    "severity": "minor",
+    "status": "suppressed",
+    "summary": "'roadster_breakers_verification_report_v1.md' claims 4 test(s), but at least 882 test_* function(s) exist in the scanned .py files -- this claim is stale"
   }
 ]
