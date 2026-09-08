@@ -1,5 +1,22 @@
 Sentinel OS
 
+> **Frozen since 2026-09-08.** sentinel_os is the custody ledger stage of
+> the governance stack: artifact origin, custody, and a Postgres-backed
+> ledger. It is the second sellable unit after the governed action gate in
+> [observe-perceive](https://github.com/wking53214/observe-perceive), and it
+> is not deployable from a clone today: it declares no dependencies (the
+> suite needs psycopg2, anthropic, httpx, redis, cryptography, yaml), it
+> imports the Conservation Kernel package at module level, and without
+> Postgres 228 tests skip and 39 fail. With those installed, 664 tests pass.
+>
+> The only work allowed here for the 90 days starting 2026-09-08 is a
+> dependency manifest and a runnable Postgres fixture, so that the next
+> audit can execute the ledger path. No feature work. It unfreezes when a
+> gate customer faces an examination or dispute that needs custody
+> reconstruction, which is the ledger's economic trigger. See
+> `docs/audit/COMMERCIAL_RED_TEAM_2026-09-08.md` in observe-perceive,
+> Parts 18, 19 and 27.
+
 Problem
 
 Governance is fractured.
