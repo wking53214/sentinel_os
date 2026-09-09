@@ -7,7 +7,8 @@ Sentinel OS
 > is not deployable from a clone today: it declares no dependencies (the
 > suite needs psycopg2, anthropic, httpx, redis, cryptography, yaml), it
 > imports the Conservation Kernel package at module level, and without
-> Postgres 228 tests skip and 39 fail. With those installed, 664 tests pass.
+> Postgres 228 tests skip, 39 fail, and 38 error (measured 2026-09-09 from a
+> clone at `5341e3d`, 968 collected, 658 passing without those services).
 >
 > The only work allowed here for the 90 days starting 2026-09-08 is a
 > dependency manifest and a runnable Postgres fixture, so that the next
@@ -1015,7 +1016,7 @@ The documented system has included:
 * API interfaces;
 * and automated testing.
 
-The repository’s July 2026 governance status recorded 270 tests passing against real PostgreSQL and Redis in GitHub Actions (the suite has since grown past 850), while also explicitly documenting remaining gaps rather than presenting the system as finished.
+The repository’s July 2026 governance status recorded 270 tests passing against real PostgreSQL and Redis in GitHub Actions (the suite has since grown to 968 collected, measured 2026-09-09), while also explicitly documenting remaining gaps rather than presenting the system as finished.
 
 That distinction matters.
 
