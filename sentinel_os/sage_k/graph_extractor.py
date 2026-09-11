@@ -19,7 +19,7 @@ same edge target.
 from __future__ import annotations
 
 import ast
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, replace
 from typing import Dict, List, Optional, Set
 
 from .gsa_adapter import GsaContextEnvelope
@@ -27,27 +27,13 @@ from .gsa_adapter import GsaContextEnvelope
 __all__ = ["Node", "Edge", "Graph", "GraphExtractor", "extract_graph", "graph_to_dict", "ExtractorGsaAdapterModule"]
 
 
-@dataclass(frozen=True)
-class Node:
-    """A code element: a module, function, async function, class, or import."""
-    id: str
-    kind: str
-    file: str
-
-
-@dataclass(frozen=True)
-class Edge:
-    """A directed reference between two nodes, with the source line as evidence."""
-    src: str
-    dst: str
-    kind: str
-    evidence: str
-
-
-@dataclass
-class Graph:
-    nodes: Dict[str, Node]
-    edges: List[Edge]
+# Node, Edge and Graph are the library's shared graph substrate and live in
+# the cns package (the central nervous system: contracts only). This file
+# carried its own copy until 2026-09-11; Node and Edge were byte-for-byte
+# the canonical ones, and Graph gained a defaulted `total_row_count` that
+# this module does not set and graph_to_dict below does not emit, so the
+# output here is unchanged. The walk is sage_k's own and stays here.
+from cns.graph import Edge, Graph, Node
 
 
 class GraphExtractor(ast.NodeVisitor):
