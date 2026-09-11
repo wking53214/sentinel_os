@@ -1,6 +1,6 @@
 Sentinel OS
 
-> **Frozen since 2026-09-08.** sentinel_os is the custody ledger stage of
+> **Unfrozen 2026-09-11.** sentinel_os is the custody ledger stage of
 > the governance stack: artifact origin, custody, and a Postgres-backed
 > ledger. It is the second sellable unit after the governed action gate in
 > [observe-perceive](https://github.com/wking53214/observe-perceive), and it
@@ -10,13 +10,20 @@ Sentinel OS
 > Postgres 228 tests skip, 39 fail, and 38 error (measured 2026-09-09 from a
 > clone at `5341e3d`, 968 collected, 658 passing without those services).
 >
-> The only work allowed here for the 90 days starting 2026-09-08 is a
-> dependency manifest and a runnable Postgres fixture, so that the next
-> audit can execute the ledger path. No feature work. It unfreezes when a
-> gate customer faces an examination or dispute that needs custody
-> reconstruction, which is the ledger's economic trigger. See
-> `docs/audit/COMMERCIAL_RED_TEAM_2026-09-08.md` in observe-perceive,
-> Parts 18, 19 and 27.
+> The 90-day freeze set on 2026-09-08 is lifted early, by the owner's
+> decision. It was set on the evidence available that day, which
+> predates two things that change the picture: the private `CNS`
+> package, one measured schema that the library's repositories join
+> on rather than re-typing, and `ghost_tools`' kernel scan, which
+> measures duplication and drift against it. Neither existed when the
+> freeze was written.
+>
+> The commercial reading above is **not** superseded. Everything the
+> audit established about this repo still holds, including anything it
+> says is missing; lifting the freeze removes a restriction on effort,
+> not a finding. See
+> `docs/audit/COMMERCIAL_RED_TEAM_2026-09-08.md` in observe-perceive, Parts 18, 19 and 27,
+> for what the freeze was based on.
 
 Problem
 
