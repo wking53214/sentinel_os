@@ -40,6 +40,22 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Authorise reads of the private CNS package
+        # requirements.txt pulls `cns` (the library's shared contracts) from
+        # the private wking53214/CNS repo. The job's own GITHUB_TOKEN can only
+        # read THIS repo, so a fine-grained token with Contents: read on CNS
+        # is stored as the CNS_READ_TOKEN secret and git is told to use it
+        # for github.com. Fail here, by name, rather than three lines later
+        # with "could not read Username".
+        env:
+          CNS_READ_TOKEN: ${{ secrets.CNS_READ_TOKEN }}
+        run: |
+          if [ -z "$CNS_READ_TOKEN" ]; then
+            echo "::error::CNS_READ_TOKEN secret is not set; the private cns dependency cannot be fetched"
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${CNS_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -185,6 +201,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Authorise reads of the private CNS package
+        # requirements.txt pulls `cns` (the library's shared contracts) from
+        # the private wking53214/CNS repo. The job's own GITHUB_TOKEN can only
+        # read THIS repo, so a fine-grained token with Contents: read on CNS
+        # is stored as the CNS_READ_TOKEN secret and git is told to use it
+        # for github.com. Fail here, by name, rather than three lines later
+        # with "could not read Username".
+        env:
+          CNS_READ_TOKEN: ${{ secrets.CNS_READ_TOKEN }}
+        run: |
+          if [ -z "$CNS_READ_TOKEN" ]; then
+            echo "::error::CNS_READ_TOKEN secret is not set; the private cns dependency cannot be fetched"
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${CNS_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
+
       - name: Audit pinned dependencies for known CVEs
         run: |
           # Hard gate: pip-audit against requirements.txt (resolves the full
