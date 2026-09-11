@@ -40,6 +40,22 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Authorise reads of the library's private repos
+        # This repo's dependencies pull sibling repos straight from GitHub
+        # (git+https://github.com/wking53214/...), and every repo in the
+        # library is private. The job's own GITHUB_TOKEN can only read THIS
+        # repo, so a fine-grained token with Contents: read on the library's
+        # repos is stored as the LIBRARY_READ_TOKEN secret and git is told
+        # to use it for github.com. Fail here, by name, rather than later
+        # with "could not read Username".
+        env:
+          LIBRARY_READ_TOKEN: ${{ secrets.LIBRARY_READ_TOKEN }}
+        run: |
+          if [ -z "$LIBRARY_READ_TOKEN" ]; then
+            echo "::error::LIBRARY_READ_TOKEN secret is not set; the library's private dependencies cannot be fetched"
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${LIBRARY_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -185,6 +201,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Authorise reads of the library's private repos
+        # This repo's dependencies pull sibling repos straight from GitHub
+        # (git+https://github.com/wking53214/...), and every repo in the
+        # library is private. The job's own GITHUB_TOKEN can only read THIS
+        # repo, so a fine-grained token with Contents: read on the library's
+        # repos is stored as the LIBRARY_READ_TOKEN secret and git is told
+        # to use it for github.com. Fail here, by name, rather than later
+        # with "could not read Username".
+        env:
+          LIBRARY_READ_TOKEN: ${{ secrets.LIBRARY_READ_TOKEN }}
+        run: |
+          if [ -z "$LIBRARY_READ_TOKEN" ]; then
+            echo "::error::LIBRARY_READ_TOKEN secret is not set; the library's private dependencies cannot be fetched"
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${LIBRARY_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Audit pinned dependencies for known CVEs
         run: |
           # Hard gate: pip-audit against requirements.txt (resolves the full
