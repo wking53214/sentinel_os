@@ -24,3 +24,11 @@ conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@
 # The shared graph substrate (sage_k Node/Edge/Graph). Private; pinned to a
 # commit like conservation-kernel above.
 cns @ git+https://github.com/wking53214/cns.git@9f8f3fed8c33d7bd299c715e1416bed9bcbd0a1c
+# The epistemic gate: epistemic/dit_gate.py judges whether the governor's
+# free-text reasoning qualifies as evidence before it is sealed into the
+# ledger's canonical hash. Private; pinned to a commit like the two above.
+# NOTE: this SHA is DIT's feat/sync-evaluate head (the evaluate() API this
+# module calls). Re-pin to the merge commit if that PR is squash-merged --
+# a squash rewrites the SHA and this one becomes unreachable once the
+# branch is deleted.
+dit @ git+https://github.com/wking53214/DIT.git@26cee7b9632a0b2ceead6827eb1071271995acc5
