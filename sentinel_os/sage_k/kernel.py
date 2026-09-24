@@ -26,6 +26,7 @@ import json
 import math
 import os
 import random
+import secrets
 import statistics
 import time
 from collections import deque
@@ -65,10 +66,15 @@ def safe_stdev(sequence_input: "deque | List[float]", default_value: float = 0.0
 # ---------------------------------------------------------------------------
 
 _AUDIT_LOG_PATH: str = os.getenv("FORTRESS_AUDIT_LOG", "fortress_audit.log")
-_AUDIT_KEY: str = os.getenv("FORTRESS_AUDIT_KEY", "development-key")
+# No published default key: a key written in the source lets anyone forge
+# records that verify. Without FORTRESS_AUDIT_KEY, sign with a random key held only by
+# this process; the log is then tamper-evident only to this process.
+_CONFIGURED_AUDIT_KEY = os.getenv("FORTRESS_AUDIT_KEY")
 
-if _AUDIT_KEY == "development-key" and os.getenv("FORTRESS_ENV") == "production":
+if not _CONFIGURED_AUDIT_KEY and os.getenv("FORTRESS_ENV") == "production":
     raise RuntimeError("Security Exception: Production deployments require unique cryptographic keys.")
+
+_AUDIT_KEY: str = _CONFIGURED_AUDIT_KEY or secrets.token_hex(32)
 
 
 def _compute_hmac_signature(key_bytes: bytes, message_bytes: bytes) -> str:
