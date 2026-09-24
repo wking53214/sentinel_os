@@ -8,7 +8,7 @@
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `iceberg` | |
 | `POSTGRES_USER` | `iceberg` | |
-| `POSTGRES_PASSWORD` | `iceberg` | Change for any non-local deployment |
+| `POSTGRES_PASSWORD` | none (required) | The worker, the operator scripts and docker-compose refuse to start without it |
 | `CLAUDE_API_KEY` | — | Used by the IVR governor client, which now lives in the **GSA-815** repo (`claude_governance_api.py`). Not read by this kernel directly. |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY` / `TWILIO_API_SECRET` | — | Twilio call-log ingestion moved to the **GSA-815** repo. |
 | `ICEBERG_API_KEYS` | — | API keys for the resilient API server (`api_server_resilient.py`), now in the **GSA-815** repo. |

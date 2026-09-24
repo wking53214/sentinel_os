@@ -13,7 +13,7 @@ services:
     environment:
       POSTGRES_DB: iceberg_ledger
       POSTGRES_USER: iceberg
-      POSTGRES_PASSWORD: change_me_in_prod
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (see .env.example)}
     # Bind-mounted one level up, outside this directory (the Docker
     # build context for the iceberg/ingress/worker services below,
     # since they all `build: .` from here). Postgres's data dir is
@@ -120,14 +120,14 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_DB: iceberg_ledger
       POSTGRES_USER: iceberg
-      POSTGRES_PASSWORD: change_me_in_prod
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (see .env.example)}
       # Required, and easy to miss: these two are read by the ledger
       # itself, not by sentinel_worker's own config function, so they do
       # not appear anywhere in the worker's source. The ledger refuses to
       # boot without a declared non-owner runtime identity (fail-closed,
       # no privileged fallback) -- same pair the iceberg service sets.
       ICEBERG_LEDGER_RUNTIME_USER: ledger_reader
-      ICEBERG_LEDGER_RUNTIME_PASSWORD: change_me_in_prod_too
+      ICEBERG_LEDGER_RUNTIME_PASSWORD: ${ICEBERG_LEDGER_RUNTIME_PASSWORD:?set ICEBERG_LEDGER_RUNTIME_PASSWORD (see .env.example)}
       # See the iceberg service above. The worker also constructs the ledger,
       # so the attestation keys belong here too for rows it writes.
       ICEBERG_LEDGER_ATTESTATION_KEY: ${ICEBERG_LEDGER_ATTESTATION_KEY:-}

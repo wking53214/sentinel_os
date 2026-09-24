@@ -6,8 +6,8 @@
 #   scripts/ledger_backup_verify.sh [OUTFILE]
 #
 # OUTFILE defaults to ledger-<UTC-timestamp>.dump (custom pg_dump format).
-# Reads POSTGRES_HOST/PORT/DB/USER/PASSWORD (defaults localhost:5432
-# iceberg/iceberg/iceberg). Needs pg_dump / pg_restore / createdb / dropdb on
+# Reads POSTGRES_HOST/PORT/DB/USER (defaults localhost:5432 iceberg/iceberg)
+# and POSTGRES_PASSWORD (required, no default). Needs pg_dump / pg_restore / createdb / dropdb on
 # PATH and CREATEDB on the connecting role. The throwaway verify database is
 # always dropped, success or failure.
 set -euo pipefail
@@ -16,7 +16,7 @@ HOST="${POSTGRES_HOST:-localhost}"
 PORT="${POSTGRES_PORT:-5432}"
 DB="${POSTGRES_DB:-iceberg}"
 USER="${POSTGRES_USER:-iceberg}"
-export PGPASSWORD="${POSTGRES_PASSWORD:-iceberg}"
+export PGPASSWORD="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}"
 OUT="${1:-ledger-$(date -u +%Y%m%dT%H%M%SZ).dump}"
 VERIFY_DB="ledger_verify_$$"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
