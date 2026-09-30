@@ -32,7 +32,6 @@ from .authorized_by_attestation import (
     content_prehash as _content_prehash,
     key_fingerprint as _key_fingerprint,
     verify_shuffle_seed as _verify_shuffle_seed,
-    STATUS_ABSENT as _SEED_STATUS_ABSENT,
     STATUS_OK as _SEED_STATUS_OK,
     STATUS_RETIRED_KEY as _SEED_STATUS_RETIRED_KEY,
 )

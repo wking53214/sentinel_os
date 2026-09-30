@@ -8,15 +8,20 @@ before each test), the same convention as test_authorized_by_attestation.py.
 """
 
 import dataclasses
+import hashlib
+import inspect
 import json
 import math
 import os
+import subprocess
+import sys
 
 import psycopg2
 import pytest
 
 from canonical_fields import OPTIONAL_HASHED_FIELDS
 from cns.gate import GateOutcome, GatePosition, subject_digest
+from governance import authorized_by_attestation as att
 from governance.ledger_postgres import (
     GovernanceDecisionRecord, PostgreSQLLedger, gate_outcome_of)
 import twin_custody as tc
@@ -198,10 +203,6 @@ def test_f_rows_written_before_this_change_keep_their_bytes():
 # Step 2.3: the server-derived seed rule (helper only; nothing shuffles yet)
 # ---------------------------------------------------------------------------
 
-import hashlib
-import inspect
-
-from governance import authorized_by_attestation as att
 
 _KEY = b"receipts-test-attestation-key-not-a-real-secret"
 _OTHER_KEY = b"some-other-key-the-server-never-held"
@@ -646,8 +647,6 @@ def test_a_falsy_require_flag_no_longer_switches_enforcement_off(monkeypatch, ca
 # Steps 2.8 and 2.9: the offline verifier, on export files, no database
 # ---------------------------------------------------------------------------
 
-import subprocess
-import sys
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TOOL = os.path.join(_REPO, "tools", "verify_receipts.py")
@@ -793,7 +792,7 @@ def test_d_nulling_a_signature_after_the_marker_is_unattested(scenario):
     assert "anchor mismatch" in run.stdout
 
 
-def test_e_deleting_the_last_three_rows_is_truncated(scenario):
+def test_e_deleting_the_last_three_rows_is_truncated_offline(scenario):
     rows = [dict(r) for r in scenario["rows"]][:-3]
     verdict, run = _verdict(scenario["tmp"], rows, scenario["anchor"],
                             scenario["key_file"], scenario["fps"])
