@@ -112,6 +112,22 @@ OPTIONAL_HASHED_FIELDS = (
     # written without a key and every row predating this field -- same
     # migration guarantee every optional field above already has.
     "authorized_by_sig",
+    # TACK Layer 5 (verdict receipts): the CNS canonical digest
+    # (cns.gate.subject_digest) of the content this decision judged, its
+    # input_data as stored. Computed by the writer, never taken from the
+    # record; the witness recomputes it from the stored input_data and a
+    # mismatch is a TRANSPLANTED verdict (moved onto content it was not
+    # issued for). Present on governance_decision rows written from this
+    # change on; absent -> omitted -> every earlier row keeps its bytes.
+    "subject_digest",
+    # Reserved for TACK Layer 1 (the MTD sequencer): the server-derived
+    # seed that fixed the order of non-dependent validation gates for
+    # this row (governance/authorized_by_attestation.derive_shuffle_seed).
+    # Absent on every row written by a chain that was not shuffled, which
+    # today is every row. Present-when-truthy, so no existing row changes
+    # bytes; when present the witness re-derives it and a mismatch is
+    # SEED_FORGED (the agent, not the server, chose the gate order).
+    "shuffle_seed",
 )
 
 
