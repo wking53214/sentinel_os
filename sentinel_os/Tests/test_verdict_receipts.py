@@ -640,3 +640,87 @@ def test_a_falsy_require_flag_no_longer_switches_enforcement_off(monkeypatch, ca
     att._warned.discard("require-falsy")
     assert att.enforcement_required() is True
     assert "ignored" in capfd.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Steps 2.8 and 2.9: the offline verifier, on export files, no database
+# ---------------------------------------------------------------------------
+
+import subprocess
+import sys
+
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+TOOL = os.path.join(_REPO, "tools", "verify_receipts.py")
+EXPORT_SCRIPT = os.path.join(_REPO, "sentinel_os", "scripts", "export_ledger.py")
+
+
+def _export_to(path):
+    run = subprocess.run([sys.executable, EXPORT_SCRIPT, "--out", str(path)],
+                         capture_output=True, text=True, check=True)
+    assert "wrote" in run.stdout
+    with open(path) as fh:
+        return json.load(fh)
+
+
+def _verdict(tmp_path, rows, anchor_path, key_file, fps, columns=None):
+    export = {"format": "sentinel_os.ledger_export.v1",
+              "columns": columns or list(tc.SHIPPED_COLUMNS), "rows": rows}
+    export_path = tmp_path / "export-under-test.json"
+    with open(export_path, "w") as fh:
+        json.dump(export, fh, default=str)
+    # the command also reads the ledger's own key environment; scrub it so
+    # these tests hand it exactly the key file and nothing else
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ICEBERG_LEDGER_ATTESTATION")}
+    run = subprocess.run(
+        [sys.executable, TOOL, "--export", str(export_path), "--anchor", str(anchor_path),
+         "--trusted-fingerprints", ",".join(fps), "--key-file", str(key_file)],
+        capture_output=True, text=True, env=env)
+    first = (run.stdout.splitlines() or [""])[0]
+    return first.split(" ")[0], run
+
+
+def _rechain(rows, start):
+    """What an attacker with the file does after an edit: recompute every
+    later hash so the unkeyed chain is self-consistent again."""
+    for i in range(start, len(rows)):
+        if i > 0:
+            rows[i]["previous_hash"] = rows[i - 1]["current_hash"]
+        rows[i]["current_hash"] = tc.recompute_current_hash(rows[i])
+
+
+@pytest.fixture
+def scenario(tmp_path, monkeypatch):
+    """A real enforced ledger with an anchor: the marker, unsigned-claim-free
+    decisions, two abv3-signed accountable decisions and a legacy row,
+    exported through scripts/export_ledger.py."""
+    ledger, anchor_path = _anchored_ledger(tmp_path, monkeypatch, appends=2)
+    try:
+        for _ in range(2):
+            assert ledger.append_decision(
+                _record(authorized_by="harness:production"), governance_params=_params())
+    finally:
+        ledger.close()
+    export = _export_to(tmp_path / "export.json")
+    key_file = tmp_path / "keys.txt"
+    key_file.write_text(_KEY.decode() + "\n")
+    return {"rows": export["rows"], "anchor": anchor_path, "key_file": key_file,
+            "fps": [att.key_fingerprint(_KEY)], "tmp": tmp_path}
+
+
+def test_2_8_a_clean_export_is_verified_with_exit_zero(scenario):
+    verdict, run = _verdict(scenario["tmp"], scenario["rows"], scenario["anchor"],
+                            scenario["key_file"], scenario["fps"])
+    assert verdict == "VERIFIED" and run.returncode == 0, run.stdout + run.stderr
+    assert run.stdout.strip() == "VERIFIED"
+
+
+def test_a_signature_by_an_untrusted_key_is_unattested_and_no_key_is_refused(scenario):
+    other_file = scenario["tmp"] / "other.txt"
+    other_file.write_text(_OTHER_KEY.decode() + "\n")
+    verdict, run = _verdict(scenario["tmp"], scenario["rows"], scenario["anchor"],
+                            other_file, [att.key_fingerprint(_OTHER_KEY)])
+    assert verdict == tc.VIOLATION_UNATTESTED and run.returncode == 1, run.stdout
+    # trusting a fingerprint without holding its key is not verification
+    verdict, run = _verdict(scenario["tmp"], scenario["rows"], scenario["anchor"],
+                            other_file, scenario["fps"])
+    assert run.returncode == 2 and "no trusted key material" in run.stderr
