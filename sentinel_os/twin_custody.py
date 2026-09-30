@@ -47,15 +47,17 @@ import base64
 import hashlib
 import json
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Same contract the primary ledger uses to add optional fields to the hash.
 # Importing it (rather than re-listing the fields here) is what guarantees the
 # witness and the writer can never drift on which keys enter the canonical form.
 from canonical_fields import (
+    ATTESTATION_POLICY_RECORD_KIND as _ATTESTATION_POLICY_RECORD_KIND,
     CONTRACT_CANONICAL_FIELDS as _CONTRACT_CANONICAL_FIELDS,
     CONTRACT_KINDS_WITH_FINDING as _CONTRACT_KINDS_WITH_FINDING,
     apply_optional_hashed_fields,
+    attestation_policy_canonical as _attestation_policy_canonical,
     observed_event_canonical as _observed_event_canonical,
 )
 # TACK Layer 5 receipts. The witness recomputes the subject binding with the
@@ -470,6 +472,12 @@ def canonical_form(row: Dict[str, Any]) -> Dict[str, Any]:
         # verify_chain also call. Recompute site 3 of 3.
         body = row.get("input_data") or {}
         canonical = _observed_event_canonical(body, row["previous_hash"])
+    elif row.get("record_kind") == _ATTESTATION_POLICY_RECORD_KIND:
+        # Mirrors ledger_postgres.record_attestation_policy(). The marker
+        # body rode in data; fixed canonical form from the shared builder.
+        # Recompute site 3 of 3.
+        canonical = _attestation_policy_canonical(
+            row.get("data") or {}, row.get("reason"), row["previous_hash"])
     else:
         canonical = {
             "action_type": row["action_type"],
@@ -547,6 +555,45 @@ def verify_shuffle_seed_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool
     if status in (_SEED_ABSENT, _SEED_OK):
         return True, None
     return False, f"{VIOLATION_SEED_FORGED}: {detail or status}"
+
+
+def verify_rows(rows: List[Dict[str, Any]], keys: Any = None
+                ) -> Optional[Tuple[Any, str, str]]:
+    """The witness's walk over a whole chain, in id order: the first failing
+    (row id, violation kind, detail), or None when every row holds.
+
+    Per row, in this order: the link to the previous row and the hash
+    recompute (TAMPERED), the subject binding (TRANSPLANTED), a present
+    signature under the held keys (TAMPERED when invalid, UNATTESTED when
+    its key is unknown), a present seed (SEED_FORGED), and, once an
+    attestation_policy marker has been passed, an accountable claim with no
+    signature (UNATTESTED). Rows before the marker are untouched.
+    """
+    prev = "genesis"
+    policy_from = None
+    for row in rows:
+        row_id = row.get("id")
+        if row.get("previous_hash") != prev:
+            return (row_id, VIOLATION_TAMPERED,
+                    f"chain broken: previous_hash {str(row.get('previous_hash'))[:16]}.. "
+                    f"does not link to {str(prev)[:16]}..")
+        ok, detail = deep_verify_row(row, keys)
+        if not ok:
+            kind = (detail or VIOLATION_TAMPERED).split(":", 1)[0]
+            if kind not in (VIOLATION_TAMPERED, VIOLATION_TRANSPLANTED,
+                            VIOLATION_SEED_FORGED, VIOLATION_UNATTESTED):
+                kind = VIOLATION_TAMPERED
+            return (row_id, kind, detail or "")
+        if (policy_from is not None and row.get("authorized_by")
+                and not row.get(_SIGNATURE_FIELD)):
+            return (row_id, VIOLATION_UNATTESTED,
+                    f"authorized_by {row.get('authorized_by')!r} carries no signature; "
+                    f"attestation has been enforced since row {policy_from}")
+        if (row.get("record_kind") == _ATTESTATION_POLICY_RECORD_KIND
+                and policy_from is None):
+            policy_from = row_id
+        prev = row.get("current_hash")
+    return None
 
 
 def deep_verify_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool, Optional[str]]:
