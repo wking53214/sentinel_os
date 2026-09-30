@@ -66,7 +66,6 @@ from canonical_fields import (
 # the one helper Layer 1 will derive it with.
 from cns.gate import subject_digest as _cns_subject_digest
 from governance.authorized_by_attestation import (
-    KeySet as _KeySet,
     SIGNATURE_FIELD as _SIGNATURE_FIELD,
     STATUS_RETIRED_KEY as _ATT_RETIRED_KEY,
     STATUS_UNVERIFIABLE as _ATT_UNVERIFIABLE,
