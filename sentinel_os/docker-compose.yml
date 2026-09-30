@@ -128,9 +128,16 @@ services:
       # no privileged fallback) -- same pair the iceberg service sets.
       ICEBERG_LEDGER_RUNTIME_USER: ledger_reader
       ICEBERG_LEDGER_RUNTIME_PASSWORD: change_me_in_prod_too
-      # See the iceberg service above. The worker also constructs the ledger,
-      # so the attestation keys belong here too for rows it writes.
-      ICEBERG_LEDGER_ATTESTATION_KEY: ${ICEBERG_LEDGER_ATTESTATION_KEY:-}
+      # The worker constructs the ledger, so the attestation key belongs
+      # here for the rows it writes. Required: attestation is enforced by
+      # default (TACK Layer 5) and the ledger refuses to start without a
+      # signing key, so `docker compose up` stops here, by name, before
+      # anything starts. Generate with `openssl rand -hex 32`; one key per
+      # environment; never commit it. ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE
+      # is deliberately NOT wired into this profile: it is for a developer's
+      # own machine, and a production profile that sets it writes
+      # accountable claims nobody can verify.
+      ICEBERG_LEDGER_ATTESTATION_KEY: ${ICEBERG_LEDGER_ATTESTATION_KEY:?set ICEBERG_LEDGER_ATTESTATION_KEY (openssl rand -hex 32) before starting the governed lane; the ledger signs every accountable claim with it}
       ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS: ${ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS:-}
       # The external head anchor (TACK Layer 5). After every successful
       # append the chain's head hash and row count are sealed here, signed

@@ -208,7 +208,8 @@ class PostgreSQLLedger:
         # start rather than proceed with enforcement that cannot be honoured.
         if enforcement_required() and attestation_key() is None:
             raise RuntimeError(
-                "ICEBERG_LEDGER_REQUIRE_ATTESTATION is set but "
+                "authorized_by attestation is enforced by default "
+                "(ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE is the only opt-out) but "
                 "ICEBERG_LEDGER_ATTESTATION_KEY is not. The ledger refuses to "
                 "start: authorized_by attestation enforcement requires a real "
                 "service signing key supplied by the environment. There is no "

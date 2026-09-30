@@ -421,13 +421,16 @@ def _fresh_ledger():
 
 
 def _enforcement_on(monkeypatch, key=_KEY):
+    monkeypatch.delenv(att.ENV_DEV_OVERRIDE, raising=False)
     monkeypatch.setenv(att.ENV_REQUIRE, "1")
     monkeypatch.setenv(att.ENV_KEY, key.decode())
 
 
 def _enforcement_off_no_key(monkeypatch):
+    """Enforcement off is the dev-only override since step 2.7."""
     monkeypatch.delenv(att.ENV_REQUIRE, raising=False)
     monkeypatch.delenv(att.ENV_KEY, raising=False)
+    monkeypatch.setenv(att.ENV_DEV_OVERRIDE, "1")
 
 
 def test_marker_is_appended_once_per_key_when_enforcement_is_on(monkeypatch):
@@ -601,7 +604,39 @@ def test_anchor_location_is_proven_at_boot(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="not writable"):
         _fresh_ledger()
     monkeypatch.setenv(tc.HEAD_ANCHOR_ENV, str(tmp_path / "ledger.anchor"))
-    monkeypatch.delenv(att.ENV_REQUIRE, raising=False)
-    monkeypatch.delenv(att.ENV_KEY, raising=False)
+    _enforcement_off_no_key(monkeypatch)
     with pytest.raises(RuntimeError, match="unsigned anchor"):
         _fresh_ledger()
+
+
+# ---------------------------------------------------------------------------
+# Step 2.7: enforcement is the default; one loud dev-only override
+# ---------------------------------------------------------------------------
+
+def test_i_production_profile_without_a_key_refuses_to_start(monkeypatch, capfd):
+    """Acceptance (i): no key, no override -> the ledger does not start. The
+    dev override starts it, and says so loudly on stderr."""
+    for var in (att.ENV_KEY, att.ENV_KEY_FILE, att.ENV_REQUIRE, att.ENV_DEV_OVERRIDE):
+        monkeypatch.delenv(var, raising=False)
+    assert att.enforcement_required() is True
+    with pytest.raises(RuntimeError, match="enforced by default"):
+        PostgreSQLLedger(**_PG)
+
+    monkeypatch.setenv(att.ENV_DEV_OVERRIDE, "1")
+    att._warned.discard("override")      # once per process; let this test see it
+    ledger = _fresh_ledger()
+    try:
+        assert att.enforcement_required() is False
+        assert _rows() == []             # unenforced: no marker is appended
+    finally:
+        ledger.close()
+    err = capfd.readouterr().err
+    assert "WARNING" in err and att.ENV_DEV_OVERRIDE in err and "unverifiable" in err
+
+
+def test_a_falsy_require_flag_no_longer_switches_enforcement_off(monkeypatch, capfd):
+    monkeypatch.delenv(att.ENV_DEV_OVERRIDE, raising=False)
+    monkeypatch.setenv(att.ENV_REQUIRE, "false")
+    att._warned.discard("require-falsy")
+    assert att.enforcement_required() is True
+    assert "ignored" in capfd.readouterr().err
