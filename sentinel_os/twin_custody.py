@@ -744,6 +744,8 @@ def deep_verify_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool, Option
         status, why = verify_row_attestation(row, keys)
         if status == _ATT_INVALID:
             return False, f"{VIOLATION_TAMPERED}: attestation invalid: {why}"
-        if status == _ATT_UNKNOWN_KEY:
+        if status in (_ATT_UNKNOWN_KEY, _ATT_UNVERIFIABLE):
+            # A caller that hands over keys means to verify; a signature
+            # none of them can check is not attested to anyone it trusts.
             return False, f"{VIOLATION_UNATTESTED}: {why}"
     return verify_shuffle_seed_row(row, keys)
