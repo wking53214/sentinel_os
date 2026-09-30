@@ -21,9 +21,13 @@ cryptography>=41.0  # twin_custody.py: ECIES envelopes, Ed25519/X25519, AES-GCM,
 # mirror this kernel version's enums / Proposition rules / rejection codes --
 # bump deliberately (re-run the conservation boundary tests on the new SHA).
 conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@25145aa0a10130c710dc71899c0da9930cf7d285
-# The shared graph substrate (sage_k Node/Edge/Graph). Private; pinned to a
-# commit like conservation-kernel above.
-cns @ git+https://github.com/wking53214/cns.git@9f8f3fed8c33d7bd299c715e1416bed9bcbd0a1c
+# The shared graph substrate (sage_k Node/Edge/Graph) and, from 1.4.0, the
+# gate contract (cns.gate: subject_digest, GatePosition, GateOutcome) that
+# the ledger's verdict receipts bind to. Private. This SHA is the v1.4.0
+# release commit; the git proxy a web session pushes through refuses tag
+# refs, so the tag is pushed from a local clone and this pin can then read
+# @v1.4.0 (the README's preferred form) without changing what it resolves to.
+cns @ git+https://github.com/wking53214/cns.git@3b465dbcc1a6a4ab6f1040f93d44483196abd737
 # The epistemic gate: epistemic/dit_gate.py judges whether the governor's
 # free-text reasoning qualifies as evidence before it is sealed into the
 # ledger's canonical hash. Private; pinned to a commit like the two above.
