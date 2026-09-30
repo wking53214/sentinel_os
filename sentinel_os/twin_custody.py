@@ -740,6 +740,14 @@ def deep_verify_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool, Option
     ok, detail = verify_subject_binding(row)
     if not ok:
         return ok, detail
+    # The seed check runs before the signature check on purpose: an abv3
+    # signature covers the whole row, so a forged seed also breaks it, and
+    # the specific finding (SEED_FORGED) must name the attack rather than
+    # be reported as its consequence (TAMPERED). Same reason the subject
+    # binding runs first.
+    ok, detail = verify_shuffle_seed_row(row, keys)
+    if not ok:
+        return ok, detail
     if keys is not None and row.get(_SIGNATURE_FIELD):
         status, why = verify_row_attestation(row, keys)
         if status == _ATT_INVALID:
@@ -748,4 +756,4 @@ def deep_verify_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool, Option
             # A caller that hands over keys means to verify; a signature
             # none of them can check is not attested to anyone it trusts.
             return False, f"{VIOLATION_UNATTESTED}: {why}"
-    return verify_shuffle_seed_row(row, keys)
+    return True, None
