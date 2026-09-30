@@ -12,6 +12,7 @@ from canonical_fields import (CONTRACT_CANONICAL_FIELDS,
                               apply_optional_hashed_fields,
                               event_v1_to_body,
                               observed_event_canonical)
+from cns.gate import GateOutcome, GatePosition, subject_digest as cns_subject_digest
 from .human_selection_v1 import HUMAN_SELECTIONS
 from .authorized_by_attestation import (
     SIGNATURE_FIELD as _AUTHORIZED_BY_SIG_FIELD,
@@ -126,6 +127,21 @@ class GovernanceDecisionRecord:
     #   as `cost` on its decision dicts -- passed straight through, never
     #   recomputed here. None for a decision that never called the API.
     ai_cost: Optional[Dict[str, Any]] = None
+
+
+def gate_outcome_of(output: Dict[str, Any]) -> str:
+    """The CNS GateOutcome a decision output amounts to, as its value.
+
+    A decision output declares approval under "approved" (GovernanceHarness)
+    or "safe" (the governor's own answer); `is True`, never truthiness, the
+    same guard the harness applies. An output that declares neither passes
+    nothing: fail-closed, the posture of every gate in the library.
+    """
+    for key in ("approved", "safe"):
+        if key in output:
+            outcome = GateOutcome.PASS if output[key] is True else GateOutcome.TERMINAL_BREACH
+            return outcome.value
+    return GateOutcome.TERMINAL_BREACH.value
 
 class PostgreSQLLedger:
     """Production ledger backed by PostgreSQL"""
@@ -524,6 +540,19 @@ class PostgreSQLLedger:
                         "ALTER TABLE ledger_entries "
                         "ALTER COLUMN authorized_by_sig TYPE VARCHAR(96);"
                     )
+            # TACK Layer 5 verdict receipts: two hashed columns, both entering
+            # the canonical form through OPTIONAL_HASHED_FIELDS. Nullable, no
+            # backfill; every earlier row omits them and hashes
+            # byte-identically. subject_digest is the 64-hex SHA-256 from
+            # cns.gate.subject_digest over the stored input_data; shuffle_seed
+            # is a 64-hex HMAC-SHA256 reserved for Layer 1, NULL on every row
+            # written today.
+            if not {"subject_digest", "shuffle_seed"} <= existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS subject_digest VARCHAR(64),
+                        ADD COLUMN IF NOT EXISTS shuffle_seed VARCHAR(64);
+                """)
             # observed_event rows (the persisted EventV1 stream, written in
             # the same transaction as the governance_decision they feed --
             # see append_decision's observed_events arg). No new column: the
@@ -811,6 +840,39 @@ class PostgreSQLLedger:
         if not isinstance(record.output, dict) or not record.output:
             raise ValueError("Governance decision rejected: output must be a non-empty dict")
 
+        # TACK Layer 5: bind the verdict to what it judged. The digest is the
+        # CNS canonical digest of input_data exactly as it will be stored (a
+        # JSON round trip, which is what the witness reads back), computed
+        # by the writer and never taken from the record. cns.gate refuses
+        # NaN, the infinities and any type it cannot encode unambiguously.
+        # That refusal is a defect in the gate that produced the input, so
+        # the write is refused here, before any row is written, rather than
+        # papered over with a digest of something else.
+        try:
+            stored_input = json.loads(json.dumps(record.input_data))
+            subject_digest = cns_subject_digest(stored_input)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Governance decision rejected: input_data is not canonically "
+                f"encodable, so the verdict cannot be bound to it ({exc})"
+            ) from exc
+
+        # The gate identity rides inside the hashed output mapping, not in
+        # a column: which gate judged, at which end, and what it said in the
+        # CNS vocabulary. A cassette judges produced input, so the position
+        # is OMEGA. A caller-supplied "gate" entry is refused rather than
+        # overwritten: the ledger, not the agent, names the gate.
+        if "gate" in record.output:
+            raise ValueError(
+                "Governance decision rejected: output already carries a "
+                "'gate' entry; the ledger records the gate identity itself")
+        output = dict(record.output)
+        output["gate"] = {
+            "name": record.cassette_version,
+            "position": GatePosition.OMEGA.value,
+            "outcome": gate_outcome_of(record.output),
+        }
+
         # observed_events: validate the whole batch BEFORE the transaction
         # opens, same fail-early posture as the record checks above. One bad
         # event rejects the decision -- a governed call whose observation
@@ -906,7 +968,7 @@ class PostgreSQLLedger:
                 "input_data": record.input_data,
                 "policy_parameters": record.policy_parameters,
                 "reasoning": record.reasoning,
-                "output": record.output,
+                "output": output,
                 "previous_value": record.previous_value,
                 "applied_value": record.applied_value,
                 "parameter_changed": bool(record.parameter_changed),
@@ -930,6 +992,12 @@ class PostgreSQLLedger:
                 "outcome_obligation": record.outcome_obligation,
                 "replaces_hash": record.replaces_hash,
                 "ai_cost": record.ai_cost,
+                "subject_digest": subject_digest,
+                # Reserved for TACK Layer 1. Never read from the record or
+                # the request: the writer derives it (see
+                # authorized_by_attestation.derive_shuffle_seed) or leaves
+                # the field absent, and today no chain is shuffled.
+                "shuffle_seed": None,
                 _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             }
             apply_optional_hashed_fields(canonical_entry, optional_source)
@@ -946,16 +1014,16 @@ class PostgreSQLLedger:
                  decision_output, cassette_snapshot, cassette_hash, call_sid,
                  cassette_code_hash, model_identity, authorized_by,
                  supersedes_id, supersedes_hash, outcome_obligation, replaces_hash,
-                 ai_cost, authorized_by_sig)
+                 ai_cost, authorized_by_sig, subject_digest, shuffle_seed)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (record.action_type, record.node, record.previous_value,
                   record.applied_value, record.reasoning,
                   previous_hash, current_hash, json.dumps(data),
                   "governance_decision", record.cassette_version,
                   json.dumps(record.input_data),
                   json.dumps(record.policy_parameters),
-                  json.dumps(record.output),
+                  json.dumps(output),
                   json.dumps(cassette_snapshot) if cassette_snapshot else None,
                   cassette_hash,
                   record.input_data.get("call_sid"),
@@ -964,7 +1032,7 @@ class PostgreSQLLedger:
                   getattr(record, "supersedes_id", None), record.supersedes_hash,
                   record.outcome_obligation, record.replaces_hash,
                   json.dumps(record.ai_cost) if record.ai_cost else None,
-                  authorized_by_sig))
+                  authorized_by_sig, subject_digest, None))
 
             # observed_event rows: chained after the decision row, still
             # inside this transaction and still holding the advisory lock, so
@@ -2727,7 +2795,7 @@ class PostgreSQLLedger:
                        cassette_code_hash, model_identity, authorized_by,
                        supersedes_id, supersedes_hash, outcome_obligation,
                        replaces_hash, ai_cost, shadow_run_hash, decision_hash,
-                       authorized_by_sig
+                       authorized_by_sig, subject_digest, shuffle_seed
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -2748,7 +2816,7 @@ class PostgreSQLLedger:
                  cassette_code_hash, model_identity, authorized_by,
                  supersedes_id, supersedes_hash, outcome_obligation,
                  replaces_hash, ai_cost, shadow_run_hash, decision_hash,
-                 authorized_by_sig) = row
+                 authorized_by_sig, subject_digest, shuffle_seed) = row
                 
                 # Check chain link integrity
                 if stored_prev != prev_hash:
@@ -2785,6 +2853,8 @@ class PostgreSQLLedger:
                             "outcome_obligation": outcome_obligation,
                             "replaces_hash": replaces_hash,
                             "ai_cost": self._as_json(ai_cost),
+                            "subject_digest": subject_digest,
+                            "shuffle_seed": shuffle_seed,
                         })
                     elif record_kind == "cassette_binding":
                         # Item 2 -- mirrors bind_cassette_version()
