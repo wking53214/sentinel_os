@@ -8,6 +8,8 @@ Second sellable unit after the governed action gate in [observe-perceive](https:
 Live path: Admission → OBSERVE/Keys → Locks → PERCEIVE → Decision → Conservation → Execution → Custody (this repo)
 ```
 
+**Verdict receipts (TACK Layer 5):** every governance decision the ledger writes is bound to the CNS digest of what it judged, signed over its content with a key the agent does not hold, hash-chained, and anchored outside the database. `tools/verify_receipts.py` verifies an export offline and prints one of `VERIFIED`, `TAMPERED`, `TRANSPLANTED`, `SEED_FORGED`, `TRUNCATED`, `UNATTESTED`. Attestation is enforced by default; the ledger refuses to start without `ICEBERG_LEDGER_ATTESTATION_KEY`.
+
 **Not clone-and-run without services** (Postgres, etc.). See README for commercial status and dependencies.
 
 See [README.md](README.md) for full architecture.

@@ -115,11 +115,23 @@ CONFIGURATION (locked decision D3 / D4)
   rewriting the file rotates with no restart. No default, no placeholder
   fallback. A set-but-broken ``_KEY_FILE`` raises. If neither is set, rows are
   written with a NULL signature and honestly reported as unattested.
-* ``ICEBERG_LEDGER_REQUIRE_ATTESTATION`` -- opt-in enforcement, OFF unless set
-  to a truthy value ("1"/"true"/"yes"/"on"). When ON and no signing key is
-  configured, the ledger refuses to start. When ON, a writer that cannot
-  produce a signature for a present ``authorized_by`` claim refuses the write,
-  and ``verify_chain`` treats a STATUS_RETIRED_KEY row as a violation.
+* Enforcement is ON by default (TACK Layer 5, step 2.7; it was opt-in
+  before). With no signing key configured the ledger refuses to start; a
+  writer that cannot produce a signature for a present ``authorized_by``
+  claim refuses the write; ``verify_chain`` treats a STATUS_RETIRED_KEY row
+  as a violation; and the ledger appends an attestation_policy marker to
+  the chain at boot, from which row forward an unsigned claim is UNATTESTED.
+* ``ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE`` -- the ONE way to run
+  unenforced, for a developer's own machine and nothing else. A truthy value
+  ("1"/"true"/"yes"/"on") switches enforcement off and prints a loud warning
+  to stderr at startup naming the risk: every accountable claim written
+  under it is an unverifiable string, and no marker is appended, so nothing
+  later can tell those rows from tampered ones. A production profile must
+  never set it; the compose profile requires the key instead.
+* ``ICEBERG_LEDGER_REQUIRE_ATTESTATION`` -- kept for compatibility. A truthy
+  value is what the default already is; a falsy value no longer turns
+  enforcement off (a warning says so once) because the override above is
+  the only opt-out, and it is named for what it is.
 
 Generate every key with 32 bytes of CSPRNG output, e.g. ``openssl rand -hex
 32``, store it in exactly one system of record, never commit it, and use a
@@ -170,6 +182,7 @@ ENV_KEYS_PREVIOUS_FILE = "ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS_FILE"
 ENV_KEYS_RETIRED = "ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED"
 ENV_KEYS_RETIRED_FILE = "ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED_FILE"
 ENV_REQUIRE = "ICEBERG_LEDGER_REQUIRE_ATTESTATION"
+ENV_DEV_OVERRIDE = "ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE"
 
 # Domain-separation tag for the HMAC payload. Versioned so the payload shape
 # can change later without silently accepting old signatures.
@@ -328,13 +341,45 @@ def attestation_keyset() -> KeySet:
     )
 
 
-def enforcement_required() -> bool:
-    """True when ICEBERG_LEDGER_REQUIRE_ATTESTATION is set to a truthy value.
+_warned: set = set()
 
-    OFF by default (locked decision D3): turning enforcement on by default
-    would fail every existing writer on its first call.
+
+def _warn_once(tag: str, message: str) -> None:
+    """One loud line on stderr per process, per condition, at the first
+    enforcement check, which is the ledger's own construction."""
+    if tag in _warned:
+        return
+    _warned.add(tag)
+    import sys
+    print(message, file=sys.stderr, flush=True)
+
+
+def enforcement_required() -> bool:
+    """True unless the dev-only override is set.
+
+    ON by default since TACK Layer 5 (step 2.7). Locked decision D3 made it
+    opt-in so a key could be rolled out before it bit; the key is now a
+    startup requirement of the ledger, and a ledger that writes accountable
+    claims nobody can check is the defect this exists to end. The one way
+    off is ``ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE``, which warns loudly.
+    ``ICEBERG_LEDGER_REQUIRE_ATTESTATION`` is honoured when truthy (a no-op)
+    and ignored when falsy, with a warning, so the override stays the only
+    opt-out.
     """
-    return os.environ.get(ENV_REQUIRE, "").strip().lower() in _TRUTHY
+    if os.environ.get(ENV_DEV_OVERRIDE, "").strip().lower() in _TRUTHY:
+        _warn_once("override", (
+            f"WARNING: {ENV_DEV_OVERRIDE} is set. authorized_by attestation is "
+            f"NOT enforced: accountable claims are written unsigned and "
+            f"unverifiable, no attestation_policy marker is appended, and a "
+            f"verifier cannot tell these rows from tampered ones. Development "
+            f"machines only; never a production profile."))
+        return False
+    raw = os.environ.get(ENV_REQUIRE, "").strip().lower()
+    if raw and raw not in _TRUTHY:
+        _warn_once("require-falsy", (
+            f"WARNING: {ENV_REQUIRE}={raw!r} is ignored: attestation is enforced "
+            f"by default and only {ENV_DEV_OVERRIDE} switches it off."))
+    return True
 
 
 # ---------------------------------------------------------------------------
