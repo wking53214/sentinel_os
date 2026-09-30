@@ -3,6 +3,28 @@
 Dated, human-readable summary of notable changes. Git history has the
 full detail; this is the skim version.
 
+## 2026-09-30
+
+- **Verdict receipts (TACK Layer 5, Blueprint B).** Every governance
+  decision the ledger writes is now a receipt an outside auditor can verify
+  offline: bound to the CNS canonical digest of what it judged
+  (`subject_digest`, via `cns.gate.subject_digest` from cns 1.4.0), signed
+  over its content (`abv3`, beside the unchanged `abv2`), hash-chained as
+  before, and anchored outside the database after every append
+  (`ICEBERG_LEDGER_ANCHOR_PATH`). The gate identity rides inside the hashed
+  output. A chain-native `attestation_policy` marker records when
+  enforcement began; from it forward an unsigned accountable claim is
+  `UNATTESTED`. Attestation is enforced by default; the ledger refuses to
+  start without `ICEBERG_LEDGER_ATTESTATION_KEY`, and the one opt-out,
+  `ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE`, warns loudly. `shuffle_seed` is
+  reserved for TACK Layer 1 with its derivation rule in place, so the ledger
+  is not migrated twice. `tools/verify_receipts.py` prints exactly one of
+  `VERIFIED`, `TAMPERED`, `TRANSPLANTED`, `SEED_FORGED`, `TRUNCATED`,
+  `UNATTESTED` for an export; `scripts/export_ledger.py` writes the export.
+  No migration required: every new field is present-when-truthy and a
+  pre-change ledger export is checked in as a fixture that still verifies.
+  System version 1.0.0 to 1.1.0. Delivery record: `APPLY_verdict_receipts.md`.
+
 ## 2026-09-24
 
 - **Conservation-kernel pin bumped** `e377093` (0.1.0) → `25145aa` (0.3.0),
