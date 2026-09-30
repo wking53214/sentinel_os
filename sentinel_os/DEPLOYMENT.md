@@ -12,7 +12,7 @@
 | `CLAUDE_API_KEY` | — | Used by the IVR governor client, which now lives in the **GSA-815** repo (`claude_governance_api.py`). Not read by this kernel directly. |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY` / `TWILIO_API_SECRET` | — | Twilio call-log ingestion moved to the **GSA-815** repo. |
 | `ICEBERG_API_KEYS` | — | API keys for the resilient API server (`api_server_resilient.py`), now in the **GSA-815** repo. |
-| `ICEBERG_LEDGER_ATTESTATION_KEY` | — | Current signing key for the ledger `authorized_by` attestation and the head anchor. **Required**: attestation is enforced by default and the ledger refuses to start without it. See below. |
+| `ICEBERG_LEDGER_ATTESTATION_KEY` | unset | Current signing key for the ledger `authorized_by` attestation and the head anchor. **Required**: attestation is enforced by default and the ledger refuses to start without it. See below. |
 | `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` | — | Path to a file holding the current key; used only when `ICEBERG_LEDGER_ATTESTATION_KEY` is unset. For file-projecting secret managers (Vault Agent, CSI driver, Docker secrets). |
 | `ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS` / `..._PREVIOUS_FILE` | — | Keys retired from signing but still fully trusted for verification (comma-separated, or one per line in the file). Where old keys live after a rotation. |
 | `ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED` / `..._RETIRED_FILE` | — | Keys the operator has deliberately stopped trusting (suspected compromise / policy sunset). Rows they signed verify as `retired_key` — a `verify_chain` violation only under enforcement. |
