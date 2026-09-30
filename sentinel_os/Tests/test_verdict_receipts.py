@@ -176,3 +176,56 @@ def test_f_rows_written_before_this_change_keep_their_bytes():
         ok, detail = tc.deep_verify_row(row)
         assert ok, f"fixture row {row['id']} ({row['record_kind']}): {detail}"
         prev = row["current_hash"]
+
+
+# ---------------------------------------------------------------------------
+# Step 2.3: the server-derived seed rule (helper only; nothing shuffles yet)
+# ---------------------------------------------------------------------------
+
+import hashlib
+import inspect
+
+from governance import authorized_by_attestation as att
+
+_KEY = b"receipts-test-attestation-key-not-a-real-secret"
+_OTHER_KEY = b"some-other-key-the-server-never-held"
+_PREV = "a" * 64
+
+
+def test_j_seed_same_inputs_give_the_same_seed():
+    one = att.derive_shuffle_seed(_PREV, "governance_decision", _KEY)
+    two = att.derive_shuffle_seed(_PREV, "governance_decision", _KEY)
+    assert one == two
+    assert len(one) == 64 and int(one, 16) >= 0
+    assert att.verify_shuffle_seed(one, _PREV, "governance_decision", _KEY)[0] == att.STATUS_OK
+
+
+def test_j_a_changed_key_previous_hash_or_kind_gives_a_different_seed():
+    base = att.derive_shuffle_seed(_PREV, "governance_decision", _KEY)
+    assert att.derive_shuffle_seed(_PREV, "governance_decision", _OTHER_KEY) != base
+    assert att.derive_shuffle_seed("b" * 64, "governance_decision", _KEY) != base
+    assert att.derive_shuffle_seed(_PREV, "observed_event", _KEY) != base
+
+
+def test_j_without_the_key_the_seed_cannot_be_predicted_from_the_previous_hash():
+    seed = att.derive_shuffle_seed(_PREV, "governance_decision", _KEY)
+    # every keyless derivation an agent could try from the public inputs
+    public = (_PREV, _PREV + "governance_decision", "governance_decision" + _PREV,
+              f"{_PREV}:governance_decision")
+    for guess in public:
+        assert seed != hashlib.sha256(guess.encode()).hexdigest()
+    # a wrong key is refused, and no key at all is honestly unverifiable
+    assert att.verify_shuffle_seed(seed, _PREV, "governance_decision", _OTHER_KEY)[0] == att.STATUS_INVALID
+    assert att.verify_shuffle_seed(seed, _PREV, "governance_decision", None)[0] == att.STATUS_UNVERIFIABLE
+    assert att.verify_shuffle_seed(None, _PREV, "governance_decision", _KEY)[0] == att.STATUS_ABSENT
+    with pytest.raises(ValueError, match="needs the ledger attestation key"):
+        att.derive_shuffle_seed(_PREV, "governance_decision", None)
+
+
+def test_j_nothing_on_the_write_path_reads_or_derives_a_seed():
+    """The helper exists for Layer 1 and the witness. The writer neither
+    calls it nor reads a seed off the record: the field is left absent."""
+    src = inspect.getsource(PostgreSQLLedger.append_decision)
+    assert "derive_shuffle_seed(" not in src   # a comment may name it; no call does
+    assert "record.shuffle_seed" not in src
+    assert 'getattr(record, "shuffle_seed"' not in src
