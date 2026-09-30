@@ -724,3 +724,136 @@ def test_a_signature_by_an_untrusted_key_is_unattested_and_no_key_is_refused(sce
     verdict, run = _verdict(scenario["tmp"], scenario["rows"], scenario["anchor"],
                             other_file, scenario["fps"])
     assert run.returncode == 2 and "no trusted key material" in run.stderr
+
+
+# ---------------------------------------------------------------------------
+# Step 2.9: acceptance tests a to g, through the offline command
+# ---------------------------------------------------------------------------
+
+def test_a_editing_a_rows_input_data_is_tampered(scenario):
+    rows = [dict(r) for r in scenario["rows"]]
+    target = next(i for i, r in enumerate(rows) if r["record_kind"] == "governance_decision")
+    rows[target]["input_data"] = dict(rows[target]["input_data"], score=0.99)
+    verdict, run = _verdict(scenario["tmp"], rows, scenario["anchor"],
+                            scenario["key_file"], scenario["fps"])
+    assert verdict == tc.VIOLATION_TAMPERED and run.returncode == 1, run.stdout
+    assert f"row={rows[target]['id']}" in run.stdout
+
+
+def test_b_copying_another_rows_subject_digest_is_transplanted(scenario):
+    rows = [dict(r) for r in scenario["rows"]]
+    decisions = [i for i, r in enumerate(rows) if r["record_kind"] == "governance_decision"]
+    first, second = decisions[0], decisions[1]
+    rows[second]["subject_digest"] = rows[first]["subject_digest"]
+    _rechain(rows, second)
+    verdict, run = _verdict(scenario["tmp"], rows, scenario["anchor"],
+                            scenario["key_file"], scenario["fps"])
+    assert verdict == tc.VIOLATION_TRANSPLANTED and run.returncode == 1, run.stdout
+    assert f"row={rows[second]['id']}" in run.stdout
+    assert "anchor mismatch" in run.stdout
+
+
+def test_c_a_seed_the_server_would_not_derive_is_seed_forged(scenario):
+    rows = [dict(r) for r in scenario["rows"]]
+    target = next(i for i, r in enumerate(rows) if r["record_kind"] == "governance_decision")
+    rows[target]["shuffle_seed"] = "0" * 64
+    _rechain(rows, target)
+    verdict, run = _verdict(scenario["tmp"], rows, scenario["anchor"],
+                            scenario["key_file"], scenario["fps"])
+    assert verdict == tc.VIOLATION_SEED_FORGED and run.returncode == 1, run.stdout
+    # the seed the server WOULD have derived passes the same check
+    rows = [dict(r) for r in scenario["rows"]]
+    rows[target]["shuffle_seed"] = att.derive_shuffle_seed(
+        rows[target]["previous_hash"], rows[target]["record_kind"], _KEY)
+    _rechain(rows, target)
+    assert tc.verify_shuffle_seed_row(rows[target], _KEY)[0]
+    verdict, run = _verdict(scenario["tmp"], rows, scenario["anchor"],
+                            scenario["key_file"], scenario["fps"])
+    # the seed check is satisfied; what objects now is the rebuilt tail (the
+    # later abv3 signatures cover their previous_hash, and the anchor sealed
+    # the original head), which is exactly what a rebuilt chain should trip
+    assert verdict != tc.VIOLATION_SEED_FORGED, run.stdout
+    assert verdict in (tc.VIOLATION_TAMPERED, tc.VIOLATION_TRUNCATED), run.stdout
+
+
+def test_d_nulling_a_signature_after_the_marker_is_unattested(scenario):
+    """The attack that passed before this change: strip a signature and
+    recompute every later hash. The marker makes it UNATTESTED, and the
+    anchor also reports the head mismatch."""
+    rows = [dict(r) for r in scenario["rows"]]
+    signed = next(i for i, r in enumerate(rows) if r.get("authorized_by_sig"))
+    marker = next(i for i, r in enumerate(rows) if r["record_kind"] == "attestation_policy")
+    assert marker < signed
+    rows[signed]["authorized_by_sig"] = None
+    _rechain(rows, signed)
+    verdict, run = _verdict(scenario["tmp"], rows, scenario["anchor"],
+                            scenario["key_file"], scenario["fps"])
+    assert verdict == tc.VIOLATION_UNATTESTED and run.returncode == 1, run.stdout
+    assert f"row={rows[signed]['id']}" in run.stdout
+    assert "anchor mismatch" in run.stdout
+
+
+def test_e_deleting_the_last_three_rows_is_truncated(scenario):
+    rows = [dict(r) for r in scenario["rows"]][:-3]
+    verdict, run = _verdict(scenario["tmp"], rows, scenario["anchor"],
+                            scenario["key_file"], scenario["fps"])
+    assert verdict == tc.VIOLATION_TRUNCATED and run.returncode == 1, run.stdout
+    assert "missing from the tail" in run.stdout
+
+
+def test_f_a_ledger_written_before_this_change_is_verified(tmp_path):
+    """No marker row, none of the new fields, unsigned accountable claims
+    before any policy, one abv2 signature: VERIFIED. Old rows kept their
+    bytes and their standing."""
+    rows = _fixture_rows()
+    anchor_path = tmp_path / "fixture.anchor"
+    tc.write_head_anchor(str(anchor_path), rows[-1]["current_hash"], len(rows), _FIXTURE_KEY)
+    key_file = tmp_path / "keys.txt"
+    key_file.write_text(_FIXTURE_KEY.decode() + "\n")
+    verdict, run = _verdict(tmp_path, rows, anchor_path, key_file,
+                            [att.key_fingerprint(_FIXTURE_KEY)])
+    assert verdict == "VERIFIED" and run.returncode == 0, run.stdout + run.stderr
+
+
+def test_g_200_rows_writer_hash_equals_witness_recompute(tmp_path, monkeypatch):
+    """Acceptance (g): 200 generated decisions with and without each optional
+    field, plus the marker and a legacy row. Every row the writer hashed,
+    the witness recomputes byte for byte, and the primary verifier agrees."""
+    ledger, _ = _anchored_ledger(tmp_path, monkeypatch, appends=0)
+    try:
+        params = _params()
+        last_decision_hash = None
+        for i in range(200):
+            kw = {}
+            if i % 2:
+                kw["authorized_by"] = "harness:production"
+            if i % 3 == 0:
+                kw["model_identity"] = f"model-{i}"
+            if i % 4 == 0:
+                kw["outcome_obligation"] = "loan_performance@24mo"
+            if i % 5 == 0:
+                kw["ai_cost"] = {"model": "m", "input_tokens": i, "output_tokens": 1, "cost_usd": 0.0}
+            if i % 6 == 0:
+                kw["cassette_code_hash"] = "c" * 64
+            if i % 7 == 0 and last_decision_hash:
+                kw["replaces_hash"] = last_decision_hash
+            if i % 8 == 0:
+                kw["output"] = {"approved": True, "confidence": i / 200}
+            assert ledger.append_decision(_record(**kw), governance_params=params)
+            last_decision_hash = _rows("record_kind = 'governance_decision'")[-1]["current_hash"]
+    finally:
+        ledger.close()
+    rows = _rows()
+    assert len(rows) == 202
+    seen_with = {f: False for f in ("subject_digest", "authorized_by_sig", "model_identity",
+                                    "outcome_obligation", "ai_cost", "cassette_code_hash",
+                                    "replaces_hash")}
+    for row in rows:
+        ok, detail = tc.deep_verify_row(row, keys=_KEY)
+        assert ok, f"row {row['id']}: {detail}"
+        for f in seen_with:
+            seen_with[f] = seen_with[f] or bool(row.get(f))
+    assert all(seen_with.values()), seen_with
+    assert any(not r.get("subject_digest") for r in rows)        # the marker and the legacy row
+    assert PostgreSQLLedger(**_PG).verify_chain()["ok"]
+    assert tc.verify_rows(rows, keys=_KEY) is None
