@@ -243,6 +243,13 @@ SHIPPED_COLUMNS = [
     # recompute exactly as before. See
     # governance/authorized_by_attestation.py.
     "authorized_by_sig",
+    # TACK Layer 5 verdict receipts. Both enter the hash via the shared
+    # OPTIONAL_HASHED_FIELDS contract (column name == canonical key, like
+    # every optional field above), so recompute_current_hash covers them
+    # with no change here. subject_digest binds a decision to its stored
+    # input_data; shuffle_seed is reserved for Layer 1 and NULL today.
+    "subject_digest",
+    "shuffle_seed",
 ]
 
 
