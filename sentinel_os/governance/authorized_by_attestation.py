@@ -183,6 +183,17 @@ _KEYID_DOMAIN = b"sentinel_os.authorized_by.keyid.v1"
 _ENVELOPE_TAG = "abv2"
 _KEYFP_LEN = 16
 
+# v3 (TACK Layer 5 verdict receipts): "abv3.<keyfp>.<digest>", same envelope,
+# but the HMAC message additionally carries the row's content pre-hash: the
+# SHA-256 of the canonical entry as it stands before the signature field is
+# added to it. A v2 signature attests only the accountable name at a chain
+# position; a v3 signature attests the whole row that name is accountable
+# for, without signing something that contains its own signature. The
+# version prefix is what keeps old rows verifying: a verifier reads the tag
+# and builds the matching message.
+_DOMAIN_TAG_V3 = b"sentinel_os.authorized_by.v3"
+_ENVELOPE_TAG_V3 = "abv3"
+
 # Canonical column / canonical-form key name for the signature. Added to
 # canonical_fields.OPTIONAL_HASHED_FIELDS so it enters the hash chain the
 # same way as cassette_hash, authorized_by, ai_cost, etc.
@@ -349,20 +360,56 @@ def _hmac_hex(key: bytes, payload: bytes) -> str:
     return hmac.new(key, payload, hashlib.sha256).hexdigest()
 
 
-def _split_envelope(sig: str) -> Tuple[Optional[str], str]:
-    """(keyfp, digest). keyfp is None for a v1 legacy bare-digest signature."""
+def content_prehash(canonical_entry: Dict[str, Any]) -> str:
+    """The SHA-256 of a row's canonical entry as it stands before the
+    signature field is added: exactly the bytes the ledger hashes for
+    current_hash (json.dumps, sort_keys, default=str, default separators),
+    minus the one field that cannot be inside its own signature. The writer
+    computes it after every other optional field has joined the entry; a
+    verifier rebuilds the entry, drops ``authorized_by_sig`` and computes it
+    the same way (twin_custody.content_prehash_of).
+    """
+    entry = {k: v for k, v in canonical_entry.items() if k != SIGNATURE_FIELD}
+    return hashlib.sha256(
+        json.dumps(entry, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _payload_v3(authorized_by: str, previous_hash: Optional[str],
+                record_kind: Optional[str], prehash: str) -> bytes:
+    body = json.dumps(
+        {
+            "authorized_by": authorized_by,
+            "content_prehash": prehash,
+            "previous_hash": previous_hash,
+            "record_kind": record_kind,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return _DOMAIN_TAG_V3 + b"\x00" + body
+
+
+def _split_envelope(sig: str) -> Tuple[Optional[str], Optional[str], str]:
+    """(tag, keyfp, digest). tag and keyfp are None for a v1 legacy
+    bare-digest signature; tag is "abv2" or "abv3" otherwise."""
     parts = sig.split(".")
-    if len(parts) == 3 and parts[0] == _ENVELOPE_TAG:
-        return parts[1], parts[2]
-    return None, sig
+    if len(parts) == 3 and parts[0] in (_ENVELOPE_TAG, _ENVELOPE_TAG_V3):
+        return parts[0], parts[1], parts[2]
+    return None, None, sig
 
 
 def sign_authorized_by(authorized_by: Optional[str], previous_hash: Optional[str],
                        record_kind: Optional[str],
-                       key: Optional[bytes]) -> Optional[str]:
-    """Return the v2 signature envelope ``abv2.<keyfp>.<digest>`` for an
-    ``authorized_by`` claim, or None when there is nothing to sign (no claim)
-    or no key is configured.
+                       key: Optional[bytes],
+                       content_prehash: Optional[str] = None) -> Optional[str]:
+    """Return the signature envelope for an ``authorized_by`` claim, or None
+    when there is nothing to sign (no claim) or no key is configured.
+
+    With ``content_prehash`` (see content_prehash()) the envelope is v3,
+    ``abv3.<keyfp>.<digest>``, and the signature covers the row's content;
+    without it the envelope is the v2 form that covers the claim alone,
+    which every writer that has not been moved to v3 still produces.
 
     Never raises on a missing key. The caller decides whether a missing key is
     fatal (enforcement on -> refuse the write) or acceptable (enforcement off
@@ -370,6 +417,10 @@ def sign_authorized_by(authorized_by: Optional[str], previous_hash: Optional[str
     """
     if not authorized_by or not key:
         return None
+    if content_prehash:
+        digest = _hmac_hex(bytes(key), _payload_v3(
+            authorized_by, previous_hash, record_kind, content_prehash))
+        return f"{_ENVELOPE_TAG_V3}.{key_fingerprint(key)}.{digest}"
     digest = _hmac_hex(bytes(key), _payload(authorized_by, previous_hash, record_kind))
     return f"{_ENVELOPE_TAG}.{key_fingerprint(key)}.{digest}"
 
@@ -397,13 +448,18 @@ def _as_keyset(keys: _KeysArg) -> KeySet:
 
 
 def verify_authorized_by_signature(row: Dict[str, Any],
-                                   keys: _KeysArg) -> Tuple[str, Optional[str]]:
+                                   keys: _KeysArg,
+                                   content_prehash: Optional[str] = None
+                                   ) -> Tuple[str, Optional[str]]:
     """Check the keyed attestation on one row dict. Returns (status, detail).
 
     ``row`` must carry ``authorized_by``, ``authorized_by_sig``,
     ``previous_hash`` and ``record_kind`` (the same names used as columns at
     every recompute site). ``keys`` may be a KeySet, a single key (bytes), an
-    iterable of keys (all treated as trusted), or None.
+    iterable of keys (all treated as trusted), or None. ``content_prehash``
+    is the row's content pre-hash (content_prehash()); an abv3 signature
+    cannot be checked without it and reports INVALID, since a verifier that
+    has not rebuilt the content has not verified the receipt.
 
     Outcomes -- only INVALID and UNKNOWN_KEY mean "something is wrong":
       OK           -- valid under the current key or a PREVIOUS key.
@@ -433,9 +489,17 @@ def verify_authorized_by_signature(row: Dict[str, Any],
     if ks.is_empty():
         return (STATUS_UNVERIFIABLE, None)
 
-    payload = _payload(authorized_by, row.get("previous_hash"),
-                       row.get("record_kind"))
-    keyfp, digest = _split_envelope(str(sig))
+    tag, keyfp, digest = _split_envelope(str(sig))
+    if tag == _ENVELOPE_TAG_V3:
+        if not content_prehash:
+            return (STATUS_INVALID,
+                    "abv3 signature covers the row content, but no content "
+                    "pre-hash was given to check it against")
+        payload = _payload_v3(authorized_by, row.get("previous_hash"),
+                              row.get("record_kind"), content_prehash)
+    else:
+        payload = _payload(authorized_by, row.get("previous_hash"),
+                           row.get("record_kind"))
 
     def matches(key: bytes) -> bool:
         return hmac.compare_digest(_hmac_hex(key, payload), digest)
