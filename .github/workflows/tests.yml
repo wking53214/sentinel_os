@@ -153,12 +153,14 @@ jobs:
           # boundary tests; the pytest process itself needs root to do
           # that) with PATH preserved so it finds the packages installed
           # above.
-          sudo -E env "PATH=$PATH" python -m pytest . -v --tb=short
+          # ../tools as well: tools/wiring_verify/tests lived outside this
+          # directory and never ran here. Every test directory runs.
+          sudo -E env "PATH=$PATH" python -m pytest . ../tools -v --tb=short
 
       - name: Summarize results
         if: always()
         run: |
-          sudo -E env "PATH=$PATH" python -m pytest . -q --tb=no || true
+          sudo -E env "PATH=$PATH" python -m pytest . ../tools -q --tb=no || true
 
       - name: Lint (ruff)
         if: always()
