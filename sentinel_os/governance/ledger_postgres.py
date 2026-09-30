@@ -24,6 +24,7 @@ from .authorized_by_attestation import (
     enforcement_required,
     sign_authorized_by,
     verify_authorized_by_signature,
+    content_prehash as _content_prehash,
     verify_shuffle_seed as _verify_shuffle_seed,
     STATUS_ABSENT as _SEED_STATUS_ABSENT,
     STATUS_OK as _SEED_STATUS_OK,
@@ -707,7 +708,8 @@ class PostgreSQLLedger:
 
     def _authorized_by_sig(self, authorized_by: Optional[str],
                            previous_hash: str,
-                           record_kind: str) -> Optional[str]:
+                           record_kind: str,
+                           content_prehash: Optional[str] = None) -> Optional[str]:
         """Compute the keyed attestation for a row's authorized_by claim.
 
         Returns the hex HMAC (a component holding ICEBERG_LEDGER_ATTESTATION_KEY
@@ -726,7 +728,7 @@ class PostgreSQLLedger:
         governance/authorized_by_attestation.py.
         """
         sig = sign_authorized_by(authorized_by, previous_hash, record_kind,
-                                 attestation_key())
+                                 attestation_key(), content_prehash)
         if authorized_by and enforcement_required() and not sig:
             raise RuntimeError(
                 f"authorized_by attestation enforcement is on but no signature "
@@ -985,8 +987,6 @@ class PostgreSQLLedger:
             # fields NULL) hash exactly as before and stay verifiable, and
             # writer/witness cannot drift. cassette_hash is computed above
             # from governance_params; the rest ride on the record.
-            authorized_by_sig = self._authorized_by_sig(
-                record.authorized_by, previous_hash, "governance_decision")
             optional_source = {
                 "cassette_hash": cassette_hash,
                 "cassette_code_hash": record.cassette_code_hash,
@@ -1002,9 +1002,18 @@ class PostgreSQLLedger:
                 # authorized_by_attestation.derive_shuffle_seed) or leaves
                 # the field absent, and today no chain is shuffled.
                 "shuffle_seed": None,
-                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
             }
             apply_optional_hashed_fields(canonical_entry, optional_source)
+
+            # abv3: the signature covers the content pre-hash, the canonical
+            # entry as it stands with every other field in place and before
+            # the signature itself joins it. Signed last, applied last, so
+            # the row never contains a signature over itself.
+            authorized_by_sig = self._authorized_by_sig(
+                record.authorized_by, previous_hash, "governance_decision",
+                content_prehash=_content_prehash(canonical_entry))
+            apply_optional_hashed_fields(
+                canonical_entry, {_AUTHORIZED_BY_SIG_FIELD: authorized_by_sig})
 
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -3064,6 +3073,9 @@ class PostgreSQLLedger:
                     # applies the shared contract to the whole row. Absent
                     # (legacy rows, rows written with no key) -> omitted ->
                     # byte-identical recompute to before this field existed.
+                    # The content pre-hash an abv3 signature covers: the
+                    # entry as rebuilt above, before the signature joins it.
+                    row_prehash = _content_prehash(canonical_entry)
                     apply_optional_hashed_fields(
                         canonical_entry,
                         {_AUTHORIZED_BY_SIG_FIELD: authorized_by_sig},
@@ -3132,6 +3144,7 @@ class PostgreSQLLedger:
                                 "record_kind": record_kind,
                             },
                             _att_keys,
+                            content_prehash=row_prehash,
                         )
                         if att_status == _ATT_STATUS_INVALID:
                             violations.append(

@@ -323,3 +323,70 @@ def test_witness_and_primary_verifier_agree_on_honest_rows(test_ledger):
     for row in _rows():
         ok, detail = tc.deep_verify_row(row)
         assert ok, detail
+
+
+# ---------------------------------------------------------------------------
+# Step 2.4: attestation covers content (abv3), and the witness verifies it
+# ---------------------------------------------------------------------------
+
+_FIXTURE_KEY = b"fixture-attestation-key-not-a-real-secret"
+
+
+def _signed_decision(ledger):
+    assert ledger.append_decision(
+        _record(authorized_by="harness:production"), governance_params=_params())
+    return _rows("record_kind = 'governance_decision'")[-1]
+
+
+def test_decision_signature_is_abv3_and_the_witness_verifies_it(test_ledger, monkeypatch):
+    monkeypatch.setenv(att.ENV_KEY, _KEY.decode())
+    row = _signed_decision(test_ledger)
+    assert row["authorized_by_sig"].startswith("abv3.")
+    assert tc.verify_row_attestation(row, _KEY)[0] == att.STATUS_OK
+    ok, detail = tc.deep_verify_row(row, keys=_KEY)
+    assert ok, detail
+    assert test_ledger.verify_chain()["ok"]
+
+
+def test_abv3_covers_the_content_where_abv2_covered_only_the_name(test_ledger, monkeypatch):
+    """Edit a hashed field that is not the accountable name and rehash the
+    row so the unkeyed chain is self-consistent again. abv3 notices, because
+    the content pre-hash is inside the signature; an abv2 signature over the
+    same row is blind to it."""
+    monkeypatch.setenv(att.ENV_KEY, _KEY.decode())
+    row = _signed_decision(test_ledger)
+    row["reason"] = row["reason"] + " [quietly edited]"
+    row["current_hash"] = tc.recompute_current_hash(row)
+    status, detail = tc.verify_row_attestation(row, _KEY)
+    assert status == att.STATUS_INVALID, detail
+    ok, detail = tc.deep_verify_row(row, keys=_KEY)
+    assert not ok and detail.startswith(tc.VIOLATION_TAMPERED), detail
+
+    # the same edit under an abv2 signature (name and position only) passes,
+    # which is exactly the gap abv3 closes
+    row["authorized_by_sig"] = att.sign_authorized_by(
+        row["authorized_by"], row["previous_hash"], row["record_kind"], _KEY)
+    row["current_hash"] = tc.recompute_current_hash(row)
+    assert row["authorized_by_sig"].startswith("abv2.")
+    assert tc.verify_row_attestation(row, _KEY)[0] == att.STATUS_OK
+
+
+def test_abv2_rows_written_before_the_change_still_verify():
+    """Backward compatibility: the fixture's abv2 row verifies under the key
+    that signed it, through the same witness entry point."""
+    rows = [r for r in _fixture_rows() if (r["authorized_by_sig"] or "").startswith("abv2.")]
+    assert rows
+    for row in rows:
+        assert tc.verify_row_attestation(row, _FIXTURE_KEY)[0] == att.STATUS_OK
+        assert tc.deep_verify_row(row, keys=_FIXTURE_KEY)[0]
+        # and a verifier that does not hold that key says so, honestly
+        assert tc.verify_row_attestation(row, _KEY)[0] == att.STATUS_UNKNOWN_KEY
+
+
+def test_abv3_without_the_content_prehash_is_not_a_verification(test_ledger, monkeypatch):
+    monkeypatch.setenv(att.ENV_KEY, _KEY.decode())
+    row = _signed_decision(test_ledger)
+    status, detail = att.verify_authorized_by_signature(row, _KEY)
+    assert status == att.STATUS_INVALID and "pre-hash" in detail
+    assert att.verify_authorized_by_signature(
+        row, _KEY, content_prehash=tc.content_prehash_of(row))[0] == att.STATUS_OK

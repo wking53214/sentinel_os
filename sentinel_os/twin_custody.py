@@ -64,8 +64,13 @@ from canonical_fields import (
 # the one helper Layer 1 will derive it with.
 from cns.gate import subject_digest as _cns_subject_digest
 from governance.authorized_by_attestation import (
+    SIGNATURE_FIELD as _SIGNATURE_FIELD,
     STATUS_ABSENT as _SEED_ABSENT,
+    STATUS_INVALID as _ATT_INVALID,
     STATUS_OK as _SEED_OK,
+    STATUS_UNKNOWN_KEY as _ATT_UNKNOWN_KEY,
+    content_prehash as _content_prehash,
+    verify_authorized_by_signature as _verify_authorized_by_signature,
     verify_shuffle_seed as _verify_shuffle_seed,
 )
 
@@ -285,11 +290,13 @@ def _ledger_dumps(obj: Any) -> bytes:
     return json.dumps(obj, sort_keys=True, default=str).encode()
 
 
-def recompute_current_hash(row: Dict[str, Any]) -> str:
-    """Recompute what current_hash must be for a shipped/decrypted row.
+def canonical_form(row: Dict[str, Any]) -> Dict[str, Any]:
+    """The canonical dict a shipped/decrypted row hashes to current_hash.
 
     Mirrors ledger_postgres.append() for base rows and
-    ledger_postgres.append_decision() for governance decisions.
+    ledger_postgres.append_decision() for governance decisions, kind by
+    kind. recompute_current_hash hashes it; content_prehash_of drops the
+    signature field from it for the abv3 attestation check.
     """
     if row.get("record_kind") == "governance_decision":
         canonical: Dict[str, Any] = {
@@ -473,7 +480,27 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
             "data": row["data"],
             "previous_hash": row["previous_hash"],
         }
-    return hashlib.sha256(_ledger_dumps(canonical)).hexdigest()
+    return canonical
+
+
+def recompute_current_hash(row: Dict[str, Any]) -> str:
+    """Recompute what current_hash must be for a shipped/decrypted row."""
+    return hashlib.sha256(_ledger_dumps(canonical_form(row))).hexdigest()
+
+
+def content_prehash_of(row: Dict[str, Any]) -> str:
+    """The content pre-hash an abv3 signature on this row covers: its
+    canonical form as it stood before the signature field was added."""
+    return _content_prehash(canonical_form(row))
+
+
+def verify_row_attestation(row: Dict[str, Any], keys: Any) -> Tuple[str, Optional[str]]:
+    """The witness's own signature check: (status, detail) from
+    authorized_by_attestation.verify_authorized_by_signature, with the
+    content pre-hash rebuilt here so an abv3 receipt is checked against the
+    content the witness holds, not against anything the writer says."""
+    return _verify_authorized_by_signature(
+        row, keys, content_prehash=content_prehash_of(row))
 
 
 # ---------------------------------------------------------------------------
@@ -538,4 +565,10 @@ def deep_verify_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool, Option
     ok, detail = verify_subject_binding(row)
     if not ok:
         return ok, detail
+    if keys is not None and row.get(_SIGNATURE_FIELD):
+        status, why = verify_row_attestation(row, keys)
+        if status == _ATT_INVALID:
+            return False, f"{VIOLATION_TAMPERED}: attestation invalid: {why}"
+        if status == _ATT_UNKNOWN_KEY:
+            return False, f"{VIOLATION_UNATTESTED}: {why}"
     return verify_shuffle_seed_row(row, keys)

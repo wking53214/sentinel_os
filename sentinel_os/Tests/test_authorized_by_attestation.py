@@ -96,6 +96,21 @@ def _last_row(ledger):
         ledger.pool.putconn(conn)
 
 
+def _last_shipped_row(ledger):
+    """The most recent ledger row with every shipped column, as the witness
+    sees it: an abv3 signature covers the row content, so checking it needs
+    the whole row, not the handful of columns _last_row returns."""
+    conn = ledger.pool.getconn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {', '.join(tc.SHIPPED_COLUMNS)} FROM ledger_entries "
+            f"ORDER BY id DESC LIMIT 1")
+        return dict(zip(tc.SHIPPED_COLUMNS, cur.fetchone()))
+    finally:
+        ledger.pool.putconn(conn)
+
+
 def _twin_row(**over):
     """A governance_decision row dict shaped the way a shipped/decrypted
     row reaches twin_custody.recompute_current_hash. current_hash is filled
@@ -161,13 +176,14 @@ def test_1_valid_key_produces_a_verifying_signature(test_ledger, key_env):
     assert row["authorized_by"] == "harness:production"
     sig = row[SIGNATURE_FIELD]
     assert sig is not None
-    # v2 envelope: abv2.<16-hex keyfp>.<64-hex digest>, naming the signing key
+    # v3 envelope: abv3.<16-hex keyfp>.<64-hex digest>, naming the signing key
+    # and covering the row's content (TACK Layer 5 receipts)
     tag, keyfp, digest = sig.split(".")
-    assert tag == "abv2"
+    assert tag == "abv3"
     assert keyfp == key_fingerprint(key_env)
     assert len(digest) == 64
 
-    status, detail = verify_authorized_by_signature(row, key_env)
+    status, detail = tc.verify_row_attestation(_last_shipped_row(test_ledger), key_env)
     assert status == STATUS_OK, detail
     # and the full-chain verifier agrees, with the key configured
     assert test_ledger.verify_chain()["ok"]
@@ -426,7 +442,8 @@ def test_key_can_come_from_a_file(tmp_path, monkeypatch, test_ledger):
         governance_params=_governance_params())
     row = _last_row(test_ledger)
     assert row[SIGNATURE_FIELD] is not None
-    assert verify_authorized_by_signature(row, att.attestation_key())[0] == STATUS_OK
+    assert tc.verify_row_attestation(
+        _last_shipped_row(test_ledger), att.attestation_key())[0] == STATUS_OK
     assert test_ledger.verify_chain()["ok"]
 
 
@@ -654,7 +671,7 @@ def test_upgrade_widens_authorized_by_sig_from_64_to_96(test_ledger, monkeypatch
             _record(authorized_by="harness:production"),
             governance_params=_governance_params())
         sig = _last_row(upgraded)[SIGNATURE_FIELD]
-        assert sig.startswith("abv2.") and len(sig) > 64
+        assert sig.startswith("abv3.") and len(sig) > 64
         assert upgraded.verify_chain()["ok"]
     finally:
         upgraded.close()
