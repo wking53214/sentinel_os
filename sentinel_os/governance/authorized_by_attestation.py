@@ -472,3 +472,82 @@ def verify_authorized_by_signature(row: Dict[str, Any],
             "legacy signature does not match any configured key -- the "
             "authorized_by claim was altered, or it was signed by a key "
             "never configured here")
+
+
+# ---------------------------------------------------------------------------
+# shuffle seed: the reservation for TACK Layer 1 (the MTD sequencer)
+# ---------------------------------------------------------------------------
+#
+# Helper only. Nothing on the write path calls it today: every row is written
+# with the shuffle_seed field absent, and this function exists so that Layer 1
+# derives its seed in exactly one way and the witness re-derives it in the
+# same way. See canonical_fields.OPTIONAL_HASHED_FIELDS for the field.
+
+_SEED_DOMAIN_TAG = b"sentinel_os.shuffle_seed.v1"
+SHUFFLE_SEED_FIELD = "shuffle_seed"
+
+
+def _seed_payload(previous_hash: Optional[str], record_kind: Optional[str]) -> bytes:
+    body = json.dumps(
+        {"previous_hash": previous_hash, "record_kind": record_kind},
+        sort_keys=True, separators=(",", ":"), default=str,
+    ).encode("utf-8")
+    return _SEED_DOMAIN_TAG + b"\x00" + body
+
+
+def derive_shuffle_seed(previous_hash: str, record_kind: str,
+                        key: Optional[bytes]) -> str:
+    """The server-derived seed that fixes the order of non-dependent
+    validation gates for the row about to follow ``previous_hash``.
+
+    HMAC-SHA256 over the previous row's hash and the record kind, keyed with
+    the ledger attestation key, rendered as 64 hex characters. Three
+    properties, each pinned by Tests/test_verdict_receipts.py:
+
+    * the same previous hash, record kind and key always give the same seed,
+      so the witness can re-derive it and compare;
+    * without the key the seed cannot be predicted from the previous hash:
+      it is an HMAC, not a hash, and the previous hash alone is public;
+    * the seed is never accepted from the request or the agent. The writer
+      derives it here or leaves the field absent; a row whose seed does not
+      re-derive is SEED_FORGED (the agent, not the server, chose the order).
+
+    Raises ValueError with no key: a seed anyone could derive fixes nothing.
+    """
+    if not key:
+        raise ValueError(
+            "a shuffle seed needs the ledger attestation key; none was given")
+    if not previous_hash or not record_kind:
+        raise ValueError(
+            "a shuffle seed is derived from a previous hash and a record kind")
+    return _hmac_hex(bytes(key), _seed_payload(previous_hash, record_kind))
+
+
+def verify_shuffle_seed(seed: Optional[str], previous_hash: Optional[str],
+                        record_kind: Optional[str],
+                        keys: _KeysArg) -> Tuple[str, Optional[str]]:
+    """Check that a stored seed re-derives under a key this verifier holds.
+
+    (status, detail): STATUS_ABSENT when the row carries no seed (every row
+    written today); STATUS_OK under a trusted key; STATUS_RETIRED_KEY under
+    a retired one; STATUS_UNVERIFIABLE when no key is held, which a
+    fail-closed verifier treats as a failure; STATUS_INVALID when no held
+    key re-derives it, which is the SEED_FORGED finding.
+    """
+    if not seed:
+        return (STATUS_ABSENT, None)
+    ks = _as_keyset(keys)
+    if ks.is_empty():
+        return (STATUS_UNVERIFIABLE,
+                "the row carries a shuffle_seed but no attestation key is "
+                "held to re-derive it")
+    payload = _seed_payload(previous_hash, record_kind)
+    for k in ks.trusted:
+        if hmac.compare_digest(_hmac_hex(k, payload), str(seed)):
+            return (STATUS_OK, None)
+    for k in ks.retired:
+        if hmac.compare_digest(_hmac_hex(k, payload), str(seed)):
+            return (STATUS_RETIRED_KEY, "seed re-derives only under a retired key")
+    return (STATUS_INVALID,
+            "shuffle_seed does not re-derive from the previous hash and record "
+            "kind under any held key: the order was not fixed by the server")
