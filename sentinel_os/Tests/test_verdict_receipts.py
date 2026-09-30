@@ -229,3 +229,97 @@ def test_j_nothing_on_the_write_path_reads_or_derives_a_seed():
     assert "derive_shuffle_seed(" not in src   # a comment may name it; no call does
     assert "record.shuffle_seed" not in src
     assert 'getattr(record, "shuffle_seed"' not in src
+
+
+# ---------------------------------------------------------------------------
+# Step 2.2: the witness checks the binding; the primary verifier agrees
+# ---------------------------------------------------------------------------
+
+def _tamper_last_row(**cols):
+    """Edit the newest row past the immutability triggers, the way the
+    observed_event tests do: as the table owner, triggers disabled."""
+    conn = psycopg2.connect(connect_timeout=2, **_PG)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE ledger_entries DISABLE TRIGGER USER;")
+    sets = ", ".join(f"{k} = %s" for k in cols)
+    cur.execute(  # nosec B608 -- column names are this test's own literals
+        f"UPDATE ledger_entries SET {sets} WHERE id = (SELECT max(id) FROM ledger_entries)",
+        tuple(cols.values()))
+    cur.execute("ALTER TABLE ledger_entries ENABLE TRIGGER USER;")
+    conn.close()
+
+
+def _two_decisions(ledger):
+    params = _params()
+    assert ledger.append_decision(_record(), governance_params=params)
+    assert ledger.append_decision(_record(), governance_params=params)
+    return _rows("record_kind = 'governance_decision'")[-2:]
+
+
+def test_b_witness_catches_a_transplanted_verdict(test_ledger):
+    """Acceptance (b), witness half: another row's subject_digest is copied
+    onto this row and the chain is rehashed to stay self-consistent. The
+    chain is fooled; the binding is not."""
+    first, second = _two_decisions(test_ledger)
+    assert tc.deep_verify_row(second)[0]
+    second["subject_digest"] = first["subject_digest"]
+    second["current_hash"] = tc.recompute_current_hash(second)
+    ok, detail = tc.deep_verify_row(second)
+    assert not ok and detail.startswith(tc.VIOLATION_TRANSPLANTED), detail
+
+
+def test_b_primary_verifier_reports_transplanted(test_ledger):
+    first, second = _two_decisions(test_ledger)
+    second["subject_digest"] = first["subject_digest"]
+    _tamper_last_row(subject_digest=first["subject_digest"],
+                     current_hash=tc.recompute_current_hash(second))
+    result = test_ledger.verify_chain(mode="audit")
+    assert not result["ok"]
+    assert any("TRANSPLANTED" in v for v in result["violations"]), result["violations"]
+    assert not any("content hash mismatch" in v for v in result["violations"])
+
+
+def test_c_witness_re_derives_the_seed_and_refuses_a_forged_one(test_ledger):
+    """Acceptance (c), witness half: a seed the server would have derived
+    passes; one the agent chose does not; one the witness cannot re-derive
+    (no key held) fails closed."""
+    _, row = _two_decisions(test_ledger)
+    honest = att.derive_shuffle_seed(row["previous_hash"], row["record_kind"], _KEY)
+    row["shuffle_seed"] = honest
+    row["current_hash"] = tc.recompute_current_hash(row)
+    assert tc.deep_verify_row(row, keys=_KEY)[0]
+    ok, detail = tc.deep_verify_row(row, keys=None)
+    assert not ok and detail.startswith(tc.VIOLATION_SEED_FORGED)
+
+    row["shuffle_seed"] = "0" * 64
+    row["current_hash"] = tc.recompute_current_hash(row)
+    ok, detail = tc.deep_verify_row(row, keys=_KEY)
+    assert not ok and detail.startswith(tc.VIOLATION_SEED_FORGED), detail
+
+
+def test_c_primary_verifier_reports_seed_forged(test_ledger, monkeypatch):
+    monkeypatch.setenv(att.ENV_KEY, _KEY.decode())
+    _, row = _two_decisions(test_ledger)
+    honest = att.derive_shuffle_seed(row["previous_hash"], row["record_kind"], _KEY)
+    row["shuffle_seed"] = honest
+    _tamper_last_row(shuffle_seed=honest, current_hash=tc.recompute_current_hash(row))
+    assert test_ledger.verify_chain()["ok"], "a server-derived seed verifies"
+
+    row["shuffle_seed"] = "0" * 64
+    _tamper_last_row(shuffle_seed="0" * 64, current_hash=tc.recompute_current_hash(row))
+    result = test_ledger.verify_chain(mode="audit")
+    assert any("SEED_FORGED" in v for v in result["violations"]), result["violations"]
+
+    # and with no key held at all the seed cannot be vouched for
+    monkeypatch.delenv(att.ENV_KEY, raising=False)
+    result = test_ledger.verify_chain(mode="audit")
+    assert any("SEED_FORGED" in v for v in result["violations"]), result["violations"]
+
+
+def test_witness_and_primary_verifier_agree_on_honest_rows(test_ledger):
+    _two_decisions(test_ledger)
+    assert test_ledger.verify_chain()["ok"]
+    for row in _rows():
+        ok, detail = tc.deep_verify_row(row)
+        assert ok, detail

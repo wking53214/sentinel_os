@@ -24,6 +24,10 @@ from .authorized_by_attestation import (
     enforcement_required,
     sign_authorized_by,
     verify_authorized_by_signature,
+    verify_shuffle_seed as _verify_shuffle_seed,
+    STATUS_ABSENT as _SEED_STATUS_ABSENT,
+    STATUS_OK as _SEED_STATUS_OK,
+    STATUS_RETIRED_KEY as _SEED_STATUS_RETIRED_KEY,
 )
 from dataclasses import dataclass
 from pathlib import Path
@@ -3077,6 +3081,38 @@ class PostgreSQLLedger:
                             f"(stored={stored_current[:8]}..., "
                             f"recomputed={recomputed_hash[:8]}...)"
                         )
+
+                    # TACK Layer 5 receipt checks, the same two the witness
+                    # runs (twin_custody.verify_subject_binding and
+                    # verify_shuffle_seed_row), so the primary verifier and
+                    # the witness agree. Both are independent of the chain
+                    # above: an attacker who recomputes current_hash after
+                    # moving a digest or choosing a seed is still caught,
+                    # because the digest is recomputed from the content and
+                    # the seed is re-derived under the key.
+                    if record_kind == "governance_decision" and subject_digest:
+                        try:
+                            expected_digest = cns_subject_digest(
+                                self._as_json(input_data) or {})
+                        except TypeError as exc:
+                            expected_digest = f"unencodable ({exc})"
+                        if expected_digest != subject_digest:
+                            violations.append(
+                                f"Entry {row_id}: TRANSPLANTED (subject_digest "
+                                f"{subject_digest[:8]}... was not issued for this "
+                                f"row's input_data; recomputed "
+                                f"{str(expected_digest)[:8]}...)"
+                            )
+                    if shuffle_seed:
+                        seed_status, seed_detail = _verify_shuffle_seed(
+                            shuffle_seed, stored_prev, record_kind, _att_keys)
+                        seed_ok = seed_status == _SEED_STATUS_OK or (
+                            seed_status == _SEED_STATUS_RETIRED_KEY and not _att_enforced)
+                        if not seed_ok:
+                            violations.append(
+                                f"Entry {row_id}: SEED_FORGED "
+                                f"({seed_detail or seed_status})"
+                            )
 
                     # Keyed attestation check on the authorized_by claim.
                     # Independent of the SHA-256 chain above: catches an
