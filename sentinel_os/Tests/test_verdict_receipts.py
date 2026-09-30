@@ -80,6 +80,22 @@ def _fixture_rows():
         return json.load(fh)["rows"]
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _leave_a_verifiable_ledger_behind():
+    """test_twin_custody.py's live-row tests read whatever the primary ledger
+    holds when they run, and several tests here drop or empty it. Leave it
+    holding a short verifiable chain, the state every earlier module leaves."""
+    yield
+    for var in ("ICEBERG_LEDGER_ANCHOR_PATH",):
+        os.environ.pop(var, None)
+    ledger = _fresh_ledger()
+    try:
+        for _ in range(2):
+            assert ledger.append_decision(_record(), governance_params=_params())
+    finally:
+        ledger.close()
+
+
 # ---------------------------------------------------------------------------
 # Step 2.1: the binding and the reserved seed field
 # ---------------------------------------------------------------------------
@@ -492,3 +508,100 @@ def test_rows_before_the_marker_are_untouched(monkeypatch):
     fixture = _fixture_rows()
     assert any(r["authorized_by"] and not r["authorized_by_sig"] for r in fixture)
     assert tc.verify_rows(fixture, keys=_FIXTURE_KEY) is None
+
+
+# ---------------------------------------------------------------------------
+# Step 2.6: the external head anchor
+# ---------------------------------------------------------------------------
+
+def _delete_last_rows(n):
+    conn = psycopg2.connect(connect_timeout=2, **_PG)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE ledger_entries DISABLE TRIGGER USER;")
+    cur.execute("DELETE FROM ledger_entries WHERE id IN "
+                "(SELECT id FROM ledger_entries ORDER BY id DESC LIMIT %s)", (n,))
+    cur.execute("ALTER TABLE ledger_entries ENABLE TRIGGER USER;")
+    conn.close()
+
+
+def _anchored_ledger(tmp_path, monkeypatch, appends=3):
+    _enforcement_on(monkeypatch)
+    path = tmp_path / "ledger.anchor"
+    monkeypatch.setenv(tc.HEAD_ANCHOR_ENV, str(path))
+    ledger = _fresh_ledger()          # boot appends the marker, which anchors
+    for _ in range(appends):
+        assert ledger.append_decision(_record(), governance_params=_params())
+    assert ledger.append("threshold_adjust", "billing_queue", 0.5, 0.6, "legacy", {"why": "anchor"})
+    return ledger, str(path)
+
+
+def test_anchor_builds_reads_verifies_and_refuses_to_be_unsigned(tmp_path):
+    path = str(tmp_path / "ledger.anchor")
+    anchor = tc.write_head_anchor(path, "h" * 64, 3, _KEY)
+    assert tc.read_head_anchor(path) == anchor
+    assert set(anchor) == {"v", "head", "entries", "sealed_at", "key_fingerprint", "hmac"}
+    assert anchor["key_fingerprint"] == att.key_fingerprint(_KEY)
+    assert tc.verify_head_anchor(anchor, _KEY)[0] == att.STATUS_OK
+    assert tc.verify_head_anchor(anchor, _OTHER_KEY)[0] == att.STATUS_UNKNOWN_KEY
+    for field, value in (("entries", 2), ("head", "g" * 64), ("sealed_at", "later")):
+        assert tc.verify_head_anchor(dict(anchor, **{field: value}), _KEY)[0] == att.STATUS_INVALID
+    with pytest.raises(tc.CustodyError):
+        tc.build_head_anchor("h" * 64, 1, None)
+    with pytest.raises(tc.CustodyError):
+        tc.read_head_anchor(str(tmp_path / "missing.anchor"))
+
+
+def test_the_ledger_anchors_its_head_after_every_append(tmp_path, monkeypatch):
+    ledger, path = _anchored_ledger(tmp_path, monkeypatch)
+    try:
+        rows = _rows()
+        anchor = tc.read_head_anchor(path)
+        assert anchor["entries"] == len(rows) == 5       # marker + 3 decisions + 1 legacy
+        assert anchor["head"] == rows[-1]["current_hash"]
+        assert tc.verify_head_anchor(anchor, _KEY)[0] == att.STATUS_OK
+        assert tc.check_head_anchor(rows, anchor, _KEY) is None
+        assert ledger.verify_chain()["ok"]
+        # rows appended after an anchor was sealed are expected, not a finding
+        older = tc.build_head_anchor(rows[1]["current_hash"], 2, _KEY)
+        assert tc.check_head_anchor(rows, older, _KEY) is None
+    finally:
+        ledger.close()
+
+
+def test_e_deleting_the_last_three_rows_is_truncated(tmp_path, monkeypatch):
+    """Acceptance (e): fewer rows than the anchor sealed, or a different head
+    at the anchored position, is TRUNCATED, on the witness and the verifier."""
+    ledger, path = _anchored_ledger(tmp_path, monkeypatch)
+    try:
+        export = _rows()
+        anchor = tc.read_head_anchor(path)
+        failing = tc.check_head_anchor(export[:-3], anchor, _KEY)
+        assert failing is not None and failing[1] == tc.VIOLATION_TRUNCATED, failing
+        # a rebuilt chain of the same length: the head differs
+        rebuilt = [dict(r) for r in export]
+        rebuilt[-1]["reason"] = "rebuilt"
+        rebuilt[-1]["current_hash"] = tc.recompute_current_hash(rebuilt[-1])
+        failing = tc.check_head_anchor(rebuilt, anchor, _KEY)
+        assert failing is not None and failing[1] == tc.VIOLATION_TRUNCATED, failing
+        # an anchor the verifier cannot trust vouches for nothing
+        failing = tc.check_head_anchor(export, anchor, _OTHER_KEY)
+        assert failing is not None and failing[1] == tc.VIOLATION_TRUNCATED
+
+        _delete_last_rows(3)
+        result = ledger.verify_chain(mode="audit")
+        assert any("TRUNCATED" in v for v in result["violations"]), result["violations"]
+    finally:
+        ledger.close()
+
+
+def test_anchor_location_is_proven_at_boot(tmp_path, monkeypatch):
+    _enforcement_on(monkeypatch)
+    monkeypatch.setenv(tc.HEAD_ANCHOR_ENV, str(tmp_path / "no-such-dir" / "ledger.anchor"))
+    with pytest.raises(RuntimeError, match="not writable"):
+        _fresh_ledger()
+    monkeypatch.setenv(tc.HEAD_ANCHOR_ENV, str(tmp_path / "ledger.anchor"))
+    monkeypatch.delenv(att.ENV_REQUIRE, raising=False)
+    monkeypatch.delenv(att.ENV_KEY, raising=False)
+    with pytest.raises(RuntimeError, match="unsigned anchor"):
+        _fresh_ledger()

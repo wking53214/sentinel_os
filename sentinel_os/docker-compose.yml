@@ -132,7 +132,17 @@ services:
       # so the attestation keys belong here too for rows it writes.
       ICEBERG_LEDGER_ATTESTATION_KEY: ${ICEBERG_LEDGER_ATTESTATION_KEY:-}
       ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS: ${ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS:-}
+      # The external head anchor (TACK Layer 5). After every successful
+      # append the chain's head hash and row count are sealed here, signed
+      # with the attestation key, so a chain truncated at the tail or
+      # rebuilt is detectable. Kept OUTSIDE the ledger database on its own
+      # volume, mounted on this service only: the ledger service (Postgres,
+      # the database writer role) has no path to it, so nothing that can
+      # rewrite rows can also rewrite the record of what the head was.
+      ICEBERG_LEDGER_ANCHOR_PATH: /var/lib/sentinel/anchor/ledger.anchor
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+    volumes:
+      - ledger_anchor:/var/lib/sentinel/anchor
     restart: always
     depends_on:
       redis:
@@ -157,6 +167,9 @@ services:
 volumes:
   ledger_data:
   data:
+  # The head anchor, deliberately not inside ledger_data: see the worker's
+  # ICEBERG_LEDGER_ANCHOR_PATH.
+  ledger_anchor:
 
 networks:
   default:
