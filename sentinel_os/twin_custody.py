@@ -66,7 +66,12 @@ from canonical_fields import (
 # the one helper Layer 1 will derive it with.
 from cns.gate import subject_digest as _cns_subject_digest
 from governance.authorized_by_attestation import (
+    KeySet as _KeySet,
     SIGNATURE_FIELD as _SIGNATURE_FIELD,
+    STATUS_RETIRED_KEY as _ATT_RETIRED_KEY,
+    STATUS_UNVERIFIABLE as _ATT_UNVERIFIABLE,
+    _as_keyset,
+    key_fingerprint as _key_fingerprint,
     STATUS_ABSENT as _SEED_ABSENT,
     STATUS_INVALID as _ATT_INVALID,
     STATUS_OK as _SEED_OK,
@@ -593,6 +598,129 @@ def verify_rows(rows: List[Dict[str, Any]], keys: Any = None
                 and policy_from is None):
             policy_from = row_id
         prev = row.get("current_hash")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# The external head anchor (TACK Layer 5, step 2.6). Borrowed from the
+# Resume_OS seal: a chain verifies link by link, so editing or removing a
+# middle row is caught, but a chain truncated at the tail and rebuilt from
+# there is internally perfect. The one thing the database cannot supply is a
+# record of what the head WAS, kept somewhere its writer role cannot reach
+# and signed with a key the agent does not hold. Head hash, row count,
+# sealed-at time and key fingerprint, and an HMAC over those four.
+# ---------------------------------------------------------------------------
+
+HEAD_ANCHOR_ENV = "ICEBERG_LEDGER_ANCHOR_PATH"
+HEAD_ANCHOR_VERSION = 1
+_ANCHOR_DOMAIN = b"sentinel_os.head_anchor.v1"
+_ANCHOR_FIELDS = ("head", "entries", "sealed_at", "key_fingerprint")
+
+
+def head_anchor_payload(head: str, entries: int, sealed_at: str,
+                        key_fingerprint: str) -> bytes:
+    body = canonical_json({"entries": int(entries), "head": head,
+                           "key_fingerprint": key_fingerprint,
+                           "sealed_at": sealed_at})
+    return _ANCHOR_DOMAIN + b"\x00" + body
+
+
+def build_head_anchor(head: str, entries: int, key: bytes,
+                      sealed_at: Optional[str] = None) -> Dict[str, Any]:
+    """The anchor for a chain whose head is `head` after `entries` rows,
+    signed with `key` (the ledger attestation key). Never unsigned: an
+    anchor anybody could write anchors nothing."""
+    if not key:
+        raise CustodyError("a head anchor needs the ledger attestation key")
+    if sealed_at is None:
+        from datetime import datetime, timezone
+        sealed_at = datetime.now(timezone.utc).isoformat()
+    fp = _key_fingerprint(bytes(key))
+    import hmac as _hmac
+    digest = _hmac.new(bytes(key), head_anchor_payload(head, entries, sealed_at, fp),
+                       hashlib.sha256).hexdigest()
+    return {"v": HEAD_ANCHOR_VERSION, "head": head, "entries": int(entries),
+            "sealed_at": sealed_at, "key_fingerprint": fp, "hmac": digest}
+
+
+def write_head_anchor(path: str, head: str, entries: int, key: bytes,
+                      sealed_at: Optional[str] = None) -> Dict[str, Any]:
+    """Write the anchor atomically (temp file, then rename) so a reader never
+    sees a torn anchor. Returns the anchor as written."""
+    anchor = build_head_anchor(head, entries, key, sealed_at)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(anchor, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return anchor
+
+
+def read_head_anchor(path: str) -> Dict[str, Any]:
+    """Load an anchor file. Raises CustodyError when it is missing, unreadable
+    or not an anchor: an absent anchor is a finding, never a pass."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            anchor = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise CustodyError(f"anchor {path} cannot be read: {type(exc).__name__}: {exc}") from exc
+    if not isinstance(anchor, dict) or anchor.get("v") != HEAD_ANCHOR_VERSION \
+            or any(k not in anchor for k in _ANCHOR_FIELDS + ("hmac",)):
+        raise CustodyError(f"anchor {path} is not a v{HEAD_ANCHOR_VERSION} head anchor")
+    return anchor
+
+
+def verify_head_anchor(anchor: Dict[str, Any], keys: Any) -> Tuple[str, Optional[str]]:
+    """(status, detail) for the anchor's HMAC under the key it names, using
+    the same status vocabulary as the row attestation."""
+    import hmac as _hmac
+    ks = _as_keyset(keys)
+    if ks.is_empty():
+        return (_ATT_UNVERIFIABLE, "no key held to check the anchor")
+    fp = str(anchor.get("key_fingerprint"))
+    payload = head_anchor_payload(str(anchor.get("head")), int(anchor.get("entries") or 0),
+                                  str(anchor.get("sealed_at")), fp)
+    expected = str(anchor.get("hmac"))
+
+    def matches(k: bytes) -> bool:
+        return _hmac.compare_digest(_hmac.new(k, payload, hashlib.sha256).hexdigest(), expected)
+
+    k = ks.trusted_key(fp)
+    if k is not None:
+        return (_SEED_OK, None) if matches(k) else (
+            _ATT_INVALID, f"anchor HMAC does not verify under key {fp}: the anchor was altered")
+    k = ks.retired_key(fp)
+    if k is not None:
+        return (_ATT_RETIRED_KEY, f"anchor is valid under retired key {fp}") if matches(k) else (
+            _ATT_INVALID, f"anchor HMAC does not verify under retired key {fp}")
+    return (_ATT_UNKNOWN_KEY, f"anchor signed by key {fp}, which this verifier does not hold")
+
+
+def check_head_anchor(rows: List[Dict[str, Any]], anchor: Dict[str, Any],
+                      keys: Any) -> Optional[Tuple[Any, str, str]]:
+    """Compare a chain (rows in id order, each with id and current_hash) to
+    its anchor. None when the anchored head is a prefix of the chain; else
+    (row id, TRUNCATED, detail). Rows appended after the anchor was sealed
+    are expected; fewer rows than anchored, or a different hash at the
+    anchored position, means the chain was cut or rebuilt. An anchor that
+    does not verify cannot vouch for a head, so that fails closed too.
+    """
+    status, detail = verify_head_anchor(anchor, keys)
+    if status not in (_SEED_OK, _ATT_RETIRED_KEY):
+        return (None, VIOLATION_TRUNCATED, f"anchor cannot be trusted: {detail}")
+    entries = int(anchor.get("entries") or 0)
+    if entries <= 0:
+        return None
+    if len(rows) < entries:
+        return (rows[-1].get("id") if rows else None, VIOLATION_TRUNCATED,
+                f"the chain holds {len(rows)} row(s) but the anchor sealed "
+                f"{entries}; {entries - len(rows)} row(s) are missing from the tail")
+    at = rows[entries - 1]
+    if at.get("current_hash") != anchor.get("head"):
+        return (at.get("id"), VIOLATION_TRUNCATED,
+                f"the anchored head {str(anchor.get('head'))[:16]}.. is not the hash at "
+                f"row {entries} ({str(at.get('current_hash'))[:16]}..): the chain was "
+                f"rebuilt after it was sealed")
     return None
 
 
