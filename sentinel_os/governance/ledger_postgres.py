@@ -15,6 +15,9 @@ from canonical_fields import (CONTRACT_CANONICAL_FIELDS,
                               ATTESTATION_POLICY_RECORD_KIND,
                               attestation_policy_canonical)
 from cns.gate import GateOutcome, GatePosition, subject_digest as cns_subject_digest
+import os as _os_for_anchor  # noqa: E402  (aliased below; see _head_anchor_path)
+from twin_custody import (CustodyError, HEAD_ANCHOR_ENV, check_head_anchor,
+                          read_head_anchor, write_head_anchor)
 from .human_selection_v1 import HUMAN_SELECTIONS
 from .authorized_by_attestation import (
     SIGNATURE_FIELD as _AUTHORIZED_BY_SIG_FIELD,
@@ -709,10 +712,60 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
 
-        # The attestation_policy marker belongs after this check and nowhere
-        # earlier: a marker on a ledger that cannot prove its own
-        # immutability would promise something the ledger cannot keep.
+        # The head anchor's location is proven writable now, not on the
+        # first append: a ledger that cannot anchor its head does not start.
+        self._check_head_anchor_path()
+        # The attestation_policy marker belongs after these checks and
+        # nowhere earlier: a marker on a ledger that cannot prove its own
+        # immutability would promise something the ledger cannot keep, and
+        # the marker is itself an append that anchors the head.
         self._ensure_attestation_policy_marker()
+
+    # ---- the external head anchor (TACK Layer 5, step 2.6) ----
+
+    @staticmethod
+    def _head_anchor_path() -> Optional[str]:
+        return _os_for_anchor.environ.get(HEAD_ANCHOR_ENV) or None
+
+    def _check_head_anchor_path(self) -> None:
+        """Fail closed at boot when ICEBERG_LEDGER_ANCHOR_PATH names a
+        location this process cannot write, or when it is set with no
+        signing key (an unsigned anchor anchors nothing)."""
+        path = self._head_anchor_path()
+        if not path:
+            return
+        if attestation_key() is None:
+            raise RuntimeError(
+                f"{HEAD_ANCHOR_ENV} is set but no ICEBERG_LEDGER_ATTESTATION_KEY "
+                f"is configured; the head anchor is signed with that key and an "
+                f"unsigned anchor proves nothing. Refusing to start.")
+        directory = _os_for_anchor.path.dirname(_os_for_anchor.path.abspath(path)) or "."
+        if not _os_for_anchor.path.isdir(directory) or not _os_for_anchor.access(directory, _os_for_anchor.W_OK):
+            raise RuntimeError(
+                f"{HEAD_ANCHOR_ENV}={path!r}: directory {directory!r} is missing "
+                f"or not writable by this process. Refusing to start a ledger "
+                f"whose head cannot be anchored.")
+
+    def _anchor_head(self, conn) -> None:
+        """After a successful append: seal the chain's head and row count
+        into the external anchor, signed with the attestation key. Called
+        by every writer right after its commit, on the same connection, so
+        the anchor never runs ahead of a row that did not commit. The
+        anchor code is the witness's (twin_custody); this only hands it the
+        head. A no-op when no anchor location is configured.
+        """
+        path = self._head_anchor_path()
+        if not path:
+            return
+        cursor = conn.cursor()
+        cursor.execute("SELECT current_hash, id FROM ledger_entries ORDER BY id DESC LIMIT 1")
+        head_row = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) FROM ledger_entries")
+        count = cursor.fetchone()[0]
+        conn.rollback()  # read-only; release the snapshot
+        if not head_row:
+            return
+        write_head_anchor(path, head_row[0], int(count), attestation_key())
 
     def _ensure_attestation_policy_marker(self) -> None:
         """Append the chain-native marker that attestation is enforced from
@@ -782,6 +835,7 @@ class PostgreSQLLedger:
                   previous_hash, current_hash, json.dumps(body),
                   ATTESTATION_POLICY_RECORD_KIND))
             conn.commit()
+            self._anchor_head(conn)
             return True
         except Exception:
             conn.rollback()
@@ -871,6 +925,7 @@ class PostgreSQLLedger:
             """, (action_type, node, previous_value, applied_value, reason,
                   previous_hash, current_hash, json.dumps(data)))
             conn.commit()
+            self._anchor_head(conn)
             return True
         except Exception as e:
             conn.rollback()
@@ -1159,6 +1214,7 @@ class PostgreSQLLedger:
                 event_prev = ev_hash
 
             conn.commit()
+            self._anchor_head(conn)
             return True
         except Exception:
             conn.rollback()
@@ -1278,6 +1334,7 @@ class PostgreSQLLedger:
                   "cassette_binding", cassette_version, cassette_hash,
                   cassette_code_hash, authorized_by, authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "cassette_version": cassette_version,
@@ -1395,6 +1452,7 @@ class PostgreSQLLedger:
                   event, cassette_version, cassette_hash,
                   cassette_code_hash, authorized_by, authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "event": event,
@@ -1507,6 +1565,7 @@ class PostgreSQLLedger:
                   json.dumps(finding), cassette_hash, authorized_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "cassette_version": cassette_version,
@@ -1612,6 +1671,7 @@ class PostgreSQLLedger:
                   json.dumps(inputs), json.dumps(recommendation), authorized_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "recommendation_kind": str(recommendation_kind),
@@ -1703,6 +1763,7 @@ class PostgreSQLLedger:
                   json.dumps(actual), json.dumps(score), authorized_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {"status": "created", "shadow_run_hash": shadow_run_hash,
                     "current_hash": current_hash}
         except Exception:
@@ -1813,6 +1874,7 @@ class PostgreSQLLedger:
                   json.dumps(recommendation_shown), selected_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "human_selection": human_selection,
@@ -2012,6 +2074,7 @@ class PostgreSQLLedger:
                   json.dumps(finding), cassette_hash, authorized_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "cassette_version": cassette_version,
@@ -2344,6 +2407,7 @@ class PostgreSQLLedger:
                   json.dumps(finding) if finding is not None else None,
                   cassette_hash, authorized_by, authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             result = {"status": "created", "record_kind": record_kind,
                       "cassette_version": cassette_version,
                       "current_hash": current_hash}
@@ -2556,6 +2620,7 @@ class PostgreSQLLedger:
                   json.dumps(corrected_output),
                   authority, supersedes_id, orig_hash, authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "superseded",
                 "supersedes_id": supersedes_id,
@@ -3274,7 +3339,24 @@ class PostgreSQLLedger:
                     violations.append(f"Entry {row_id}: hash recomputation failed ({e})")
 
                 prev_hash = stored_current
-            
+
+            # TRUNCATED: the chain against its external head anchor, when
+            # one is configured. Fewer rows than the anchor sealed, or a
+            # different hash at the anchored position, means the tail was
+            # cut or the chain rebuilt; rows appended since are expected.
+            anchor_path = self._head_anchor_path()
+            if anchor_path:
+                try:
+                    anchor = read_head_anchor(anchor_path)
+                    failing = check_head_anchor(
+                        [{"id": r[0], "current_hash": r[3]} for r in rows],
+                        anchor, _att_keys)
+                except CustodyError as exc:
+                    failing = (None, "TRUNCATED", str(exc))
+                if failing is not None:
+                    where = f"Entry {failing[0]}" if failing[0] is not None else "Chain"
+                    violations.append(f"{where}: TRUNCATED ({failing[2]})")
+
             ok = len(violations) == 0
             
             if mode == "strict" and violations:
