@@ -857,3 +857,16 @@ def test_g_200_rows_writer_hash_equals_witness_recompute(tmp_path, monkeypatch):
     assert any(not r.get("subject_digest") for r in rows)        # the marker and the legacy row
     assert PostgreSQLLedger(**_PG).verify_chain()["ok"]
     assert tc.verify_rows(rows, keys=_KEY) is None
+
+
+def test_c_a_forged_seed_on_a_signed_row_is_still_seed_forged(scenario):
+    """An abv3 signature covers the seed too, so forging it also breaks the
+    signature. The verdict names the attack, not its consequence."""
+    rows = [dict(r) for r in scenario["rows"]]
+    signed = next(i for i, r in enumerate(rows) if r.get("authorized_by_sig"))
+    rows[signed]["shuffle_seed"] = "0" * 64
+    _rechain(rows, signed)
+    verdict, run = _verdict(scenario["tmp"], rows, scenario["anchor"],
+                            scenario["key_file"], scenario["fps"])
+    assert verdict == tc.VIOLATION_SEED_FORGED, run.stdout
+    assert f"row={rows[signed]['id']}" in run.stdout
