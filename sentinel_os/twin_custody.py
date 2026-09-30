@@ -58,6 +58,16 @@ from canonical_fields import (
     apply_optional_hashed_fields,
     observed_event_canonical as _observed_event_canonical,
 )
+# TACK Layer 5 receipts. The witness recomputes the subject binding with the
+# same CNS function the writer used (a digest each side derives its own way
+# does not cross a repository boundary) and re-derives a shuffle seed through
+# the one helper Layer 1 will derive it with.
+from cns.gate import subject_digest as _cns_subject_digest
+from governance.authorized_by_attestation import (
+    STATUS_ABSENT as _SEED_ABSENT,
+    STATUS_OK as _SEED_OK,
+    verify_shuffle_seed as _verify_shuffle_seed,
+)
 
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import hashes, serialization
@@ -466,12 +476,66 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
     return hashlib.sha256(_ledger_dumps(canonical)).hexdigest()
 
 
-def deep_verify_row(row: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
-    """(ok, detail). ok=True when recomputed hash equals the row's current_hash."""
+# ---------------------------------------------------------------------------
+# Verdict receipts (TACK Layer 5): the six things an outside auditor can tell
+# about a row. Each name is the word the offline verifier prints.
+# ---------------------------------------------------------------------------
+
+VIOLATION_TAMPERED = "TAMPERED"          # the row's bytes are not what was hashed
+VIOLATION_TRANSPLANTED = "TRANSPLANTED"  # a verdict moved onto content it was not issued for
+VIOLATION_SEED_FORGED = "SEED_FORGED"    # the agent, not the server, chose the gate order
+VIOLATION_TRUNCATED = "TRUNCATED"        # the chain is shorter than, or diverges from, its anchor
+VIOLATION_UNATTESTED = "UNATTESTED"      # an accountable claim with no signature, after enforcement began
+
+
+def verify_subject_binding(row: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """TRANSPLANTED check: a decision's subject_digest must be the CNS digest
+    of its stored input_data. Independent of the hash chain: an attacker who
+    recomputes current_hash after moving a digest is still caught, because
+    the digest is recomputed from the content, not read off the row. A row
+    with no digest (written before receipts) has nothing to check."""
+    stored = row.get("subject_digest")
+    if not stored:
+        return True, None
+    try:
+        expected = _cns_subject_digest(row.get("input_data") or {})
+    except TypeError as exc:
+        return False, (f"{VIOLATION_TRANSPLANTED}: stored input_data is not "
+                       f"canonically encodable ({exc})")
+    if expected != stored:
+        return False, (f"{VIOLATION_TRANSPLANTED}: subject_digest {str(stored)[:16]}.. "
+                       f"was not issued for this row's input_data "
+                       f"(recomputed {expected[:16]}..)")
+    return True, None
+
+
+def verify_shuffle_seed_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool, Optional[str]]:
+    """SEED_FORGED check: a row carrying a shuffle_seed must re-derive it by
+    the server's rule (authorized_by_attestation.derive_shuffle_seed) under a
+    held key. A seed the witness cannot re-derive, because it holds no key,
+    fails closed: it is not a seed the witness can vouch for. A row with no
+    seed (every row written today) has nothing to check."""
+    status, detail = _verify_shuffle_seed(
+        row.get("shuffle_seed"), row.get("previous_hash"), row.get("record_kind"), keys)
+    if status in (_SEED_ABSENT, _SEED_OK):
+        return True, None
+    return False, f"{VIOLATION_SEED_FORGED}: {detail or status}"
+
+
+def deep_verify_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool, Optional[str]]:
+    """(ok, detail). ok=True when the recomputed hash equals the row's
+    current_hash AND the row's receipt fields hold: its subject_digest
+    recomputes from its input_data (else TRANSPLANTED) and any shuffle_seed
+    re-derives under a held key (else SEED_FORGED). `keys` is what the
+    witness holds for the seed check; rows without a seed need none."""
     try:
         recomputed = recompute_current_hash(row)
     except (KeyError, TypeError) as exc:
         return False, f"recompute-failed:{type(exc).__name__}:{exc}"
-    if recomputed == row.get("current_hash"):
-        return True, None
-    return False, f"hash-mismatch: recomputed {recomputed[:16]}.. != stored {str(row.get('current_hash'))[:16]}.."
+    if recomputed != row.get("current_hash"):
+        return False, (f"{VIOLATION_TAMPERED}: hash-mismatch: recomputed {recomputed[:16]}.. "
+                       f"!= stored {str(row.get('current_hash'))[:16]}..")
+    ok, detail = verify_subject_binding(row)
+    if not ok:
+        return ok, detail
+    return verify_shuffle_seed_row(row, keys)
