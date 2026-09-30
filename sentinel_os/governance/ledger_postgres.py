@@ -11,7 +11,9 @@ from canonical_fields import (CONTRACT_CANONICAL_FIELDS,
                               CONTRACT_KINDS_WITH_FINDING,
                               apply_optional_hashed_fields,
                               event_v1_to_body,
-                              observed_event_canonical)
+                              observed_event_canonical,
+                              ATTESTATION_POLICY_RECORD_KIND,
+                              attestation_policy_canonical)
 from cns.gate import GateOutcome, GatePosition, subject_digest as cns_subject_digest
 from .human_selection_v1 import HUMAN_SELECTIONS
 from .authorized_by_attestation import (
@@ -25,6 +27,7 @@ from .authorized_by_attestation import (
     sign_authorized_by,
     verify_authorized_by_signature,
     content_prehash as _content_prehash,
+    key_fingerprint as _key_fingerprint,
     verify_shuffle_seed as _verify_shuffle_seed,
     STATUS_ABSENT as _SEED_STATUS_ABSENT,
     STATUS_OK as _SEED_STATUS_OK,
@@ -700,6 +703,86 @@ class PostgreSQLLedger:
                     f"{sql_path.name}: {missing}. The ledger would be mutable "
                     f"(UPDATE/DELETE/TRUNCATE unprotected). Refusing to start."
                 )
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+        # The attestation_policy marker belongs after this check and nowhere
+        # earlier: a marker on a ledger that cannot prove its own
+        # immutability would promise something the ledger cannot keep.
+        self._ensure_attestation_policy_marker()
+
+    def _ensure_attestation_policy_marker(self) -> None:
+        """Append the chain-native marker that attestation is enforced from
+        here on, when enforcement is on and a signing key is configured and
+        the chain's latest marker does not already name this key. Boot-time
+        and idempotent: a normal restart appends nothing; a key rotation
+        appends one marker naming the new key. See
+        canonical_fields.attestation_policy_canonical.
+        """
+        if not enforcement_required():
+            return
+        key = attestation_key()
+        if key is None:
+            return
+        self.record_attestation_policy(_key_fingerprint(key))
+
+    def record_attestation_policy(self, key_fingerprint: str,
+                                  enforced_at: Optional[str] = None) -> bool:
+        """Append an attestation_policy marker for ``key_fingerprint`` unless
+        the chain's newest marker already names it. Returns True when a row
+        was written. Serialized under the same advisory lock every writer
+        takes, so concurrent boots cannot each append their own marker.
+
+        From this row forward, any row that carries authorized_by and no
+        signature is an UNATTESTED violation in verify_chain and in the
+        witness. Rows before it are untouched.
+        """
+        if enforced_at is None:
+            from datetime import datetime, timezone  # lazy: keeps the cold path clean
+            enforced_at = datetime.now(timezone.utc).isoformat()
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+            cursor.execute("""
+                SELECT data->>'key_fingerprint' FROM ledger_entries
+                WHERE record_kind = %s ORDER BY id DESC LIMIT 1
+            """, (ATTESTATION_POLICY_RECORD_KIND,))
+            latest = cursor.fetchone()
+            if latest and latest[0] == key_fingerprint:
+                conn.rollback()
+                return False
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries
+                ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+            body = {
+                "record_kind": ATTESTATION_POLICY_RECORD_KIND,
+                "parameter_changed": False,
+                "key_fingerprint": key_fingerprint,
+                "enforced_at": enforced_at,
+            }
+            reason = (f"authorized_by attestation enforced from this row "
+                      f"under key {key_fingerprint}")
+            canonical_entry = attestation_policy_canonical(body, reason, previous_hash)
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, reason, previous_hash, current_hash,
+                 data, record_kind)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (ATTESTATION_POLICY_RECORD_KIND, "ledger", reason,
+                  previous_hash, current_hash, json.dumps(body),
+                  ATTESTATION_POLICY_RECORD_KIND))
+            conn.commit()
+            return True
         except Exception:
             conn.rollback()
             raise
@@ -2820,7 +2903,10 @@ class PostgreSQLLedger:
             
             violations = []
             prev_hash = "genesis"
-            
+            # attestation_policy marker seen so far: from that row forward
+            # an accountable claim without a signature is UNATTESTED.
+            policy_from_row = None
+
             for row in rows:
                 (row_id, record_kind, stored_prev, stored_current,
                  action_type, node, previous_value, applied_value, reason,
@@ -3053,6 +3139,12 @@ class PostgreSQLLedger:
                         # from tampering.
                         canonical_entry = observed_event_canonical(
                             self._as_json(input_data) or {}, stored_prev)
+                    elif record_kind == ATTESTATION_POLICY_RECORD_KIND:
+                        # The enforcement marker -- mirrors
+                        # record_attestation_policy(). Fixed canonical form
+                        # from the shared builder, like observed_event.
+                        canonical_entry = attestation_policy_canonical(
+                            self._as_json(data) or {}, reason, stored_prev)
                     else:
                         # Legacy path (append)
                         canonical_entry = {
@@ -3163,6 +3255,20 @@ class PostgreSQLLedger:
                                 f"retired key and attestation is enforced "
                                 f"({att_detail})"
                             )
+
+                    # UNATTESTED: an accountable claim with no signature on a
+                    # row written after attestation was enforced. Presence,
+                    # not validity, so it needs no key; validity is the check
+                    # above. Rows before the marker are untouched.
+                    if (policy_from_row is not None and authorized_by
+                            and not authorized_by_sig):
+                        violations.append(
+                            f"Entry {row_id}: UNATTESTED (authorized_by "
+                            f"{authorized_by!r} carries no signature; attestation "
+                            f"has been enforced since entry {policy_from_row})"
+                        )
+                    if record_kind == ATTESTATION_POLICY_RECORD_KIND and policy_from_row is None:
+                        policy_from_row = row_id
 
                 except Exception as e:
                     violations.append(f"Entry {row_id}: hash recomputation failed ({e})")

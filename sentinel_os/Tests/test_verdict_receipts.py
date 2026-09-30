@@ -390,3 +390,105 @@ def test_abv3_without_the_content_prehash_is_not_a_verification(test_ledger, mon
     assert status == att.STATUS_INVALID and "pre-hash" in detail
     assert att.verify_authorized_by_signature(
         row, _KEY, content_prehash=tc.content_prehash_of(row))[0] == att.STATUS_OK
+
+
+# ---------------------------------------------------------------------------
+# Step 2.5: unattested rows become visible (the attestation_policy marker)
+# ---------------------------------------------------------------------------
+
+def _fresh_ledger():
+    conn = psycopg2.connect(connect_timeout=2, **_PG)
+    conn.autocommit = True
+    conn.cursor().execute("DROP TABLE IF EXISTS ledger_entries CASCADE;")
+    conn.close()
+    return PostgreSQLLedger(**_PG)
+
+
+def _enforcement_on(monkeypatch, key=_KEY):
+    monkeypatch.setenv(att.ENV_REQUIRE, "1")
+    monkeypatch.setenv(att.ENV_KEY, key.decode())
+
+
+def _enforcement_off_no_key(monkeypatch):
+    monkeypatch.delenv(att.ENV_REQUIRE, raising=False)
+    monkeypatch.delenv(att.ENV_KEY, raising=False)
+
+
+def test_marker_is_appended_once_per_key_when_enforcement_is_on(monkeypatch):
+    _enforcement_on(monkeypatch)
+    ledger = _fresh_ledger()
+    try:
+        rows = _rows()
+        assert [r["record_kind"] for r in rows] == ["attestation_policy"]
+        marker = rows[0]
+        assert marker["data"]["key_fingerprint"] == att.key_fingerprint(_KEY)
+        assert marker["data"]["enforced_at"]
+        assert marker["previous_hash"] == "genesis"
+        # writer, primary verifier and witness agree on the marker's bytes
+        assert ledger.verify_chain()["ok"]
+        assert tc.deep_verify_row(marker)[0]
+        # a restart appends nothing
+        PostgreSQLLedger(**_PG).close()
+        assert len(_rows()) == 1
+        # a key rotation appends one marker naming the new key
+        monkeypatch.setenv(att.ENV_KEYS_PREVIOUS, _KEY.decode())
+        monkeypatch.setenv(att.ENV_KEY, _OTHER_KEY.decode())
+        PostgreSQLLedger(**_PG).close()
+        assert [r["data"]["key_fingerprint"] for r in _rows("record_kind = 'attestation_policy'")] == [
+            att.key_fingerprint(_KEY), att.key_fingerprint(_OTHER_KEY)]
+        assert ledger.verify_chain()["ok"]
+    finally:
+        ledger.close()
+
+
+def test_d_a_signature_nulled_after_the_marker_is_unattested(monkeypatch):
+    """Acceptance (d), verifier and witness halves: null a row's signature
+    after the marker and recompute the hash so the unkeyed chain is
+    self-consistent. That attack passed before the marker existed."""
+    _enforcement_on(monkeypatch)
+    ledger = _fresh_ledger()
+    try:
+        assert ledger.append_decision(
+            _record(authorized_by="harness:production"), governance_params=_params())
+        row = _rows()[-1]
+        assert row["authorized_by_sig"].startswith("abv3.")
+        assert ledger.verify_chain()["ok"]
+        assert tc.verify_rows(_rows(), keys=_KEY) is None
+
+        row["authorized_by_sig"] = None
+        _tamper_last_row(authorized_by_sig=None,
+                         current_hash=tc.recompute_current_hash(row))
+        result = ledger.verify_chain(mode="audit")
+        assert any("UNATTESTED" in v for v in result["violations"]), result["violations"]
+        assert not any("content hash mismatch" in v for v in result["violations"])
+        failing = tc.verify_rows(_rows(), keys=_KEY)
+        assert failing is not None
+        assert failing[0] == row["id"] and failing[1] == tc.VIOLATION_UNATTESTED, failing
+    finally:
+        ledger.close()
+
+
+def test_rows_before_the_marker_are_untouched(monkeypatch):
+    """The backward-compatibility guarantee: an accountable claim written
+    unsigned before enforcement began is not a violation afterwards, and a
+    chain with no marker (the fixture) is not judged at all."""
+    _enforcement_off_no_key(monkeypatch)
+    ledger = _fresh_ledger()
+    try:
+        assert ledger.append_decision(
+            _record(authorized_by="harness:legacy"), governance_params=_params())
+    finally:
+        ledger.close()
+    assert _rows()[-1]["authorized_by_sig"] is None
+
+    _enforcement_on(monkeypatch)
+    ledger = PostgreSQLLedger(**_PG)   # appends the marker after the legacy row
+    try:
+        assert [r["record_kind"] for r in _rows()] == ["governance_decision", "attestation_policy"]
+        assert ledger.verify_chain()["ok"]
+        assert tc.verify_rows(_rows(), keys=_KEY) is None
+    finally:
+        ledger.close()
+    fixture = _fixture_rows()
+    assert any(r["authorized_by"] and not r["authorized_by_sig"] for r in fixture)
+    assert tc.verify_rows(fixture, keys=_FIXTURE_KEY) is None
