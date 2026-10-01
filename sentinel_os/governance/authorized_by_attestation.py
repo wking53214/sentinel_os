@@ -115,11 +115,23 @@ CONFIGURATION (locked decision D3 / D4)
   rewriting the file rotates with no restart. No default, no placeholder
   fallback. A set-but-broken ``_KEY_FILE`` raises. If neither is set, rows are
   written with a NULL signature and honestly reported as unattested.
-* ``ICEBERG_LEDGER_REQUIRE_ATTESTATION`` -- opt-in enforcement, OFF unless set
-  to a truthy value ("1"/"true"/"yes"/"on"). When ON and no signing key is
-  configured, the ledger refuses to start. When ON, a writer that cannot
-  produce a signature for a present ``authorized_by`` claim refuses the write,
-  and ``verify_chain`` treats a STATUS_RETIRED_KEY row as a violation.
+* Enforcement is ON by default (TACK Layer 5, step 2.7; it was opt-in
+  before). With no signing key configured the ledger refuses to start; a
+  writer that cannot produce a signature for a present ``authorized_by``
+  claim refuses the write; ``verify_chain`` treats a STATUS_RETIRED_KEY row
+  as a violation; and the ledger appends an attestation_policy marker to
+  the chain at boot, from which row forward an unsigned claim is UNATTESTED.
+* ``ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE`` -- the ONE way to run
+  unenforced, for a developer's own machine and nothing else. A truthy value
+  ("1"/"true"/"yes"/"on") switches enforcement off and prints a loud warning
+  to stderr at startup naming the risk: every accountable claim written
+  under it is an unverifiable string, and no marker is appended, so nothing
+  later can tell those rows from tampered ones. A production profile must
+  never set it; the compose profile requires the key instead.
+* ``ICEBERG_LEDGER_REQUIRE_ATTESTATION`` -- kept for compatibility. A truthy
+  value is what the default already is; a falsy value no longer turns
+  enforcement off (a warning says so once) because the override above is
+  the only opt-out, and it is named for what it is.
 
 Generate every key with 32 bytes of CSPRNG output, e.g. ``openssl rand -hex
 32``, store it in exactly one system of record, never commit it, and use a
@@ -170,6 +182,7 @@ ENV_KEYS_PREVIOUS_FILE = "ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS_FILE"
 ENV_KEYS_RETIRED = "ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED"
 ENV_KEYS_RETIRED_FILE = "ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED_FILE"
 ENV_REQUIRE = "ICEBERG_LEDGER_REQUIRE_ATTESTATION"
+ENV_DEV_OVERRIDE = "ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE"
 
 # Domain-separation tag for the HMAC payload. Versioned so the payload shape
 # can change later without silently accepting old signatures.
@@ -182,6 +195,17 @@ _KEYID_DOMAIN = b"sentinel_os.authorized_by.keyid.v1"
 # Prefix marking a v2 signature envelope: "abv2.<keyfp>.<digest>".
 _ENVELOPE_TAG = "abv2"
 _KEYFP_LEN = 16
+
+# v3 (TACK Layer 5 verdict receipts): "abv3.<keyfp>.<digest>", same envelope,
+# but the HMAC message additionally carries the row's content pre-hash: the
+# SHA-256 of the canonical entry as it stands before the signature field is
+# added to it. A v2 signature attests only the accountable name at a chain
+# position; a v3 signature attests the whole row that name is accountable
+# for, without signing something that contains its own signature. The
+# version prefix is what keeps old rows verifying: a verifier reads the tag
+# and builds the matching message.
+_DOMAIN_TAG_V3 = b"sentinel_os.authorized_by.v3"
+_ENVELOPE_TAG_V3 = "abv3"
 
 # Canonical column / canonical-form key name for the signature. Added to
 # canonical_fields.OPTIONAL_HASHED_FIELDS so it enters the hash chain the
@@ -317,13 +341,45 @@ def attestation_keyset() -> KeySet:
     )
 
 
-def enforcement_required() -> bool:
-    """True when ICEBERG_LEDGER_REQUIRE_ATTESTATION is set to a truthy value.
+_warned: set = set()
 
-    OFF by default (locked decision D3): turning enforcement on by default
-    would fail every existing writer on its first call.
+
+def _warn_once(tag: str, message: str) -> None:
+    """One loud line on stderr per process, per condition, at the first
+    enforcement check, which is the ledger's own construction."""
+    if tag in _warned:
+        return
+    _warned.add(tag)
+    import sys
+    print(message, file=sys.stderr, flush=True)
+
+
+def enforcement_required() -> bool:
+    """True unless the dev-only override is set.
+
+    ON by default since TACK Layer 5 (step 2.7). Locked decision D3 made it
+    opt-in so a key could be rolled out before it bit; the key is now a
+    startup requirement of the ledger, and a ledger that writes accountable
+    claims nobody can check is the defect this exists to end. The one way
+    off is ``ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE``, which warns loudly.
+    ``ICEBERG_LEDGER_REQUIRE_ATTESTATION`` is honoured when truthy (a no-op)
+    and ignored when falsy, with a warning, so the override stays the only
+    opt-out.
     """
-    return os.environ.get(ENV_REQUIRE, "").strip().lower() in _TRUTHY
+    if os.environ.get(ENV_DEV_OVERRIDE, "").strip().lower() in _TRUTHY:
+        _warn_once("override", (
+            f"WARNING: {ENV_DEV_OVERRIDE} is set. authorized_by attestation is "
+            f"NOT enforced: accountable claims are written unsigned and "
+            f"unverifiable, no attestation_policy marker is appended, and a "
+            f"verifier cannot tell these rows from tampered ones. Development "
+            f"machines only; never a production profile."))
+        return False
+    raw = os.environ.get(ENV_REQUIRE, "").strip().lower()
+    if raw and raw not in _TRUTHY:
+        _warn_once("require-falsy", (
+            f"WARNING: {ENV_REQUIRE}={raw!r} is ignored: attestation is enforced "
+            f"by default and only {ENV_DEV_OVERRIDE} switches it off."))
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -349,20 +405,56 @@ def _hmac_hex(key: bytes, payload: bytes) -> str:
     return hmac.new(key, payload, hashlib.sha256).hexdigest()
 
 
-def _split_envelope(sig: str) -> Tuple[Optional[str], str]:
-    """(keyfp, digest). keyfp is None for a v1 legacy bare-digest signature."""
+def content_prehash(canonical_entry: Dict[str, Any]) -> str:
+    """The SHA-256 of a row's canonical entry as it stands before the
+    signature field is added: exactly the bytes the ledger hashes for
+    current_hash (json.dumps, sort_keys, default=str, default separators),
+    minus the one field that cannot be inside its own signature. The writer
+    computes it after every other optional field has joined the entry; a
+    verifier rebuilds the entry, drops ``authorized_by_sig`` and computes it
+    the same way (twin_custody.content_prehash_of).
+    """
+    entry = {k: v for k, v in canonical_entry.items() if k != SIGNATURE_FIELD}
+    return hashlib.sha256(
+        json.dumps(entry, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _payload_v3(authorized_by: str, previous_hash: Optional[str],
+                record_kind: Optional[str], prehash: str) -> bytes:
+    body = json.dumps(
+        {
+            "authorized_by": authorized_by,
+            "content_prehash": prehash,
+            "previous_hash": previous_hash,
+            "record_kind": record_kind,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return _DOMAIN_TAG_V3 + b"\x00" + body
+
+
+def _split_envelope(sig: str) -> Tuple[Optional[str], Optional[str], str]:
+    """(tag, keyfp, digest). tag and keyfp are None for a v1 legacy
+    bare-digest signature; tag is "abv2" or "abv3" otherwise."""
     parts = sig.split(".")
-    if len(parts) == 3 and parts[0] == _ENVELOPE_TAG:
-        return parts[1], parts[2]
-    return None, sig
+    if len(parts) == 3 and parts[0] in (_ENVELOPE_TAG, _ENVELOPE_TAG_V3):
+        return parts[0], parts[1], parts[2]
+    return None, None, sig
 
 
 def sign_authorized_by(authorized_by: Optional[str], previous_hash: Optional[str],
                        record_kind: Optional[str],
-                       key: Optional[bytes]) -> Optional[str]:
-    """Return the v2 signature envelope ``abv2.<keyfp>.<digest>`` for an
-    ``authorized_by`` claim, or None when there is nothing to sign (no claim)
-    or no key is configured.
+                       key: Optional[bytes],
+                       content_prehash: Optional[str] = None) -> Optional[str]:
+    """Return the signature envelope for an ``authorized_by`` claim, or None
+    when there is nothing to sign (no claim) or no key is configured.
+
+    With ``content_prehash`` (see content_prehash()) the envelope is v3,
+    ``abv3.<keyfp>.<digest>``, and the signature covers the row's content;
+    without it the envelope is the v2 form that covers the claim alone,
+    which every writer that has not been moved to v3 still produces.
 
     Never raises on a missing key. The caller decides whether a missing key is
     fatal (enforcement on -> refuse the write) or acceptable (enforcement off
@@ -370,6 +462,10 @@ def sign_authorized_by(authorized_by: Optional[str], previous_hash: Optional[str
     """
     if not authorized_by or not key:
         return None
+    if content_prehash:
+        digest = _hmac_hex(bytes(key), _payload_v3(
+            authorized_by, previous_hash, record_kind, content_prehash))
+        return f"{_ENVELOPE_TAG_V3}.{key_fingerprint(key)}.{digest}"
     digest = _hmac_hex(bytes(key), _payload(authorized_by, previous_hash, record_kind))
     return f"{_ENVELOPE_TAG}.{key_fingerprint(key)}.{digest}"
 
@@ -397,13 +493,18 @@ def _as_keyset(keys: _KeysArg) -> KeySet:
 
 
 def verify_authorized_by_signature(row: Dict[str, Any],
-                                   keys: _KeysArg) -> Tuple[str, Optional[str]]:
+                                   keys: _KeysArg,
+                                   content_prehash: Optional[str] = None
+                                   ) -> Tuple[str, Optional[str]]:
     """Check the keyed attestation on one row dict. Returns (status, detail).
 
     ``row`` must carry ``authorized_by``, ``authorized_by_sig``,
     ``previous_hash`` and ``record_kind`` (the same names used as columns at
     every recompute site). ``keys`` may be a KeySet, a single key (bytes), an
-    iterable of keys (all treated as trusted), or None.
+    iterable of keys (all treated as trusted), or None. ``content_prehash``
+    is the row's content pre-hash (content_prehash()); an abv3 signature
+    cannot be checked without it and reports INVALID, since a verifier that
+    has not rebuilt the content has not verified the receipt.
 
     Outcomes -- only INVALID and UNKNOWN_KEY mean "something is wrong":
       OK           -- valid under the current key or a PREVIOUS key.
@@ -433,9 +534,17 @@ def verify_authorized_by_signature(row: Dict[str, Any],
     if ks.is_empty():
         return (STATUS_UNVERIFIABLE, None)
 
-    payload = _payload(authorized_by, row.get("previous_hash"),
-                       row.get("record_kind"))
-    keyfp, digest = _split_envelope(str(sig))
+    tag, keyfp, digest = _split_envelope(str(sig))
+    if tag == _ENVELOPE_TAG_V3:
+        if not content_prehash:
+            return (STATUS_INVALID,
+                    "abv3 signature covers the row content, but no content "
+                    "pre-hash was given to check it against")
+        payload = _payload_v3(authorized_by, row.get("previous_hash"),
+                              row.get("record_kind"), content_prehash)
+    else:
+        payload = _payload(authorized_by, row.get("previous_hash"),
+                           row.get("record_kind"))
 
     def matches(key: bytes) -> bool:
         return hmac.compare_digest(_hmac_hex(key, payload), digest)
@@ -472,3 +581,82 @@ def verify_authorized_by_signature(row: Dict[str, Any],
             "legacy signature does not match any configured key -- the "
             "authorized_by claim was altered, or it was signed by a key "
             "never configured here")
+
+
+# ---------------------------------------------------------------------------
+# shuffle seed: the reservation for TACK Layer 1 (the MTD sequencer)
+# ---------------------------------------------------------------------------
+#
+# Helper only. Nothing on the write path calls it today: every row is written
+# with the shuffle_seed field absent, and this function exists so that Layer 1
+# derives its seed in exactly one way and the witness re-derives it in the
+# same way. See canonical_fields.OPTIONAL_HASHED_FIELDS for the field.
+
+_SEED_DOMAIN_TAG = b"sentinel_os.shuffle_seed.v1"
+SHUFFLE_SEED_FIELD = "shuffle_seed"
+
+
+def _seed_payload(previous_hash: Optional[str], record_kind: Optional[str]) -> bytes:
+    body = json.dumps(
+        {"previous_hash": previous_hash, "record_kind": record_kind},
+        sort_keys=True, separators=(",", ":"), default=str,
+    ).encode("utf-8")
+    return _SEED_DOMAIN_TAG + b"\x00" + body
+
+
+def derive_shuffle_seed(previous_hash: str, record_kind: str,
+                        key: Optional[bytes]) -> str:
+    """The server-derived seed that fixes the order of non-dependent
+    validation gates for the row about to follow ``previous_hash``.
+
+    HMAC-SHA256 over the previous row's hash and the record kind, keyed with
+    the ledger attestation key, rendered as 64 hex characters. Three
+    properties, each pinned by Tests/test_verdict_receipts.py:
+
+    * the same previous hash, record kind and key always give the same seed,
+      so the witness can re-derive it and compare;
+    * without the key the seed cannot be predicted from the previous hash:
+      it is an HMAC, not a hash, and the previous hash alone is public;
+    * the seed is never accepted from the request or the agent. The writer
+      derives it here or leaves the field absent; a row whose seed does not
+      re-derive is SEED_FORGED (the agent, not the server, chose the order).
+
+    Raises ValueError with no key: a seed anyone could derive fixes nothing.
+    """
+    if not key:
+        raise ValueError(
+            "a shuffle seed needs the ledger attestation key; none was given")
+    if not previous_hash or not record_kind:
+        raise ValueError(
+            "a shuffle seed is derived from a previous hash and a record kind")
+    return _hmac_hex(bytes(key), _seed_payload(previous_hash, record_kind))
+
+
+def verify_shuffle_seed(seed: Optional[str], previous_hash: Optional[str],
+                        record_kind: Optional[str],
+                        keys: _KeysArg) -> Tuple[str, Optional[str]]:
+    """Check that a stored seed re-derives under a key this verifier holds.
+
+    (status, detail): STATUS_ABSENT when the row carries no seed (every row
+    written today); STATUS_OK under a trusted key; STATUS_RETIRED_KEY under
+    a retired one; STATUS_UNVERIFIABLE when no key is held, which a
+    fail-closed verifier treats as a failure; STATUS_INVALID when no held
+    key re-derives it, which is the SEED_FORGED finding.
+    """
+    if not seed:
+        return (STATUS_ABSENT, None)
+    ks = _as_keyset(keys)
+    if ks.is_empty():
+        return (STATUS_UNVERIFIABLE,
+                "the row carries a shuffle_seed but no attestation key is "
+                "held to re-derive it")
+    payload = _seed_payload(previous_hash, record_kind)
+    for k in ks.trusted:
+        if hmac.compare_digest(_hmac_hex(k, payload), str(seed)):
+            return (STATUS_OK, None)
+    for k in ks.retired:
+        if hmac.compare_digest(_hmac_hex(k, payload), str(seed)):
+            return (STATUS_RETIRED_KEY, "seed re-derives only under a retired key")
+    return (STATUS_INVALID,
+            "shuffle_seed does not re-derive from the previous hash and record "
+            "kind under any held key: the order was not fixed by the server")
