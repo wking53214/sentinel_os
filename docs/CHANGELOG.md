@@ -3,6 +3,27 @@
 Dated, human-readable summary of notable changes. Git history has the
 full detail; this is the skim version.
 
+## 2026-09-24
+
+- **Conservation-kernel pin bumped** `e377093` (0.1.0) → `25145aa` (0.3.0),
+  the commit observe-perceive already pins, so the library's two consumers
+  now share one kernel. Between them the kernel adds root admission (a root's
+  references must exist, an authoritative or canonical claim needs an
+  authorization for that proposition, a fact or observation must name a
+  source), snapshot restore and signed snapshots, with three new error
+  types (`RootAdmissionError`, `SnapshotIntegrityError`,
+  `SnapshotAuthenticityError`). Why nothing here needs to change with it:
+  the episode source root (`conservation/episode_source.py`) is an
+  `OBSERVATION` that names its sources and claims no authority, so it is
+  admissible; and `_write_decision` already refuses to persist on any
+  exception from the boundary, so a refused root fails closed. 0.1.0 also
+  lacked the registry check on authorization references; on 0.1.0,
+  observe-perceive's boundary tests see two such cases approved and
+  executed. Verified with CI's own setup (Redis, native Postgres with the
+  iceberg role, `twin_ensure_services`) and the full suite: 967 passed,
+  22 skipped on both SHAs, 0 of 989 outcomes different, all 9
+  conservation boundary tests passing.
+
 ## 2026-09-03
 
 - **`docs/pass3/` investor docs: post-snapshot corrections addendum.** The nine
