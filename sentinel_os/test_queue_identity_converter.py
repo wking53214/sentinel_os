@@ -81,7 +81,17 @@ def _run_pair_and_submit(ingress_env: dict, worker_env: dict, port: int,
     """Spawn a real ingress + real worker with the given env, submit one
     real governed call, and return its final polled status."""
     ingress_env = {**{"TRANSMISSION_REDIS_URL": REDIS_URL, "PYTHONPATH": BUILD_DIR}, **ingress_env}
-    worker_env = {**{"SENTINEL_REDIS_URL": REDIS_URL, "PYTHONPATH": BUILD_DIR}, **worker_env}
+    # The worker now refuses to start without POSTGRES_PASSWORD (no built-in default).
+    # CI's test Postgres role, and the dev containers', use the password "iceberg";
+    # an explicit POSTGRES_PASSWORD in the environment still wins.
+    worker_env = {
+        **{
+            "SENTINEL_REDIS_URL": REDIS_URL,
+            "PYTHONPATH": BUILD_DIR,
+            "POSTGRES_PASSWORD": os.environ.get("POSTGRES_PASSWORD") or "iceberg",
+        },
+        **worker_env,
+    }
 
     ingress_proc = _spawn(
         [sys.executable, "-m", "uvicorn", "api_server_v2:app",

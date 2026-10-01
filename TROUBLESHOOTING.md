@@ -186,6 +186,20 @@ export ICEBERG_API_KEYS="yourkey:yourname"
 docker compose up -d
 ```
 
+### "set POSTGRES_PASSWORD" or "set ICEBERG_LEDGER_RUNTIME_PASSWORD"
+
+Neither password has a default. `docker compose up` needs both (the ledger
+database, and the restricted role the worker connects as):
+
+```bash
+export POSTGRES_PASSWORD="choose-one"
+export ICEBERG_LEDGER_RUNTIME_PASSWORD="choose-another"
+docker compose up -d
+```
+
+The same two variables are needed by `scripts/ledger_backup_verify.sh` and
+`scripts/verify_ledger.py`. See `sentinel_os/.env.example`.
+
 ### "Cannot connect to Docker daemon"
 
 ```bash

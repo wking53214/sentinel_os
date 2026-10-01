@@ -9,6 +9,9 @@
 | `POSTGRES_DB` | `iceberg` | |
 | `POSTGRES_USER` | `iceberg` | |
 | `POSTGRES_PASSWORD` | none (required) | The worker, the operator scripts and docker-compose refuse to start without it |
+| `ICEBERG_LEDGER_RUNTIME_PASSWORD` | none (required) | Password of the restricted runtime role (`ICEBERG_LEDGER_RUNTIME_USER`, default `ledger_reader`). The ledger, `scripts/verify_ledger.py`, `scripts/ledger_backup_verify.sh` and docker-compose refuse to start without it |
+| `FORTRESS_AUDIT_KEY` | — | Secret that signs the `sage_k` audit log (`FORTRESS_AUDIT_LOG`). Unset → a random key held only by that process, with a warning, so the log cannot be verified after a restart. The literal `development-key` is a published value: warned about everywhere, refused in production. |
+| `FORTRESS_ENV` | — | Set to exactly `production` to make `sage_k` refuse to import without a unique `FORTRESS_AUDIT_KEY`. |
 | `CLAUDE_API_KEY` | — | Used by the IVR governor client, which now lives in the **GSA-815** repo (`claude_governance_api.py`). Not read by this kernel directly. |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY` / `TWILIO_API_SECRET` | — | Twilio call-log ingestion moved to the **GSA-815** repo. |
 | `ICEBERG_API_KEYS` | — | API keys for the resilient API server (`api_server_resilient.py`), now in the **GSA-815** repo. |
@@ -159,8 +162,9 @@ variables above. CI installs PostgreSQL natively on the runner (so
 `test_twin_live.py` can use Unix-socket peer auth — see
 `.github/workflows/tests.yml`); that is a test setup, not a production one.
 
-For a non-local Postgres, set a real `POSTGRES_PASSWORD` in your environment
-before bringing up `docker-compose.yml`. The app connects as a restricted
+For a non-local Postgres, set a real `POSTGRES_PASSWORD` and
+`ICEBERG_LEDGER_RUNTIME_PASSWORD` in your environment before bringing up
+`docker-compose.yml`. The app connects as a restricted
 runtime role (`ICEBERG_LEDGER_RUNTIME_USER`, see above) — the ledger refuses to
 start if that role is a superuser or the table owner.
 
@@ -178,7 +182,8 @@ A backup you have not restored is not a backup, and for a hash-chained ledger
 scripts/ledger_backup_verify.sh  [OUTFILE]
 ```
 
-It `pg_dump`s the ledger, restores into a throwaway database, runs
+It needs both `POSTGRES_PASSWORD` and `ICEBERG_LEDGER_RUNTIME_PASSWORD` and checks
+for them before dumping anything. It `pg_dump`s the ledger, restores into a throwaway database, runs
 `scripts/verify_ledger.py` (a thin CLI over `PostgreSQLLedger.verify_chain()`)
 against the restored copy, and drops the throwaway database. Exit 0 means the
 dump restores and its chain verifies clean. Wire it into the job that ships
