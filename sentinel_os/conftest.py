@@ -21,6 +21,18 @@ import pytest
 
 _PG_OWNER = dict(host="localhost", port=5432, dbname="iceberg",
                   user="iceberg", password="iceberg")
+
+# authorized_by attestation is enforced by default (TACK Layer 5, step 2.7)
+# and a ledger refuses to start without a signing key. The suite runs in
+# that real configuration: unless a run configures its own key or the
+# dev-only override, every test ledger signs with this test-only key. It is
+# fixture material, like ledger_reader_test_pw above, never a default the
+# ledger itself would accept -- authorized_by_attestation has no fallback.
+_TEST_ATTESTATION_KEY = "sentinel-os-test-suite-attestation-key-not-a-secret"
+if not (os.environ.get("ICEBERG_LEDGER_ATTESTATION_KEY")
+        or os.environ.get("ICEBERG_LEDGER_ATTESTATION_KEY_FILE")
+        or os.environ.get("ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE")):
+    os.environ["ICEBERG_LEDGER_ATTESTATION_KEY"] = _TEST_ATTESTATION_KEY
 _LEDGER_READER_TEST_PASSWORD = "ledger_reader_test_pw"
 
 

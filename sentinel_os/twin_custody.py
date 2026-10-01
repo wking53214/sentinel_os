@@ -47,16 +47,37 @@ import base64
 import hashlib
 import json
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Same contract the primary ledger uses to add optional fields to the hash.
 # Importing it (rather than re-listing the fields here) is what guarantees the
 # witness and the writer can never drift on which keys enter the canonical form.
 from canonical_fields import (
+    ATTESTATION_POLICY_RECORD_KIND as _ATTESTATION_POLICY_RECORD_KIND,
     CONTRACT_CANONICAL_FIELDS as _CONTRACT_CANONICAL_FIELDS,
     CONTRACT_KINDS_WITH_FINDING as _CONTRACT_KINDS_WITH_FINDING,
     apply_optional_hashed_fields,
+    attestation_policy_canonical as _attestation_policy_canonical,
     observed_event_canonical as _observed_event_canonical,
+)
+# TACK Layer 5 receipts. The witness recomputes the subject binding with the
+# same CNS function the writer used (a digest each side derives its own way
+# does not cross a repository boundary) and re-derives a shuffle seed through
+# the one helper Layer 1 will derive it with.
+from cns.gate import subject_digest as _cns_subject_digest
+from governance.authorized_by_attestation import (
+    SIGNATURE_FIELD as _SIGNATURE_FIELD,
+    STATUS_RETIRED_KEY as _ATT_RETIRED_KEY,
+    STATUS_UNVERIFIABLE as _ATT_UNVERIFIABLE,
+    _as_keyset,
+    key_fingerprint as _key_fingerprint,
+    STATUS_ABSENT as _SEED_ABSENT,
+    STATUS_INVALID as _ATT_INVALID,
+    STATUS_OK as _SEED_OK,
+    STATUS_UNKNOWN_KEY as _ATT_UNKNOWN_KEY,
+    content_prehash as _content_prehash,
+    verify_authorized_by_signature as _verify_authorized_by_signature,
+    verify_shuffle_seed as _verify_shuffle_seed,
 )
 
 from cryptography.exceptions import InvalidSignature, InvalidTag
@@ -243,6 +264,13 @@ SHIPPED_COLUMNS = [
     # recompute exactly as before. See
     # governance/authorized_by_attestation.py.
     "authorized_by_sig",
+    # TACK Layer 5 verdict receipts. Both enter the hash via the shared
+    # OPTIONAL_HASHED_FIELDS contract (column name == canonical key, like
+    # every optional field above), so recompute_current_hash covers them
+    # with no change here. subject_digest binds a decision to its stored
+    # input_data; shuffle_seed is reserved for Layer 1 and NULL today.
+    "subject_digest",
+    "shuffle_seed",
 ]
 
 
@@ -268,11 +296,13 @@ def _ledger_dumps(obj: Any) -> bytes:
     return json.dumps(obj, sort_keys=True, default=str).encode()
 
 
-def recompute_current_hash(row: Dict[str, Any]) -> str:
-    """Recompute what current_hash must be for a shipped/decrypted row.
+def canonical_form(row: Dict[str, Any]) -> Dict[str, Any]:
+    """The canonical dict a shipped/decrypted row hashes to current_hash.
 
     Mirrors ledger_postgres.append() for base rows and
-    ledger_postgres.append_decision() for governance decisions.
+    ledger_postgres.append_decision() for governance decisions, kind by
+    kind. recompute_current_hash hashes it; content_prehash_of drops the
+    signature field from it for the abv3 attestation check.
     """
     if row.get("record_kind") == "governance_decision":
         canonical: Dict[str, Any] = {
@@ -446,6 +476,12 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
         # verify_chain also call. Recompute site 3 of 3.
         body = row.get("input_data") or {}
         canonical = _observed_event_canonical(body, row["previous_hash"])
+    elif row.get("record_kind") == _ATTESTATION_POLICY_RECORD_KIND:
+        # Mirrors ledger_postgres.record_attestation_policy(). The marker
+        # body rode in data; fixed canonical form from the shared builder.
+        # Recompute site 3 of 3.
+        canonical = _attestation_policy_canonical(
+            row.get("data") or {}, row.get("reason"), row["previous_hash"])
     else:
         canonical = {
             "action_type": row["action_type"],
@@ -456,15 +492,267 @@ def recompute_current_hash(row: Dict[str, Any]) -> str:
             "data": row["data"],
             "previous_hash": row["previous_hash"],
         }
-    return hashlib.sha256(_ledger_dumps(canonical)).hexdigest()
+    return canonical
 
 
-def deep_verify_row(row: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
-    """(ok, detail). ok=True when recomputed hash equals the row's current_hash."""
+def recompute_current_hash(row: Dict[str, Any]) -> str:
+    """Recompute what current_hash must be for a shipped/decrypted row."""
+    return hashlib.sha256(_ledger_dumps(canonical_form(row))).hexdigest()
+
+
+def content_prehash_of(row: Dict[str, Any]) -> str:
+    """The content pre-hash an abv3 signature on this row covers: its
+    canonical form as it stood before the signature field was added."""
+    return _content_prehash(canonical_form(row))
+
+
+def verify_row_attestation(row: Dict[str, Any], keys: Any) -> Tuple[str, Optional[str]]:
+    """The witness's own signature check: (status, detail) from
+    authorized_by_attestation.verify_authorized_by_signature, with the
+    content pre-hash rebuilt here so an abv3 receipt is checked against the
+    content the witness holds, not against anything the writer says."""
+    return _verify_authorized_by_signature(
+        row, keys, content_prehash=content_prehash_of(row))
+
+
+# ---------------------------------------------------------------------------
+# Verdict receipts (TACK Layer 5): the six things an outside auditor can tell
+# about a row. Each name is the word the offline verifier prints.
+# ---------------------------------------------------------------------------
+
+VIOLATION_TAMPERED = "TAMPERED"          # the row's bytes are not what was hashed
+VIOLATION_TRANSPLANTED = "TRANSPLANTED"  # a verdict moved onto content it was not issued for
+VIOLATION_SEED_FORGED = "SEED_FORGED"    # the agent, not the server, chose the gate order
+VIOLATION_TRUNCATED = "TRUNCATED"        # the chain is shorter than, or diverges from, its anchor
+VIOLATION_UNATTESTED = "UNATTESTED"      # an accountable claim with no signature, after enforcement began
+
+
+def verify_subject_binding(row: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """TRANSPLANTED check: a decision's subject_digest must be the CNS digest
+    of its stored input_data. Independent of the hash chain: an attacker who
+    recomputes current_hash after moving a digest is still caught, because
+    the digest is recomputed from the content, not read off the row. A row
+    with no digest (written before receipts) has nothing to check."""
+    stored = row.get("subject_digest")
+    if not stored:
+        return True, None
+    try:
+        expected = _cns_subject_digest(row.get("input_data") or {})
+    except TypeError as exc:
+        return False, (f"{VIOLATION_TRANSPLANTED}: stored input_data is not "
+                       f"canonically encodable ({exc})")
+    if expected != stored:
+        return False, (f"{VIOLATION_TRANSPLANTED}: subject_digest {str(stored)[:16]}.. "
+                       f"was not issued for this row's input_data "
+                       f"(recomputed {expected[:16]}..)")
+    return True, None
+
+
+def verify_shuffle_seed_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool, Optional[str]]:
+    """SEED_FORGED check: a row carrying a shuffle_seed must re-derive it by
+    the server's rule (authorized_by_attestation.derive_shuffle_seed) under a
+    held key. A seed the witness cannot re-derive, because it holds no key,
+    fails closed: it is not a seed the witness can vouch for. A row with no
+    seed (every row written today) has nothing to check."""
+    status, detail = _verify_shuffle_seed(
+        row.get("shuffle_seed"), row.get("previous_hash"), row.get("record_kind"), keys)
+    if status in (_SEED_ABSENT, _SEED_OK):
+        return True, None
+    return False, f"{VIOLATION_SEED_FORGED}: {detail or status}"
+
+
+def verify_rows(rows: List[Dict[str, Any]], keys: Any = None
+                ) -> Optional[Tuple[Any, str, str]]:
+    """The witness's walk over a whole chain, in id order: the first failing
+    (row id, violation kind, detail), or None when every row holds.
+
+    Per row, in this order: the link to the previous row and the hash
+    recompute (TAMPERED), the subject binding (TRANSPLANTED), a present
+    signature under the held keys (TAMPERED when invalid, UNATTESTED when
+    its key is unknown), a present seed (SEED_FORGED), and, once an
+    attestation_policy marker has been passed, an accountable claim with no
+    signature (UNATTESTED). Rows before the marker are untouched.
+    """
+    prev = "genesis"
+    policy_from = None
+    for row in rows:
+        row_id = row.get("id")
+        if row.get("previous_hash") != prev:
+            return (row_id, VIOLATION_TAMPERED,
+                    f"chain broken: previous_hash {str(row.get('previous_hash'))[:16]}.. "
+                    f"does not link to {str(prev)[:16]}..")
+        ok, detail = deep_verify_row(row, keys)
+        if not ok:
+            kind = (detail or VIOLATION_TAMPERED).split(":", 1)[0]
+            if kind not in (VIOLATION_TAMPERED, VIOLATION_TRANSPLANTED,
+                            VIOLATION_SEED_FORGED, VIOLATION_UNATTESTED):
+                kind = VIOLATION_TAMPERED
+            return (row_id, kind, detail or "")
+        if (policy_from is not None and row.get("authorized_by")
+                and not row.get(_SIGNATURE_FIELD)):
+            return (row_id, VIOLATION_UNATTESTED,
+                    f"authorized_by {row.get('authorized_by')!r} carries no signature; "
+                    f"attestation has been enforced since row {policy_from}")
+        if (row.get("record_kind") == _ATTESTATION_POLICY_RECORD_KIND
+                and policy_from is None):
+            policy_from = row_id
+        prev = row.get("current_hash")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# The external head anchor (TACK Layer 5, step 2.6). Borrowed from the
+# Resume_OS seal: a chain verifies link by link, so editing or removing a
+# middle row is caught, but a chain truncated at the tail and rebuilt from
+# there is internally perfect. The one thing the database cannot supply is a
+# record of what the head WAS, kept somewhere its writer role cannot reach
+# and signed with a key the agent does not hold. Head hash, row count,
+# sealed-at time and key fingerprint, and an HMAC over those four.
+# ---------------------------------------------------------------------------
+
+HEAD_ANCHOR_ENV = "ICEBERG_LEDGER_ANCHOR_PATH"
+HEAD_ANCHOR_VERSION = 1
+_ANCHOR_DOMAIN = b"sentinel_os.head_anchor.v1"
+_ANCHOR_FIELDS = ("head", "entries", "sealed_at", "key_fingerprint")
+
+
+def head_anchor_payload(head: str, entries: int, sealed_at: str,
+                        key_fingerprint: str) -> bytes:
+    body = canonical_json({"entries": int(entries), "head": head,
+                           "key_fingerprint": key_fingerprint,
+                           "sealed_at": sealed_at})
+    return _ANCHOR_DOMAIN + b"\x00" + body
+
+
+def build_head_anchor(head: str, entries: int, key: bytes,
+                      sealed_at: Optional[str] = None) -> Dict[str, Any]:
+    """The anchor for a chain whose head is `head` after `entries` rows,
+    signed with `key` (the ledger attestation key). Never unsigned: an
+    anchor anybody could write anchors nothing."""
+    if not key:
+        raise CustodyError("a head anchor needs the ledger attestation key")
+    if sealed_at is None:
+        from datetime import datetime, timezone
+        sealed_at = datetime.now(timezone.utc).isoformat()
+    fp = _key_fingerprint(bytes(key))
+    import hmac as _hmac
+    digest = _hmac.new(bytes(key), head_anchor_payload(head, entries, sealed_at, fp),
+                       hashlib.sha256).hexdigest()
+    return {"v": HEAD_ANCHOR_VERSION, "head": head, "entries": int(entries),
+            "sealed_at": sealed_at, "key_fingerprint": fp, "hmac": digest}
+
+
+def write_head_anchor(path: str, head: str, entries: int, key: bytes,
+                      sealed_at: Optional[str] = None) -> Dict[str, Any]:
+    """Write the anchor atomically (temp file, then rename) so a reader never
+    sees a torn anchor. Returns the anchor as written."""
+    anchor = build_head_anchor(head, entries, key, sealed_at)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(anchor, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return anchor
+
+
+def read_head_anchor(path: str) -> Dict[str, Any]:
+    """Load an anchor file. Raises CustodyError when it is missing, unreadable
+    or not an anchor: an absent anchor is a finding, never a pass."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            anchor = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise CustodyError(f"anchor {path} cannot be read: {type(exc).__name__}: {exc}") from exc
+    if not isinstance(anchor, dict) or anchor.get("v") != HEAD_ANCHOR_VERSION \
+            or any(k not in anchor for k in _ANCHOR_FIELDS + ("hmac",)):
+        raise CustodyError(f"anchor {path} is not a v{HEAD_ANCHOR_VERSION} head anchor")
+    return anchor
+
+
+def verify_head_anchor(anchor: Dict[str, Any], keys: Any) -> Tuple[str, Optional[str]]:
+    """(status, detail) for the anchor's HMAC under the key it names, using
+    the same status vocabulary as the row attestation."""
+    import hmac as _hmac
+    ks = _as_keyset(keys)
+    if ks.is_empty():
+        return (_ATT_UNVERIFIABLE, "no key held to check the anchor")
+    fp = str(anchor.get("key_fingerprint"))
+    payload = head_anchor_payload(str(anchor.get("head")), int(anchor.get("entries") or 0),
+                                  str(anchor.get("sealed_at")), fp)
+    expected = str(anchor.get("hmac"))
+
+    def matches(k: bytes) -> bool:
+        return _hmac.compare_digest(_hmac.new(k, payload, hashlib.sha256).hexdigest(), expected)
+
+    k = ks.trusted_key(fp)
+    if k is not None:
+        return (_SEED_OK, None) if matches(k) else (
+            _ATT_INVALID, f"anchor HMAC does not verify under key {fp}: the anchor was altered")
+    k = ks.retired_key(fp)
+    if k is not None:
+        return (_ATT_RETIRED_KEY, f"anchor is valid under retired key {fp}") if matches(k) else (
+            _ATT_INVALID, f"anchor HMAC does not verify under retired key {fp}")
+    return (_ATT_UNKNOWN_KEY, f"anchor signed by key {fp}, which this verifier does not hold")
+
+
+def check_head_anchor(rows: List[Dict[str, Any]], anchor: Dict[str, Any],
+                      keys: Any) -> Optional[Tuple[Any, str, str]]:
+    """Compare a chain (rows in id order, each with id and current_hash) to
+    its anchor. None when the anchored head is a prefix of the chain; else
+    (row id, TRUNCATED, detail). Rows appended after the anchor was sealed
+    are expected; fewer rows than anchored, or a different hash at the
+    anchored position, means the chain was cut or rebuilt. An anchor that
+    does not verify cannot vouch for a head, so that fails closed too.
+    """
+    status, detail = verify_head_anchor(anchor, keys)
+    if status not in (_SEED_OK, _ATT_RETIRED_KEY):
+        return (None, VIOLATION_TRUNCATED, f"anchor cannot be trusted: {detail}")
+    entries = int(anchor.get("entries") or 0)
+    if entries <= 0:
+        return None
+    if len(rows) < entries:
+        return (rows[-1].get("id") if rows else None, VIOLATION_TRUNCATED,
+                f"the chain holds {len(rows)} row(s) but the anchor sealed "
+                f"{entries}; {entries - len(rows)} row(s) are missing from the tail")
+    at = rows[entries - 1]
+    if at.get("current_hash") != anchor.get("head"):
+        return (at.get("id"), VIOLATION_TRUNCATED,
+                f"the anchored head {str(anchor.get('head'))[:16]}.. is not the hash at "
+                f"row {entries} ({str(at.get('current_hash'))[:16]}..): the chain was "
+                f"rebuilt after it was sealed")
+    return None
+
+
+def deep_verify_row(row: Dict[str, Any], keys: Any = None) -> Tuple[bool, Optional[str]]:
+    """(ok, detail). ok=True when the recomputed hash equals the row's
+    current_hash AND the row's receipt fields hold: its subject_digest
+    recomputes from its input_data (else TRANSPLANTED) and any shuffle_seed
+    re-derives under a held key (else SEED_FORGED). `keys` is what the
+    witness holds for the seed check; rows without a seed need none."""
     try:
         recomputed = recompute_current_hash(row)
     except (KeyError, TypeError) as exc:
         return False, f"recompute-failed:{type(exc).__name__}:{exc}"
-    if recomputed == row.get("current_hash"):
-        return True, None
-    return False, f"hash-mismatch: recomputed {recomputed[:16]}.. != stored {str(row.get('current_hash'))[:16]}.."
+    if recomputed != row.get("current_hash"):
+        return False, (f"{VIOLATION_TAMPERED}: hash-mismatch: recomputed {recomputed[:16]}.. "
+                       f"!= stored {str(row.get('current_hash'))[:16]}..")
+    ok, detail = verify_subject_binding(row)
+    if not ok:
+        return ok, detail
+    # The seed check runs before the signature check on purpose: an abv3
+    # signature covers the whole row, so a forged seed also breaks it, and
+    # the specific finding (SEED_FORGED) must name the attack rather than
+    # be reported as its consequence (TAMPERED). Same reason the subject
+    # binding runs first.
+    ok, detail = verify_shuffle_seed_row(row, keys)
+    if not ok:
+        return ok, detail
+    if keys is not None and row.get(_SIGNATURE_FIELD):
+        status, why = verify_row_attestation(row, keys)
+        if status == _ATT_INVALID:
+            return False, f"{VIOLATION_TAMPERED}: attestation invalid: {why}"
+        if status in (_ATT_UNKNOWN_KEY, _ATT_UNVERIFIABLE):
+            # A caller that hands over keys means to verify; a signature
+            # none of them can check is not attested to anyone it trusts.
+            return False, f"{VIOLATION_UNATTESTED}: {why}"
+    return True, None

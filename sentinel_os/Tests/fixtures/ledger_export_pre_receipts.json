@@ -1,0 +1,858 @@
+{
+ "columns": [
+  "id",
+  "timestamp",
+  "action_type",
+  "node",
+  "previous_value",
+  "applied_value",
+  "reason",
+  "previous_hash",
+  "current_hash",
+  "data",
+  "record_kind",
+  "cassette_version",
+  "input_data",
+  "policy_parameters",
+  "decision_output",
+  "cassette_snapshot",
+  "cassette_hash",
+  "call_sid",
+  "cassette_code_hash",
+  "model_identity",
+  "authorized_by",
+  "supersedes_id",
+  "supersedes_hash",
+  "replaces_hash",
+  "outcome_obligation",
+  "ai_cost",
+  "shadow_run_hash",
+  "decision_hash",
+  "authorized_by_sig"
+ ],
+ "format": "sentinel_os.ledger_export.v1",
+ "rows": [
+  {
+   "action_type": "threshold_adjust",
+   "ai_cost": null,
+   "applied_value": 0.6,
+   "authorized_by": null,
+   "authorized_by_sig": null,
+   "call_sid": null,
+   "cassette_code_hash": null,
+   "cassette_hash": null,
+   "cassette_snapshot": null,
+   "cassette_version": null,
+   "current_hash": "3d7f00874c3eaf5aeeebd5df0a3f264ad101ed0bf5fd75ee683190424482b557",
+   "data": {
+    "why": "fixture"
+   },
+   "decision_hash": null,
+   "decision_output": null,
+   "id": 1,
+   "input_data": null,
+   "model_identity": null,
+   "node": "billing_queue",
+   "outcome_obligation": null,
+   "policy_parameters": null,
+   "previous_hash": "genesis",
+   "previous_value": 0.5,
+   "reason": "legacy row one",
+   "record_kind": "legacy",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.563110+00:00"
+  },
+  {
+   "action_type": "cassette_binding",
+   "ai_cost": null,
+   "applied_value": 0.0,
+   "authorized_by": null,
+   "authorized_by_sig": null,
+   "call_sid": null,
+   "cassette_code_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "cassette_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "cassette_snapshot": null,
+   "cassette_version": "ivr:standard-ivr:2.0.3",
+   "current_hash": "ec9caf2fa610ce812b1d8de629be7f72f4332a3aea2813370920fa8c64c99d3d",
+   "data": {
+    "parameter_changed": false,
+    "record_kind": "cassette_binding"
+   },
+   "decision_hash": null,
+   "decision_output": null,
+   "id": 2,
+   "input_data": null,
+   "model_identity": null,
+   "node": "ivr:standard-ivr:2.0.3",
+   "outcome_obligation": null,
+   "policy_parameters": null,
+   "previous_hash": "3d7f00874c3eaf5aeeebd5df0a3f264ad101ed0bf5fd75ee683190424482b557",
+   "previous_value": 0.0,
+   "reason": "cassette version->content binding",
+   "record_kind": "cassette_binding",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.567244+00:00"
+  },
+  {
+   "action_type": "governance_decision",
+   "ai_cost": null,
+   "applied_value": 0.0,
+   "authorized_by": null,
+   "authorized_by_sig": null,
+   "call_sid": "FIX-0001",
+   "cassette_code_hash": null,
+   "cassette_hash": "efb86113f071057a57da48924c08cbb78ac4b4f218b309f418fb0769ce2838f6",
+   "cassette_snapshot": {
+    "capabilities": [
+     "rl",
+     "routing_topology",
+     "self_healing",
+     "telephony_ingest"
+    ],
+    "cassette_version": "ivr:standard-ivr:2.0.3",
+    "parameters": {
+     "expected_wait_bounds": {
+      "description": "Self-healing clamp band for the expected_wait parameter.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Below 4s the sensor chases noise; above 120s the heal target itself is the outage.",
+       "last_reviewed": null
+      },
+      "min": 0.0,
+      "type": "range",
+      "unit": "seconds",
+      "value": [
+       4.0,
+       120.0
+      ]
+     },
+     "governance_trigger": {
+      "description": "Calls with friction_count >= this value are routed to the governor (inclusive).",
+      "max": 100.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Two measured friction events on one call indicates a systemic path problem, not caller noise.",
+       "last_reviewed": null
+      },
+      "min": 0.0,
+      "type": "int",
+      "unit": "friction events",
+      "value": 2
+     },
+     "long_wait_threshold": {
+      "description": "A wait longer than this at any node counts as one friction event.",
+      "max": 600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Callers audibly disengage past ~30s of dead air in a standard voice IVR.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "float",
+      "unit": "seconds",
+      "value": 30.0
+     },
+     "twilio_long_duration_threshold": {
+      "description": "Twilio ingest: calls longer than this duration contribute 2 friction points.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "5 minutes (300s) is the standard call-center threshold for 'long call' in IVR contexts.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 300
+     },
+     "twilio_medium_duration_threshold": {
+      "description": "Twilio ingest: calls longer than this duration contribute 1 friction point.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "2 minutes (120s) is the threshold for 'medium length' in IVR contexts.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 120
+     },
+     "twilio_short_duration_threshold": {
+      "description": "Twilio ingest: calls shorter than this duration with non-completed status indicate dropped calls (1 friction point).",
+      "max": 60.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "10 seconds is insufficient for an IVR to play a prompt and capture input; shorter non-completed calls suggest early hang-ups.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 10
+     }
+    },
+    "schema_version": "2.0.0"
+   },
+   "cassette_version": "ivr:standard-ivr:2.0.2",
+   "current_hash": "2909487799eb5b41e47b6585c1591e0393a9bd412f050b6b83aeaa96b2b5ef9c",
+   "data": {
+    "parameter_changed": false,
+    "record_kind": "governance_decision"
+   },
+   "decision_hash": null,
+   "decision_output": {
+    "risk_level": "high",
+    "safe": false
+   },
+   "id": 3,
+   "input_data": {
+    "call_sid": "FIX-0001"
+   },
+   "model_identity": null,
+   "node": "billing_queue",
+   "outcome_obligation": null,
+   "policy_parameters": {
+    "governance_trigger": 2
+   },
+   "previous_hash": "ec9caf2fa610ce812b1d8de629be7f72f4332a3aea2813370920fa8c64c99d3d",
+   "previous_value": 0.0,
+   "reason": "AI safety check: risk elevated on repeat contact",
+   "record_kind": "governance_decision",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.570027+00:00"
+  },
+  {
+   "action_type": "governance_decision",
+   "ai_cost": {
+    "cost_usd": 0.0,
+    "input_tokens": 1,
+    "model": "m",
+    "output_tokens": 2
+   },
+   "applied_value": 0.0,
+   "authorized_by": "harness:production",
+   "authorized_by_sig": null,
+   "call_sid": "FIX-0002",
+   "cassette_code_hash": null,
+   "cassette_hash": "efb86113f071057a57da48924c08cbb78ac4b4f218b309f418fb0769ce2838f6",
+   "cassette_snapshot": {
+    "capabilities": [
+     "rl",
+     "routing_topology",
+     "self_healing",
+     "telephony_ingest"
+    ],
+    "cassette_version": "ivr:standard-ivr:2.0.3",
+    "parameters": {
+     "expected_wait_bounds": {
+      "description": "Self-healing clamp band for the expected_wait parameter.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Below 4s the sensor chases noise; above 120s the heal target itself is the outage.",
+       "last_reviewed": null
+      },
+      "min": 0.0,
+      "type": "range",
+      "unit": "seconds",
+      "value": [
+       4.0,
+       120.0
+      ]
+     },
+     "governance_trigger": {
+      "description": "Calls with friction_count >= this value are routed to the governor (inclusive).",
+      "max": 100.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Two measured friction events on one call indicates a systemic path problem, not caller noise.",
+       "last_reviewed": null
+      },
+      "min": 0.0,
+      "type": "int",
+      "unit": "friction events",
+      "value": 2
+     },
+     "long_wait_threshold": {
+      "description": "A wait longer than this at any node counts as one friction event.",
+      "max": 600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Callers audibly disengage past ~30s of dead air in a standard voice IVR.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "float",
+      "unit": "seconds",
+      "value": 30.0
+     },
+     "twilio_long_duration_threshold": {
+      "description": "Twilio ingest: calls longer than this duration contribute 2 friction points.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "5 minutes (300s) is the standard call-center threshold for 'long call' in IVR contexts.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 300
+     },
+     "twilio_medium_duration_threshold": {
+      "description": "Twilio ingest: calls longer than this duration contribute 1 friction point.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "2 minutes (120s) is the threshold for 'medium length' in IVR contexts.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 120
+     },
+     "twilio_short_duration_threshold": {
+      "description": "Twilio ingest: calls shorter than this duration with non-completed status indicate dropped calls (1 friction point).",
+      "max": 60.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "10 seconds is insufficient for an IVR to play a prompt and capture input; shorter non-completed calls suggest early hang-ups.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 10
+     }
+    },
+    "schema_version": "2.0.0"
+   },
+   "cassette_version": "ivr:standard-ivr:2.0.2",
+   "current_hash": "d22e8c80ce13eb318bed3394ff6e09afd576ea6bfc31c1c755b9f3046ad880b2",
+   "data": {
+    "parameter_changed": false,
+    "record_kind": "governance_decision"
+   },
+   "decision_hash": null,
+   "decision_output": {
+    "risk_level": "high",
+    "safe": false
+   },
+   "id": 4,
+   "input_data": {
+    "call_sid": "FIX-0002"
+   },
+   "model_identity": "claude-test",
+   "node": "billing_queue",
+   "outcome_obligation": "loan_performance@24mo",
+   "policy_parameters": {
+    "governance_trigger": 2
+   },
+   "previous_hash": "2909487799eb5b41e47b6585c1591e0393a9bd412f050b6b83aeaa96b2b5ef9c",
+   "previous_value": 0.0,
+   "reason": "AI safety check: risk elevated on repeat contact",
+   "record_kind": "governance_decision",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.572552+00:00"
+  },
+  {
+   "action_type": "regulatory_cassette_inserted",
+   "ai_cost": null,
+   "applied_value": 0.0,
+   "authorized_by": "auditor:jane-doe",
+   "authorized_by_sig": null,
+   "call_sid": null,
+   "cassette_code_hash": null,
+   "cassette_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+   "cassette_snapshot": null,
+   "cassette_version": "reg:cfpb-lens:1.0.0",
+   "current_hash": "70dcd924fb2c0180c8970c2805d3ff568da3dafe846d1ed5e411ec1a005b757c",
+   "data": {
+    "mode": "observer",
+    "parameter_changed": false,
+    "record_kind": "regulatory_cassette_inserted",
+    "regulation": "CFPB UDAAP"
+   },
+   "decision_hash": null,
+   "decision_output": null,
+   "id": 5,
+   "input_data": null,
+   "model_identity": null,
+   "node": "CFPB UDAAP",
+   "outcome_obligation": null,
+   "policy_parameters": null,
+   "previous_hash": "d22e8c80ce13eb318bed3394ff6e09afd576ea6bfc31c1c755b9f3046ad880b2",
+   "previous_value": 0.0,
+   "reason": "regulatory lens inserted (observer mode)",
+   "record_kind": "regulatory_cassette_inserted",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.574758+00:00"
+  },
+  {
+   "action_type": "contract_ingest",
+   "ai_cost": null,
+   "applied_value": 0.0,
+   "authorized_by": "dpo:acme",
+   "authorized_by_sig": null,
+   "call_sid": null,
+   "cassette_code_hash": null,
+   "cassette_hash": null,
+   "cassette_snapshot": null,
+   "cassette_version": "contract:acme:1.0.0",
+   "current_hash": "5bc921aec4c8474f46e948e8e4401f833fe305e5e519437b1c59388189e1378b",
+   "data": {
+    "counterparty": "acme",
+    "data_scope": "call-records",
+    "ingest_id": "ing-1",
+    "parameter_changed": false,
+    "received_at": "2026-08-27T00:00:00Z",
+    "record_kind": "contract_ingest"
+   },
+   "decision_hash": null,
+   "decision_output": null,
+   "id": 6,
+   "input_data": null,
+   "model_identity": null,
+   "node": "acme",
+   "outcome_obligation": null,
+   "policy_parameters": null,
+   "previous_hash": "70dcd924fb2c0180c8970c2805d3ff568da3dafe846d1ed5e411ec1a005b757c",
+   "previous_value": 0.0,
+   "reason": "contract ingest ing-1",
+   "record_kind": "contract_ingest",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.576049+00:00"
+  },
+  {
+   "action_type": "governance_decision",
+   "ai_cost": null,
+   "applied_value": 0.0,
+   "authorized_by": null,
+   "authorized_by_sig": null,
+   "call_sid": "FIX-0003",
+   "cassette_code_hash": null,
+   "cassette_hash": "efb86113f071057a57da48924c08cbb78ac4b4f218b309f418fb0769ce2838f6",
+   "cassette_snapshot": {
+    "capabilities": [
+     "rl",
+     "routing_topology",
+     "self_healing",
+     "telephony_ingest"
+    ],
+    "cassette_version": "ivr:standard-ivr:2.0.3",
+    "parameters": {
+     "expected_wait_bounds": {
+      "description": "Self-healing clamp band for the expected_wait parameter.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Below 4s the sensor chases noise; above 120s the heal target itself is the outage.",
+       "last_reviewed": null
+      },
+      "min": 0.0,
+      "type": "range",
+      "unit": "seconds",
+      "value": [
+       4.0,
+       120.0
+      ]
+     },
+     "governance_trigger": {
+      "description": "Calls with friction_count >= this value are routed to the governor (inclusive).",
+      "max": 100.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Two measured friction events on one call indicates a systemic path problem, not caller noise.",
+       "last_reviewed": null
+      },
+      "min": 0.0,
+      "type": "int",
+      "unit": "friction events",
+      "value": 2
+     },
+     "long_wait_threshold": {
+      "description": "A wait longer than this at any node counts as one friction event.",
+      "max": 600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Callers audibly disengage past ~30s of dead air in a standard voice IVR.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "float",
+      "unit": "seconds",
+      "value": 30.0
+     },
+     "twilio_long_duration_threshold": {
+      "description": "Twilio ingest: calls longer than this duration contribute 2 friction points.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "5 minutes (300s) is the standard call-center threshold for 'long call' in IVR contexts.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 300
+     },
+     "twilio_medium_duration_threshold": {
+      "description": "Twilio ingest: calls longer than this duration contribute 1 friction point.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "2 minutes (120s) is the threshold for 'medium length' in IVR contexts.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 120
+     },
+     "twilio_short_duration_threshold": {
+      "description": "Twilio ingest: calls shorter than this duration with non-completed status indicate dropped calls (1 friction point).",
+      "max": 60.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "10 seconds is insufficient for an IVR to play a prompt and capture input; shorter non-completed calls suggest early hang-ups.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 10
+     }
+    },
+    "schema_version": "2.0.0"
+   },
+   "cassette_version": "ivr:standard-ivr:2.0.2",
+   "current_hash": "dc826cdce48e942a28510f77399a5c6f776d9fb232a4741a6eae71d1b4a9b231",
+   "data": {
+    "parameter_changed": false,
+    "record_kind": "governance_decision"
+   },
+   "decision_hash": null,
+   "decision_output": {
+    "confidence": 0.9,
+    "risk_level": "low",
+    "safe": true
+   },
+   "id": 7,
+   "input_data": {
+    "call_sid": "FIX-0003",
+    "kernel": {
+     "judged": true,
+     "score": 0.5,
+     "source_events": [
+      "EPF001:route",
+      "EPF001:ended"
+     ],
+     "tier": "acceptable"
+    }
+   },
+   "model_identity": null,
+   "node": "billing_queue",
+   "outcome_obligation": null,
+   "policy_parameters": {
+    "governance_trigger": 2
+   },
+   "previous_hash": "5bc921aec4c8474f46e948e8e4401f833fe305e5e519437b1c59388189e1378b",
+   "previous_value": 0.0,
+   "reason": "AI safety check",
+   "record_kind": "governance_decision",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.577305+00:00"
+  },
+  {
+   "action_type": "route_selected",
+   "ai_cost": null,
+   "applied_value": null,
+   "authorized_by": null,
+   "authorized_by_sig": null,
+   "call_sid": null,
+   "cassette_code_hash": null,
+   "cassette_hash": null,
+   "cassette_snapshot": null,
+   "cassette_version": null,
+   "current_hash": "1d0cd6570e1b9c9549c9ef603bfed50af9930e524218b3dbe8ec5f9691a70ff1",
+   "data": {
+    "parameter_changed": false,
+    "record_kind": "observed_event"
+   },
+   "decision_hash": null,
+   "decision_output": null,
+   "id": 8,
+   "input_data": {
+    "detail": {},
+    "domain": "ivr",
+    "episode_id": "EPF001",
+    "event_id": "EPF001:route",
+    "fields": {
+     "route": "billing_queue"
+    },
+    "kind": "route_selected",
+    "method": "phone-digit rule",
+    "observed_at": 1005.0,
+    "occurred_at": 1000.0,
+    "provenance": "estimated",
+    "reducer_version": "assemble_episode.v1",
+    "schema_version": 1,
+    "source": "twilio_log_ingestion"
+   },
+   "model_identity": null,
+   "node": "EPF001",
+   "outcome_obligation": null,
+   "policy_parameters": null,
+   "previous_hash": "dc826cdce48e942a28510f77399a5c6f776d9fb232a4741a6eae71d1b4a9b231",
+   "previous_value": null,
+   "reason": "observed_event EPF001:route (estimated) for episode EPF001",
+   "record_kind": "observed_event",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.577305+00:00"
+  },
+  {
+   "action_type": "call_ended",
+   "ai_cost": null,
+   "applied_value": null,
+   "authorized_by": null,
+   "authorized_by_sig": null,
+   "call_sid": null,
+   "cassette_code_hash": null,
+   "cassette_hash": null,
+   "cassette_snapshot": null,
+   "cassette_version": null,
+   "current_hash": "e67f2b458b512b66568a7898a56241dbc8e94575c92d0d1b57dfca9082272147",
+   "data": {
+    "parameter_changed": false,
+    "record_kind": "observed_event"
+   },
+   "decision_hash": null,
+   "decision_output": null,
+   "id": 9,
+   "input_data": {
+    "detail": {},
+    "domain": "ivr",
+    "episode_id": "EPF001",
+    "event_id": "EPF001:ended",
+    "fields": {
+     "duration": 40.0,
+     "resolved": true
+    },
+    "kind": "call_ended",
+    "method": null,
+    "observed_at": 1040.0,
+    "occurred_at": 1040.0,
+    "provenance": "verified",
+    "reducer_version": "assemble_episode.v1",
+    "schema_version": 1,
+    "source": "twilio:call_log"
+   },
+   "model_identity": null,
+   "node": "EPF001",
+   "outcome_obligation": null,
+   "policy_parameters": null,
+   "previous_hash": "1d0cd6570e1b9c9549c9ef603bfed50af9930e524218b3dbe8ec5f9691a70ff1",
+   "previous_value": null,
+   "reason": "observed_event EPF001:ended (verified) for episode EPF001",
+   "record_kind": "observed_event",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.577305+00:00"
+  },
+  {
+   "action_type": "threshold_adjust",
+   "ai_cost": null,
+   "applied_value": 0.6,
+   "authorized_by": null,
+   "authorized_by_sig": null,
+   "call_sid": null,
+   "cassette_code_hash": null,
+   "cassette_hash": null,
+   "cassette_snapshot": null,
+   "cassette_version": null,
+   "current_hash": "d29b15779eb8034c7d917a9471d427de6adec63c2d2879049a47b85220c462e7",
+   "data": {
+    "why": "fixture"
+   },
+   "decision_hash": null,
+   "decision_output": null,
+   "id": 10,
+   "input_data": null,
+   "model_identity": null,
+   "node": "billing_queue",
+   "outcome_obligation": null,
+   "policy_parameters": null,
+   "previous_hash": "e67f2b458b512b66568a7898a56241dbc8e94575c92d0d1b57dfca9082272147",
+   "previous_value": 0.6,
+   "reason": "legacy row two",
+   "record_kind": "legacy",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.580457+00:00"
+  },
+  {
+   "action_type": "governance_decision",
+   "ai_cost": null,
+   "applied_value": 0.0,
+   "authorized_by": "harness:production",
+   "authorized_by_sig": "abv2.acdf8e81f938b3ca.720f1c4f417900df7827993b5e9578e4de38d0506362e88cd1710be8246fe9b5",
+   "call_sid": "FIX-0004",
+   "cassette_code_hash": null,
+   "cassette_hash": "efb86113f071057a57da48924c08cbb78ac4b4f218b309f418fb0769ce2838f6",
+   "cassette_snapshot": {
+    "capabilities": [
+     "rl",
+     "routing_topology",
+     "self_healing",
+     "telephony_ingest"
+    ],
+    "cassette_version": "ivr:standard-ivr:2.0.3",
+    "parameters": {
+     "expected_wait_bounds": {
+      "description": "Self-healing clamp band for the expected_wait parameter.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Below 4s the sensor chases noise; above 120s the heal target itself is the outage.",
+       "last_reviewed": null
+      },
+      "min": 0.0,
+      "type": "range",
+      "unit": "seconds",
+      "value": [
+       4.0,
+       120.0
+      ]
+     },
+     "governance_trigger": {
+      "description": "Calls with friction_count >= this value are routed to the governor (inclusive).",
+      "max": 100.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Two measured friction events on one call indicates a systemic path problem, not caller noise.",
+       "last_reviewed": null
+      },
+      "min": 0.0,
+      "type": "int",
+      "unit": "friction events",
+      "value": 2
+     },
+     "long_wait_threshold": {
+      "description": "A wait longer than this at any node counts as one friction event.",
+      "max": 600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "Callers audibly disengage past ~30s of dead air in a standard voice IVR.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "float",
+      "unit": "seconds",
+      "value": 30.0
+     },
+     "twilio_long_duration_threshold": {
+      "description": "Twilio ingest: calls longer than this duration contribute 2 friction points.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "5 minutes (300s) is the standard call-center threshold for 'long call' in IVR contexts.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 300
+     },
+     "twilio_medium_duration_threshold": {
+      "description": "Twilio ingest: calls longer than this duration contribute 1 friction point.",
+      "max": 3600.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "2 minutes (120s) is the threshold for 'medium length' in IVR contexts.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 120
+     },
+     "twilio_short_duration_threshold": {
+      "description": "Twilio ingest: calls shorter than this duration with non-completed status indicate dropped calls (1 friction point).",
+      "max": 60.0,
+      "metadata": {
+       "approval_date": null,
+       "justification": "10 seconds is insufficient for an IVR to play a prompt and capture input; shorter non-completed calls suggest early hang-ups.",
+       "last_reviewed": null
+      },
+      "min": 1.0,
+      "type": "int",
+      "unit": "seconds",
+      "value": 10
+     }
+    },
+    "schema_version": "2.0.0"
+   },
+   "cassette_version": "ivr:standard-ivr:2.0.2",
+   "current_hash": "bc777e16308cecfe5b64de354c8b3f8df8edd03e8faea3d176d152343c86fb5e",
+   "data": {
+    "parameter_changed": false,
+    "record_kind": "governance_decision"
+   },
+   "decision_hash": null,
+   "decision_output": {
+    "risk_level": "high",
+    "safe": false
+   },
+   "id": 11,
+   "input_data": {
+    "call_sid": "FIX-0004"
+   },
+   "model_identity": null,
+   "node": "billing_queue",
+   "outcome_obligation": null,
+   "policy_parameters": {
+    "governance_trigger": 2
+   },
+   "previous_hash": "d29b15779eb8034c7d917a9471d427de6adec63c2d2879049a47b85220c462e7",
+   "previous_value": 0.0,
+   "reason": "AI safety check: risk elevated on repeat contact",
+   "record_kind": "governance_decision",
+   "replaces_hash": null,
+   "shadow_run_hash": null,
+   "supersedes_hash": null,
+   "supersedes_id": null,
+   "timestamp": "2026-09-30T01:32:14.581654+00:00"
+  }
+ ]
+}

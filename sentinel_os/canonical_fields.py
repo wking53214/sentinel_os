@@ -36,7 +36,7 @@ json.dumps(sort_keys=True, default=str); the twin's _ledger_dumps mirrors that
 exactly. canonical_json's compact separators are a DIFFERENT serialization for
 the envelope layer and are deliberately not touched.
 """
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # Node-role vocabulary (2026-07-31, relocated here so the kernel doesn't
 # reach into an IVR-side file for one shared constant): a governance path
@@ -112,6 +112,22 @@ OPTIONAL_HASHED_FIELDS = (
     # written without a key and every row predating this field -- same
     # migration guarantee every optional field above already has.
     "authorized_by_sig",
+    # TACK Layer 5 (verdict receipts): the CNS canonical digest
+    # (cns.gate.subject_digest) of the content this decision judged, its
+    # input_data as stored. Computed by the writer, never taken from the
+    # record; the witness recomputes it from the stored input_data and a
+    # mismatch is a TRANSPLANTED verdict (moved onto content it was not
+    # issued for). Present on governance_decision rows written from this
+    # change on; absent -> omitted -> every earlier row keeps its bytes.
+    "subject_digest",
+    # Reserved for TACK Layer 1 (the MTD sequencer): the server-derived
+    # seed that fixed the order of non-dependent validation gates for
+    # this row (governance/authorized_by_attestation.derive_shuffle_seed).
+    # Absent on every row written by a chain that was not shuffled, which
+    # today is every row. Present-when-truthy, so no existing row changes
+    # bytes; when present the witness re-derives it and a mismatch is
+    # SEED_FORGED (the agent, not the server, chose the gate order).
+    "shuffle_seed",
 )
 
 
@@ -193,6 +209,37 @@ def observed_event_canonical(event_body: Dict[str, Any],
     canonical: Dict[str, Any] = {"record_kind": "observed_event"}
     for key in OBSERVED_EVENT_CANONICAL_FIELDS:
         canonical[key] = event_body.get(key)
+    canonical["previous_hash"] = previous_hash
+    return canonical
+
+
+# ---------------------------------------------------------------------------
+# attestation_policy rows: the chain-native marker that authorized_by
+# attestation is enforced from this row forward (TACK Layer 5, step 2.5).
+#
+# Written by the ledger at boot when enforcement is on and a signing key is
+# configured, once per key fingerprint (a rotation adds a new marker). From
+# the marker on, a row that names an accountable party and carries no
+# signature is UNATTESTED. Rows before the marker are untouched: that is the
+# backward-compatibility guarantee, and it is why the marker is in the chain
+# rather than in configuration a verifier would have to be told about.
+#
+# Same pattern as observed_event: a FIXED canonical form (every marker row is
+# new; there is nothing older to stay byte-compatible with), one function
+# that builds it, imported by the writer, verify_chain and the witness. The
+# body rides in the data JSONB; `reason` is the row's own column, hashed so
+# the marker's human-readable statement is part of the receipt.
+ATTESTATION_POLICY_RECORD_KIND = "attestation_policy"
+ATTESTATION_POLICY_CANONICAL_FIELDS: tuple = ("key_fingerprint", "enforced_at")
+
+
+def attestation_policy_canonical(body: Dict[str, Any], reason: Optional[str],
+                                 previous_hash: str) -> Dict[str, Any]:
+    """The canonical dict hashed for one attestation_policy ledger row."""
+    canonical: Dict[str, Any] = {"record_kind": ATTESTATION_POLICY_RECORD_KIND}
+    for key in ATTESTATION_POLICY_CANONICAL_FIELDS:
+        canonical[key] = body.get(key)
+    canonical["reason"] = reason
     canonical["previous_hash"] = previous_hash
     return canonical
 
