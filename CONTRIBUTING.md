@@ -191,4 +191,4 @@ Security issues: email the maintainer, don't open a public issue.
 
 ## License
 
-This project is proprietary. See [`LICENSE`](LICENSE) for the terms that apply.
+This project is proprietary and does not accept outside contributions. See [`LICENSE`](LICENSE) for the terms that apply.
