@@ -11,7 +11,13 @@ from canonical_fields import (CONTRACT_CANONICAL_FIELDS,
                               CONTRACT_KINDS_WITH_FINDING,
                               apply_optional_hashed_fields,
                               event_v1_to_body,
-                              observed_event_canonical)
+                              observed_event_canonical,
+                              ATTESTATION_POLICY_RECORD_KIND,
+                              attestation_policy_canonical)
+from cns.gate import GateOutcome, GatePosition, subject_digest as cns_subject_digest
+import os as _os_for_anchor  # noqa: E402  (aliased below; see _head_anchor_path)
+from twin_custody import (CustodyError, HEAD_ANCHOR_ENV, check_head_anchor,
+                          read_head_anchor, write_head_anchor)
 from .human_selection_v1 import HUMAN_SELECTIONS
 from .authorized_by_attestation import (
     SIGNATURE_FIELD as _AUTHORIZED_BY_SIG_FIELD,
@@ -23,6 +29,11 @@ from .authorized_by_attestation import (
     enforcement_required,
     sign_authorized_by,
     verify_authorized_by_signature,
+    content_prehash as _content_prehash,
+    key_fingerprint as _key_fingerprint,
+    verify_shuffle_seed as _verify_shuffle_seed,
+    STATUS_OK as _SEED_STATUS_OK,
+    STATUS_RETIRED_KEY as _SEED_STATUS_RETIRED_KEY,
 )
 from dataclasses import dataclass
 from pathlib import Path
@@ -127,6 +138,21 @@ class GovernanceDecisionRecord:
     #   recomputed here. None for a decision that never called the API.
     ai_cost: Optional[Dict[str, Any]] = None
 
+
+def gate_outcome_of(output: Dict[str, Any]) -> str:
+    """The CNS GateOutcome a decision output amounts to, as its value.
+
+    A decision output declares approval under "approved" (GovernanceHarness)
+    or "safe" (the governor's own answer); `is True`, never truthiness, the
+    same guard the harness applies. An output that declares neither passes
+    nothing: fail-closed, the posture of every gate in the library.
+    """
+    for key in ("approved", "safe"):
+        if key in output:
+            outcome = GateOutcome.PASS if output[key] is True else GateOutcome.TERMINAL_BREACH
+            return outcome.value
+    return GateOutcome.TERMINAL_BREACH.value
+
 class PostgreSQLLedger:
     """Production ledger backed by PostgreSQL"""
 
@@ -181,7 +207,8 @@ class PostgreSQLLedger:
         # start rather than proceed with enforcement that cannot be honoured.
         if enforcement_required() and attestation_key() is None:
             raise RuntimeError(
-                "ICEBERG_LEDGER_REQUIRE_ATTESTATION is set but "
+                "authorized_by attestation is enforced by default "
+                "(ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE is the only opt-out) but "
                 "ICEBERG_LEDGER_ATTESTATION_KEY is not. The ledger refuses to "
                 "start: authorized_by attestation enforcement requires a real "
                 "service signing key supplied by the environment. There is no "
@@ -524,6 +551,19 @@ class PostgreSQLLedger:
                         "ALTER TABLE ledger_entries "
                         "ALTER COLUMN authorized_by_sig TYPE VARCHAR(96);"
                     )
+            # TACK Layer 5 verdict receipts: two hashed columns, both entering
+            # the canonical form through OPTIONAL_HASHED_FIELDS. Nullable, no
+            # backfill; every earlier row omits them and hashes
+            # byte-identically. subject_digest is the 64-hex SHA-256 from
+            # cns.gate.subject_digest over the stored input_data; shuffle_seed
+            # is a 64-hex HMAC-SHA256 reserved for Layer 1, NULL on every row
+            # written today.
+            if not {"subject_digest", "shuffle_seed"} <= existing_columns:
+                cursor.execute("""
+                    ALTER TABLE ledger_entries
+                        ADD COLUMN IF NOT EXISTS subject_digest VARCHAR(64),
+                        ADD COLUMN IF NOT EXISTS shuffle_seed VARCHAR(64);
+                """)
             # observed_event rows (the persisted EventV1 stream, written in
             # the same transaction as the governance_decision they feed --
             # see append_decision's observed_events arg). No new column: the
@@ -672,9 +712,141 @@ class PostgreSQLLedger:
         finally:
             self.pool.putconn(conn)
 
+        # The head anchor's location is proven writable now, not on the
+        # first append: a ledger that cannot anchor its head does not start.
+        self._check_head_anchor_path()
+        # The attestation_policy marker belongs after these checks and
+        # nowhere earlier: a marker on a ledger that cannot prove its own
+        # immutability would promise something the ledger cannot keep, and
+        # the marker is itself an append that anchors the head.
+        self._ensure_attestation_policy_marker()
+
+    # ---- the external head anchor (TACK Layer 5, step 2.6) ----
+
+    @staticmethod
+    def _head_anchor_path() -> Optional[str]:
+        return _os_for_anchor.environ.get(HEAD_ANCHOR_ENV) or None
+
+    def _check_head_anchor_path(self) -> None:
+        """Fail closed at boot when ICEBERG_LEDGER_ANCHOR_PATH names a
+        location this process cannot write, or when it is set with no
+        signing key (an unsigned anchor anchors nothing)."""
+        path = self._head_anchor_path()
+        if not path:
+            return
+        if attestation_key() is None:
+            raise RuntimeError(
+                f"{HEAD_ANCHOR_ENV} is set but no ICEBERG_LEDGER_ATTESTATION_KEY "
+                f"is configured; the head anchor is signed with that key and an "
+                f"unsigned anchor proves nothing. Refusing to start.")
+        directory = _os_for_anchor.path.dirname(_os_for_anchor.path.abspath(path)) or "."
+        if not _os_for_anchor.path.isdir(directory) or not _os_for_anchor.access(directory, _os_for_anchor.W_OK):
+            raise RuntimeError(
+                f"{HEAD_ANCHOR_ENV}={path!r}: directory {directory!r} is missing "
+                f"or not writable by this process. Refusing to start a ledger "
+                f"whose head cannot be anchored.")
+
+    def _anchor_head(self, conn) -> None:
+        """After a successful append: seal the chain's head and row count
+        into the external anchor, signed with the attestation key. Called
+        by every writer right after its commit, on the same connection, so
+        the anchor never runs ahead of a row that did not commit. The
+        anchor code is the witness's (twin_custody); this only hands it the
+        head. A no-op when no anchor location is configured.
+        """
+        path = self._head_anchor_path()
+        if not path:
+            return
+        cursor = conn.cursor()
+        cursor.execute("SELECT current_hash, id FROM ledger_entries ORDER BY id DESC LIMIT 1")
+        head_row = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) FROM ledger_entries")
+        count = cursor.fetchone()[0]
+        conn.rollback()  # read-only; release the snapshot
+        if not head_row:
+            return
+        write_head_anchor(path, head_row[0], int(count), attestation_key())
+
+    def _ensure_attestation_policy_marker(self) -> None:
+        """Append the chain-native marker that attestation is enforced from
+        here on, when enforcement is on and a signing key is configured and
+        the chain's latest marker does not already name this key. Boot-time
+        and idempotent: a normal restart appends nothing; a key rotation
+        appends one marker naming the new key. See
+        canonical_fields.attestation_policy_canonical.
+        """
+        if not enforcement_required():
+            return
+        key = attestation_key()
+        if key is None:
+            return
+        self.record_attestation_policy(_key_fingerprint(key))
+
+    def record_attestation_policy(self, key_fingerprint: str,
+                                  enforced_at: Optional[str] = None) -> bool:
+        """Append an attestation_policy marker for ``key_fingerprint`` unless
+        the chain's newest marker already names it. Returns True when a row
+        was written. Serialized under the same advisory lock every writer
+        takes, so concurrent boots cannot each append their own marker.
+
+        From this row forward, any row that carries authorized_by and no
+        signature is an UNATTESTED violation in verify_chain and in the
+        witness. Rows before it are untouched.
+        """
+        if enforced_at is None:
+            from datetime import datetime, timezone  # lazy: keeps the cold path clean
+            enforced_at = datetime.now(timezone.utc).isoformat()
+        conn = self.pool.getconn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))")
+            cursor.execute("""
+                SELECT data->>'key_fingerprint' FROM ledger_entries
+                WHERE record_kind = %s ORDER BY id DESC LIMIT 1
+            """, (ATTESTATION_POLICY_RECORD_KIND,))
+            latest = cursor.fetchone()
+            if latest and latest[0] == key_fingerprint:
+                conn.rollback()
+                return False
+            cursor.execute("""
+                SELECT current_hash FROM ledger_entries
+                ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            previous_hash = row[0] if row else "genesis"
+            body = {
+                "record_kind": ATTESTATION_POLICY_RECORD_KIND,
+                "parameter_changed": False,
+                "key_fingerprint": key_fingerprint,
+                "enforced_at": enforced_at,
+            }
+            reason = (f"authorized_by attestation enforced from this row "
+                      f"under key {key_fingerprint}")
+            canonical_entry = attestation_policy_canonical(body, reason, previous_hash)
+            current_hash = hashlib.sha256(
+                json.dumps(canonical_entry, sort_keys=True, default=str).encode()
+            ).hexdigest()
+            cursor.execute("""
+                INSERT INTO ledger_entries
+                (action_type, node, reason, previous_hash, current_hash,
+                 data, record_kind)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (ATTESTATION_POLICY_RECORD_KIND, "ledger", reason,
+                  previous_hash, current_hash, json.dumps(body),
+                  ATTESTATION_POLICY_RECORD_KIND))
+            conn.commit()
+            self._anchor_head(conn)
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
     def _authorized_by_sig(self, authorized_by: Optional[str],
                            previous_hash: str,
-                           record_kind: str) -> Optional[str]:
+                           record_kind: str,
+                           content_prehash: Optional[str] = None) -> Optional[str]:
         """Compute the keyed attestation for a row's authorized_by claim.
 
         Returns the hex HMAC (a component holding ICEBERG_LEDGER_ATTESTATION_KEY
@@ -693,7 +865,7 @@ class PostgreSQLLedger:
         governance/authorized_by_attestation.py.
         """
         sig = sign_authorized_by(authorized_by, previous_hash, record_kind,
-                                 attestation_key())
+                                 attestation_key(), content_prehash)
         if authorized_by and enforcement_required() and not sig:
             raise RuntimeError(
                 f"authorized_by attestation enforcement is on but no signature "
@@ -753,6 +925,7 @@ class PostgreSQLLedger:
             """, (action_type, node, previous_value, applied_value, reason,
                   previous_hash, current_hash, json.dumps(data)))
             conn.commit()
+            self._anchor_head(conn)
             return True
         except Exception as e:
             conn.rollback()
@@ -810,6 +983,39 @@ class PostgreSQLLedger:
             raise ValueError("Governance decision rejected: input_data must be a dict")
         if not isinstance(record.output, dict) or not record.output:
             raise ValueError("Governance decision rejected: output must be a non-empty dict")
+
+        # TACK Layer 5: bind the verdict to what it judged. The digest is the
+        # CNS canonical digest of input_data exactly as it will be stored (a
+        # JSON round trip, which is what the witness reads back), computed
+        # by the writer and never taken from the record. cns.gate refuses
+        # NaN, the infinities and any type it cannot encode unambiguously.
+        # That refusal is a defect in the gate that produced the input, so
+        # the write is refused here, before any row is written, rather than
+        # papered over with a digest of something else.
+        try:
+            stored_input = json.loads(json.dumps(record.input_data))
+            subject_digest = cns_subject_digest(stored_input)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Governance decision rejected: input_data is not canonically "
+                f"encodable, so the verdict cannot be bound to it ({exc})"
+            ) from exc
+
+        # The gate identity rides inside the hashed output mapping, not in
+        # a column: which gate judged, at which end, and what it said in the
+        # CNS vocabulary. A cassette judges produced input, so the position
+        # is OMEGA. A caller-supplied "gate" entry is refused rather than
+        # overwritten: the ledger, not the agent, names the gate.
+        if "gate" in record.output:
+            raise ValueError(
+                "Governance decision rejected: output already carries a "
+                "'gate' entry; the ledger records the gate identity itself")
+        output = dict(record.output)
+        output["gate"] = {
+            "name": record.cassette_version,
+            "position": GatePosition.OMEGA.value,
+            "outcome": gate_outcome_of(record.output),
+        }
 
         # observed_events: validate the whole batch BEFORE the transaction
         # opens, same fail-early posture as the record checks above. One bad
@@ -906,7 +1112,7 @@ class PostgreSQLLedger:
                 "input_data": record.input_data,
                 "policy_parameters": record.policy_parameters,
                 "reasoning": record.reasoning,
-                "output": record.output,
+                "output": output,
                 "previous_value": record.previous_value,
                 "applied_value": record.applied_value,
                 "parameter_changed": bool(record.parameter_changed),
@@ -919,8 +1125,6 @@ class PostgreSQLLedger:
             # fields NULL) hash exactly as before and stay verifiable, and
             # writer/witness cannot drift. cassette_hash is computed above
             # from governance_params; the rest ride on the record.
-            authorized_by_sig = self._authorized_by_sig(
-                record.authorized_by, previous_hash, "governance_decision")
             optional_source = {
                 "cassette_hash": cassette_hash,
                 "cassette_code_hash": record.cassette_code_hash,
@@ -930,9 +1134,24 @@ class PostgreSQLLedger:
                 "outcome_obligation": record.outcome_obligation,
                 "replaces_hash": record.replaces_hash,
                 "ai_cost": record.ai_cost,
-                _AUTHORIZED_BY_SIG_FIELD: authorized_by_sig,
+                "subject_digest": subject_digest,
+                # Reserved for TACK Layer 1. Never read from the record or
+                # the request: the writer derives it (see
+                # authorized_by_attestation.derive_shuffle_seed) or leaves
+                # the field absent, and today no chain is shuffled.
+                "shuffle_seed": None,
             }
             apply_optional_hashed_fields(canonical_entry, optional_source)
+
+            # abv3: the signature covers the content pre-hash, the canonical
+            # entry as it stands with every other field in place and before
+            # the signature itself joins it. Signed last, applied last, so
+            # the row never contains a signature over itself.
+            authorized_by_sig = self._authorized_by_sig(
+                record.authorized_by, previous_hash, "governance_decision",
+                content_prehash=_content_prehash(canonical_entry))
+            apply_optional_hashed_fields(
+                canonical_entry, {_AUTHORIZED_BY_SIG_FIELD: authorized_by_sig})
 
             current_hash = hashlib.sha256(
                 json.dumps(canonical_entry, sort_keys=True, default=str).encode()
@@ -946,16 +1165,16 @@ class PostgreSQLLedger:
                  decision_output, cassette_snapshot, cassette_hash, call_sid,
                  cassette_code_hash, model_identity, authorized_by,
                  supersedes_id, supersedes_hash, outcome_obligation, replaces_hash,
-                 ai_cost, authorized_by_sig)
+                 ai_cost, authorized_by_sig, subject_digest, shuffle_seed)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (record.action_type, record.node, record.previous_value,
                   record.applied_value, record.reasoning,
                   previous_hash, current_hash, json.dumps(data),
                   "governance_decision", record.cassette_version,
                   json.dumps(record.input_data),
                   json.dumps(record.policy_parameters),
-                  json.dumps(record.output),
+                  json.dumps(output),
                   json.dumps(cassette_snapshot) if cassette_snapshot else None,
                   cassette_hash,
                   record.input_data.get("call_sid"),
@@ -964,7 +1183,7 @@ class PostgreSQLLedger:
                   getattr(record, "supersedes_id", None), record.supersedes_hash,
                   record.outcome_obligation, record.replaces_hash,
                   json.dumps(record.ai_cost) if record.ai_cost else None,
-                  authorized_by_sig))
+                  authorized_by_sig, subject_digest, None))
 
             # observed_event rows: chained after the decision row, still
             # inside this transaction and still holding the advisory lock, so
@@ -995,6 +1214,7 @@ class PostgreSQLLedger:
                 event_prev = ev_hash
 
             conn.commit()
+            self._anchor_head(conn)
             return True
         except Exception:
             conn.rollback()
@@ -1114,6 +1334,7 @@ class PostgreSQLLedger:
                   "cassette_binding", cassette_version, cassette_hash,
                   cassette_code_hash, authorized_by, authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "cassette_version": cassette_version,
@@ -1231,6 +1452,7 @@ class PostgreSQLLedger:
                   event, cassette_version, cassette_hash,
                   cassette_code_hash, authorized_by, authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "event": event,
@@ -1343,6 +1565,7 @@ class PostgreSQLLedger:
                   json.dumps(finding), cassette_hash, authorized_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "cassette_version": cassette_version,
@@ -1448,6 +1671,7 @@ class PostgreSQLLedger:
                   json.dumps(inputs), json.dumps(recommendation), authorized_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "recommendation_kind": str(recommendation_kind),
@@ -1539,6 +1763,7 @@ class PostgreSQLLedger:
                   json.dumps(actual), json.dumps(score), authorized_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {"status": "created", "shadow_run_hash": shadow_run_hash,
                     "current_hash": current_hash}
         except Exception:
@@ -1649,6 +1874,7 @@ class PostgreSQLLedger:
                   json.dumps(recommendation_shown), selected_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "human_selection": human_selection,
@@ -1848,6 +2074,7 @@ class PostgreSQLLedger:
                   json.dumps(finding), cassette_hash, authorized_by,
                   authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "created",
                 "cassette_version": cassette_version,
@@ -2180,6 +2407,7 @@ class PostgreSQLLedger:
                   json.dumps(finding) if finding is not None else None,
                   cassette_hash, authorized_by, authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             result = {"status": "created", "record_kind": record_kind,
                       "cassette_version": cassette_version,
                       "current_hash": current_hash}
@@ -2392,6 +2620,7 @@ class PostgreSQLLedger:
                   json.dumps(corrected_output),
                   authority, supersedes_id, orig_hash, authorized_by_sig))
             conn.commit()
+            self._anchor_head(conn)
             return {
                 "status": "superseded",
                 "supersedes_id": supersedes_id,
@@ -2727,7 +2956,7 @@ class PostgreSQLLedger:
                        cassette_code_hash, model_identity, authorized_by,
                        supersedes_id, supersedes_hash, outcome_obligation,
                        replaces_hash, ai_cost, shadow_run_hash, decision_hash,
-                       authorized_by_sig
+                       authorized_by_sig, subject_digest, shuffle_seed
                 FROM ledger_entries
                 ORDER BY id ASC
             """)
@@ -2739,7 +2968,10 @@ class PostgreSQLLedger:
             
             violations = []
             prev_hash = "genesis"
-            
+            # attestation_policy marker seen so far: from that row forward
+            # an accountable claim without a signature is UNATTESTED.
+            policy_from_row = None
+
             for row in rows:
                 (row_id, record_kind, stored_prev, stored_current,
                  action_type, node, previous_value, applied_value, reason,
@@ -2748,7 +2980,7 @@ class PostgreSQLLedger:
                  cassette_code_hash, model_identity, authorized_by,
                  supersedes_id, supersedes_hash, outcome_obligation,
                  replaces_hash, ai_cost, shadow_run_hash, decision_hash,
-                 authorized_by_sig) = row
+                 authorized_by_sig, subject_digest, shuffle_seed) = row
                 
                 # Check chain link integrity
                 if stored_prev != prev_hash:
@@ -2785,6 +3017,8 @@ class PostgreSQLLedger:
                             "outcome_obligation": outcome_obligation,
                             "replaces_hash": replaces_hash,
                             "ai_cost": self._as_json(ai_cost),
+                            "subject_digest": subject_digest,
+                            "shuffle_seed": shuffle_seed,
                         })
                     elif record_kind == "cassette_binding":
                         # Item 2 -- mirrors bind_cassette_version()
@@ -2970,6 +3204,12 @@ class PostgreSQLLedger:
                         # from tampering.
                         canonical_entry = observed_event_canonical(
                             self._as_json(input_data) or {}, stored_prev)
+                    elif record_kind == ATTESTATION_POLICY_RECORD_KIND:
+                        # The enforcement marker -- mirrors
+                        # record_attestation_policy(). Fixed canonical form
+                        # from the shared builder, like observed_event.
+                        canonical_entry = attestation_policy_canonical(
+                            self._as_json(data) or {}, reason, stored_prev)
                     else:
                         # Legacy path (append)
                         canonical_entry = {
@@ -2990,6 +3230,9 @@ class PostgreSQLLedger:
                     # applies the shared contract to the whole row. Absent
                     # (legacy rows, rows written with no key) -> omitted ->
                     # byte-identical recompute to before this field existed.
+                    # The content pre-hash an abv3 signature covers: the
+                    # entry as rebuilt above, before the signature joins it.
+                    row_prehash = _content_prehash(canonical_entry)
                     apply_optional_hashed_fields(
                         canonical_entry,
                         {_AUTHORIZED_BY_SIG_FIELD: authorized_by_sig},
@@ -3007,6 +3250,38 @@ class PostgreSQLLedger:
                             f"(stored={stored_current[:8]}..., "
                             f"recomputed={recomputed_hash[:8]}...)"
                         )
+
+                    # TACK Layer 5 receipt checks, the same two the witness
+                    # runs (twin_custody.verify_subject_binding and
+                    # verify_shuffle_seed_row), so the primary verifier and
+                    # the witness agree. Both are independent of the chain
+                    # above: an attacker who recomputes current_hash after
+                    # moving a digest or choosing a seed is still caught,
+                    # because the digest is recomputed from the content and
+                    # the seed is re-derived under the key.
+                    if record_kind == "governance_decision" and subject_digest:
+                        try:
+                            expected_digest = cns_subject_digest(
+                                self._as_json(input_data) or {})
+                        except TypeError as exc:
+                            expected_digest = f"unencodable ({exc})"
+                        if expected_digest != subject_digest:
+                            violations.append(
+                                f"Entry {row_id}: TRANSPLANTED (subject_digest "
+                                f"{subject_digest[:8]}... was not issued for this "
+                                f"row's input_data; recomputed "
+                                f"{str(expected_digest)[:8]}...)"
+                            )
+                    if shuffle_seed:
+                        seed_status, seed_detail = _verify_shuffle_seed(
+                            shuffle_seed, stored_prev, record_kind, _att_keys)
+                        seed_ok = seed_status == _SEED_STATUS_OK or (
+                            seed_status == _SEED_STATUS_RETIRED_KEY and not _att_enforced)
+                        if not seed_ok:
+                            violations.append(
+                                f"Entry {row_id}: SEED_FORGED "
+                                f"({seed_detail or seed_status})"
+                            )
 
                     # Keyed attestation check on the authorized_by claim.
                     # Independent of the SHA-256 chain above: catches an
@@ -3026,6 +3301,7 @@ class PostgreSQLLedger:
                                 "record_kind": record_kind,
                             },
                             _att_keys,
+                            content_prehash=row_prehash,
                         )
                         if att_status == _ATT_STATUS_INVALID:
                             violations.append(
@@ -3045,11 +3321,42 @@ class PostgreSQLLedger:
                                 f"({att_detail})"
                             )
 
+                    # UNATTESTED: an accountable claim with no signature on a
+                    # row written after attestation was enforced. Presence,
+                    # not validity, so it needs no key; validity is the check
+                    # above. Rows before the marker are untouched.
+                    if (policy_from_row is not None and authorized_by
+                            and not authorized_by_sig):
+                        violations.append(
+                            f"Entry {row_id}: UNATTESTED (authorized_by "
+                            f"{authorized_by!r} carries no signature; attestation "
+                            f"has been enforced since entry {policy_from_row})"
+                        )
+                    if record_kind == ATTESTATION_POLICY_RECORD_KIND and policy_from_row is None:
+                        policy_from_row = row_id
+
                 except Exception as e:
                     violations.append(f"Entry {row_id}: hash recomputation failed ({e})")
 
                 prev_hash = stored_current
-            
+
+            # TRUNCATED: the chain against its external head anchor, when
+            # one is configured. Fewer rows than the anchor sealed, or a
+            # different hash at the anchored position, means the tail was
+            # cut or the chain rebuilt; rows appended since are expected.
+            anchor_path = self._head_anchor_path()
+            if anchor_path:
+                try:
+                    anchor = read_head_anchor(anchor_path)
+                    failing = check_head_anchor(
+                        [{"id": r[0], "current_hash": r[3]} for r in rows],
+                        anchor, _att_keys)
+                except CustodyError as exc:
+                    failing = (None, "TRUNCATED", str(exc))
+                if failing is not None:
+                    where = f"Entry {failing[0]}" if failing[0] is not None else "Chain"
+                    violations.append(f"{where}: TRUNCATED ({failing[2]})")
+
             ok = len(violations) == 0
             
             if mode == "strict" and violations:

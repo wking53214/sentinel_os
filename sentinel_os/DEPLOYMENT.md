@@ -12,11 +12,13 @@
 | `CLAUDE_API_KEY` | — | Used by the IVR governor client, which now lives in the **GSA-815** repo (`claude_governance_api.py`). Not read by this kernel directly. |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY` / `TWILIO_API_SECRET` | — | Twilio call-log ingestion moved to the **GSA-815** repo. |
 | `ICEBERG_API_KEYS` | — | API keys for the resilient API server (`api_server_resilient.py`), now in the **GSA-815** repo. |
-| `ICEBERG_LEDGER_ATTESTATION_KEY` | — | Current signing key for the ledger `authorized_by` attestation. Unset → rows written unattested (default). See below. |
+| `ICEBERG_LEDGER_ATTESTATION_KEY` | unset | Current signing key for the ledger `authorized_by` attestation and the head anchor. **Required**: attestation is enforced by default and the ledger refuses to start without it. See below. |
 | `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` | — | Path to a file holding the current key; used only when `ICEBERG_LEDGER_ATTESTATION_KEY` is unset. For file-projecting secret managers (Vault Agent, CSI driver, Docker secrets). |
 | `ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS` / `..._PREVIOUS_FILE` | — | Keys retired from signing but still fully trusted for verification (comma-separated, or one per line in the file). Where old keys live after a rotation. |
 | `ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED` / `..._RETIRED_FILE` | — | Keys the operator has deliberately stopped trusting (suspected compromise / policy sunset). Rows they signed verify as `retired_key` — a `verify_chain` violation only under enforcement. |
-| `ICEBERG_LEDGER_REQUIRE_ATTESTATION` | `false` | When truthy, an `authorized_by` claim without a valid signature is refused, the ledger refuses to start if no signing key is configured, and a `retired_key` row is a `verify_chain` violation. |
+| `ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE` | unset | Dev-only. When truthy, attestation is not enforced: the ledger starts without a key, accountable claims are written unsigned, no `attestation_policy` marker is appended, and a loud warning is printed at startup. Never set it in a production profile. |
+| `ICEBERG_LEDGER_REQUIRE_ATTESTATION` | (on) | Kept for compatibility. Enforcement is on by default: an unsigned `authorized_by` claim is refused, the ledger refuses to start without a signing key, a `retired_key` row is a `verify_chain` violation. A falsy value is ignored (with a warning); only the override above switches enforcement off. |
+| `ICEBERG_LEDGER_ANCHOR_PATH` | unset | Where the ledger seals its head hash and row count after every append (TACK Layer 5). Outside the database, on a path the ledger service cannot reach; the compose profile mounts it on the worker only. Verified writable at boot when set. |
 | `PORT` | `9090` | API server port |
 | `CERT_FILE` / `KEY_FILE` | `./certs/cert.pem` / `./certs/key.pem` | TLS cert/key paths |
 
@@ -63,10 +65,17 @@ signatures. See `governance/authorized_by_attestation.py`.
   set; a set-but-unreadable file path is a hard error, never silently "no
   key"). The key is re-read on every write/verify, so rewriting the file
   rotates it with no restart.
-- **Enforcement:** set `ICEBERG_LEDGER_REQUIRE_ATTESTATION=1` to make an
-  unsigned `authorized_by` claim a hard failure. With enforcement on and no
-  signing key configured, the ledger refuses to start. Leave it off (default)
-  to roll the key out first and sign opportunistically.
+- **Enforcement is the default:** an unsigned `authorized_by` claim is a
+  hard failure, the ledger refuses to start without a signing key, and at
+  boot it appends an `attestation_policy` marker to the chain naming the
+  key's fingerprint, from which row forward an unsigned claim is
+  `UNATTESTED`. The only way off is `ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE=1`,
+  which warns loudly at startup and is for a developer's machine only.
+- **Receipts and the anchor:** since TACK Layer 5 a decision's signature
+  (`abv3.<keyfp>.<digest>`) covers the row's content, the row carries the
+  CNS digest of what it judged, and `ICEBERG_LEDGER_ANCHOR_PATH` seals the
+  chain head after every append. `tools/verify_receipts.py` verifies an
+  export offline; see `APPLY_verdict_receipts.md`.
 
 ### Key rotation
 

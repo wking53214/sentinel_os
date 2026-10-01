@@ -96,6 +96,21 @@ def _last_row(ledger):
         ledger.pool.putconn(conn)
 
 
+def _last_shipped_row(ledger):
+    """The most recent ledger row with every shipped column, as the witness
+    sees it: an abv3 signature covers the row content, so checking it needs
+    the whole row, not the handful of columns _last_row returns."""
+    conn = ledger.pool.getconn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {', '.join(tc.SHIPPED_COLUMNS)} FROM ledger_entries "
+            f"ORDER BY id DESC LIMIT 1")
+        return dict(zip(tc.SHIPPED_COLUMNS, cur.fetchone()))
+    finally:
+        ledger.pool.putconn(conn)
+
+
 def _twin_row(**over):
     """A governance_decision row dict shaped the way a shipped/decrypted
     row reaches twin_custody.recompute_current_hash. current_hash is filled
@@ -122,7 +137,8 @@ def _twin_row(**over):
 
 
 _ATT_ENV_VARS = (ENV_KEY, ENV_KEY_FILE, ENV_KEYS_PREVIOUS, ENV_KEYS_PREVIOUS_FILE,
-                 ENV_KEYS_RETIRED, ENV_KEYS_RETIRED_FILE, ENV_REQUIRE)
+                 ENV_KEYS_RETIRED, ENV_KEYS_RETIRED_FILE, ENV_REQUIRE,
+                 att.ENV_DEV_OVERRIDE)
 
 
 @pytest.fixture
@@ -135,8 +151,27 @@ def key_env(monkeypatch):
 
 @pytest.fixture
 def no_key_env(monkeypatch):
+    """No key, and enforcement off: since step 2.7 enforcement is the
+    default, so "off" is the dev-only override, not an unset flag."""
     for v in _ATT_ENV_VARS:
         monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv(att.ENV_DEV_OVERRIDE, "1")
+
+
+@pytest.fixture
+def unenforced_ledger(no_key_env):
+    """A ledger built AFTER no_key_env took effect. Since step 2.7 the boot
+    path reads enforcement and the key (it appends the attestation_policy
+    marker), so a test that means "no key, enforcement off" must construct
+    its ledger after saying so; test_ledger constructs first."""
+    import psycopg2
+    conn = psycopg2.connect(connect_timeout=2, **_PG)
+    conn.autocommit = True
+    conn.cursor().execute("DROP TABLE IF EXISTS ledger_entries CASCADE;")
+    conn.close()
+    ledger = PostgreSQLLedger(**_PG)
+    yield ledger
+    ledger.close()
 
 
 # ---------------------------------------------------------------------------
@@ -161,13 +196,14 @@ def test_1_valid_key_produces_a_verifying_signature(test_ledger, key_env):
     assert row["authorized_by"] == "harness:production"
     sig = row[SIGNATURE_FIELD]
     assert sig is not None
-    # v2 envelope: abv2.<16-hex keyfp>.<64-hex digest>, naming the signing key
+    # v3 envelope: abv3.<16-hex keyfp>.<64-hex digest>, naming the signing key
+    # and covering the row's content (TACK Layer 5 receipts)
     tag, keyfp, digest = sig.split(".")
-    assert tag == "abv2"
+    assert tag == "abv3"
     assert keyfp == key_fingerprint(key_env)
     assert len(digest) == 64
 
-    status, detail = verify_authorized_by_signature(row, key_env)
+    status, detail = tc.verify_row_attestation(_last_shipped_row(test_ledger), key_env)
     assert status == STATUS_OK, detail
     # and the full-chain verifier agrees, with the key configured
     assert test_ledger.verify_chain()["ok"]
@@ -262,7 +298,8 @@ def test_3_stripping_the_signature_also_breaks_the_chain():
 # Required test 4: enforcement off + no key -> row writes, honestly unattested
 # ---------------------------------------------------------------------------
 
-def test_4_no_key_writes_cleanly_and_row_is_unattested(test_ledger, no_key_env):
+def test_4_no_key_writes_cleanly_and_row_is_unattested(unenforced_ledger):
+    test_ledger = unenforced_ledger
     assert test_ledger.append_decision(
         _record(authorized_by="harness:production"),
         governance_params=_governance_params())
@@ -332,11 +369,11 @@ def test_6_enforcement_on_allows_a_row_with_no_claim(test_ledger, monkeypatch):
 # chain verification, unchanged.
 # ---------------------------------------------------------------------------
 
-def test_7_null_signature_row_passes_chain_verification(test_ledger, monkeypatch):
+def test_7_null_signature_row_passes_chain_verification(unenforced_ledger, monkeypatch):
     # written with no key -> NULL signature, exactly like every row that
-    # predates this column
-    monkeypatch.delenv(ENV_KEY, raising=False)
-    monkeypatch.delenv(ENV_REQUIRE, raising=False)
+    # predates this column (enforcement off via the dev override, step 2.7,
+    # and a ledger built under it so no marker precedes the row)
+    test_ledger = unenforced_ledger
     assert test_ledger.append_decision(
         _record(authorized_by="harness:production"),
         governance_params=_governance_params())
@@ -426,7 +463,8 @@ def test_key_can_come_from_a_file(tmp_path, monkeypatch, test_ledger):
         governance_params=_governance_params())
     row = _last_row(test_ledger)
     assert row[SIGNATURE_FIELD] is not None
-    assert verify_authorized_by_signature(row, att.attestation_key())[0] == STATUS_OK
+    assert tc.verify_row_attestation(
+        _last_shipped_row(test_ledger), att.attestation_key())[0] == STATUS_OK
     assert test_ledger.verify_chain()["ok"]
 
 
@@ -654,7 +692,7 @@ def test_upgrade_widens_authorized_by_sig_from_64_to_96(test_ledger, monkeypatch
             _record(authorized_by="harness:production"),
             governance_params=_governance_params())
         sig = _last_row(upgraded)[SIGNATURE_FIELD]
-        assert sig.startswith("abv2.") and len(sig) > 64
+        assert sig.startswith("abv3.") and len(sig) > 64
         assert upgraded.verify_chain()["ok"]
     finally:
         upgraded.close()
@@ -719,12 +757,14 @@ def test_verify_chain_flags_retired_key_only_under_enforcement(
     monkeypatch.setenv(ENV_KEY, _KEY_B.decode())
     monkeypatch.setenv(ENV_KEYS_RETIRED, _KEY_A.decode())
 
-    # enforcement OFF -> the retired-key row is reported but not a violation
+    # enforcement OFF (the dev override, step 2.7) -> the retired-key row is
+    # reported but not a violation
     monkeypatch.delenv(ENV_REQUIRE, raising=False)
+    monkeypatch.setenv(att.ENV_DEV_OVERRIDE, "1")
     assert test_ledger.verify_chain(mode="lenient")["ok"] is True
 
-    # enforcement ON -> it is a violation
-    monkeypatch.setenv(ENV_REQUIRE, "1")
+    # enforcement ON (the default) -> it is a violation
+    monkeypatch.delenv(att.ENV_DEV_OVERRIDE, raising=False)
     result = test_ledger.verify_chain(mode="lenient")
     assert result["ok"] is False
     assert any("retired key" in v for v in result["violations"]), result
