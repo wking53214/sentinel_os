@@ -99,4 +99,4 @@ ICEBURG/ICEBERG   ← lineage; not imported (ICEBERG_* env var names are fossils
 
 Cassettes: IVR, banking, mortgage + CFPB Reg B overlay. New domains belong here as modules, not as forks of the kernel.
 
-Apache-2.0. See `docs/pass3/` for the v3 architecture briefs (investor/auditor/ops) — treat them as briefs, not as "deployable today".
+Proprietary. Copyright (c) 2026 William King. All rights reserved. See LICENSE. See `docs/pass3/` for the v3 architecture briefs (investor/auditor/ops); treat them as briefs, not as "deployable today".

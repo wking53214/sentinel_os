@@ -191,5 +191,4 @@ Security issues: email the maintainer, don't open a public issue.
 
 ## License
 
-By contributing you agree your contributions are licensed under **Apache-2.0**,
-the same as the project ([`LICENSE`](LICENSE)).
+This project is proprietary. See [`LICENSE`](LICENSE) for the terms that apply.

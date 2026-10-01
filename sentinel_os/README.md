@@ -48,4 +48,4 @@ and the [root CONTRIBUTING.md](../CONTRIBUTING.md) for the full local test setup
 
 ## License
 
-Apache-2.0 — see [LICENSE](../LICENSE).
+Proprietary, all rights reserved. See [LICENSE](../LICENSE).
