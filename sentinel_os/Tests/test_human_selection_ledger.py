@@ -94,7 +94,11 @@ def test_an_override_captures_the_real_divergence(test_ledger):
     # The recommendation shown must be the REAL governor verdict, looked
     # up from the parent row -- not anything the caller supplied.
     assert row["recommendation_shown"]["reasoning"] == reasoning
-    assert row["recommendation_shown"]["output"] == output
+    shown = row["recommendation_shown"]["output"]
+    assert {k: shown[k] for k in output} == output
+    # The ledger adds the gate identity to every decision's stored output
+    # (TACK Layer 5 receipts); the governor's own verdict is untouched.
+    assert shown["gate"]["outcome"] == "terminal_breach"
     # And it must actually diverge from the human's own selection --
     # the governor said unsafe, the human overrode that.
     assert output["safe"] is False

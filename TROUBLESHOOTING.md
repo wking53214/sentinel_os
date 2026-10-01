@@ -21,10 +21,11 @@ how to fix them.
 2. [Python & dependency problems](#python--dependency-problems)
 3. [TLS certificate issues](#tls-certificate-issues)
 4. [Test failures](#test-failures)
-5. [Docker issues](#docker-issues)
-6. [Claude API key problems](#claude-api-key-problems)
-7. [Logging & debug](#logging--debug)
-8. [Getting help](#getting-help)
+5. [Ledger attestation and receipts](#ledger-attestation-and-receipts)
+6. [Docker issues](#docker-issues)
+7. [Claude API key problems](#claude-api-key-problems)
+8. [Logging & debug](#logging--debug)
+9. [Getting help](#getting-help)
 
 ---
 
@@ -170,6 +171,60 @@ daemon is reaped mid-run — restart both and re-run.
 
 ---
 
+## Ledger attestation and receipts
+
+### "authorized_by attestation is enforced by default ... Refusing to start"
+
+Since TACK Layer 5 the ledger signs every accountable claim and refuses to
+start without a signing key. Set one (a distinct key per environment, never
+committed):
+
+```bash
+export ICEBERG_LEDGER_ATTESTATION_KEY="$(openssl rand -hex 32)"
+```
+
+On a developer's own machine, and nowhere else, enforcement can be switched
+off. This prints a warning at startup naming the risk: claims are written
+unsigned, no marker is appended, and a verifier cannot tell those rows from
+tampered ones.
+
+```bash
+export ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE=1
+```
+
+`ICEBERG_LEDGER_REQUIRE_ATTESTATION=0` does **not** switch it off any more;
+the override above is the only opt-out.
+
+### "ICEBERG_LEDGER_ANCHOR_PATH ... not writable" / "unsigned anchor"
+
+The head anchor is sealed after every append and its location is checked at
+boot. Point the variable at a file in a directory the ledger process can
+write, outside the database, and make sure the attestation key is set (the
+anchor is signed with it). In the compose profile this is the worker's
+`ledger_anchor` volume.
+
+### The test suite and the key
+
+`sentinel_os/conftest.py` sets a test-only attestation key when none is
+configured, so the suite runs enforced. Tests that exercise the unenforced
+path set the dev override themselves.
+
+### Verifying a ledger offline
+
+Export the rows, then verify the export against the anchor with the key and
+its fingerprint. The command opens no database connection and exits zero
+only on `VERIFIED`; otherwise it names one of `TAMPERED`, `TRANSPLANTED`,
+`SEED_FORGED`, `TRUNCATED`, `UNATTESTED` with the first failing row.
+
+```bash
+python3 sentinel_os/scripts/export_ledger.py --out ledger-export.json
+python3 tools/verify_receipts.py --export ledger-export.json \
+    --anchor /path/to/ledger.anchor \
+    --trusted-fingerprints <keyfp> --key-file /path/to/keys.txt
+```
+
+---
+
 ## Docker issues
 
 The governed lane is `docker compose up -d` from `sentinel_os/`. It starts four
@@ -189,15 +244,17 @@ docker compose up -d
 ### "set POSTGRES_PASSWORD" or "set ICEBERG_LEDGER_RUNTIME_PASSWORD"
 
 Neither password has a default. `docker compose up` needs both (the ledger
-database, and the restricted role the worker connects as):
+database, and the restricted role the worker connects as), plus the ledger
+attestation key (see "Ledger attestation and receipts" below):
 
 ```bash
 export POSTGRES_PASSWORD="choose-one"
 export ICEBERG_LEDGER_RUNTIME_PASSWORD="choose-another"
+export ICEBERG_LEDGER_ATTESTATION_KEY="$(openssl rand -hex 32)"
 docker compose up -d
 ```
 
-The same two variables are needed by `scripts/ledger_backup_verify.sh` and
+The two passwords are also needed by `scripts/ledger_backup_verify.sh` and
 `scripts/verify_ledger.py`. See `sentinel_os/.env.example`.
 
 ### "Cannot connect to Docker daemon"
