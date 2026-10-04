@@ -132,12 +132,17 @@ logger = setup_logging("SentinelWorker")
 
 
 def _harness_config_from_env() -> dict:
+    password = os.getenv("POSTGRES_PASSWORD")
+    if not password:
+        # No default: a guessable fallback would let a misconfigured
+        # deployment connect with a well-known credential.
+        raise RuntimeError("POSTGRES_PASSWORD is not set")
     return {
         "postgres_host": os.getenv("POSTGRES_HOST", "localhost"),
         "postgres_port": int(os.getenv("POSTGRES_PORT", 5432)),
         "postgres_db": os.getenv("POSTGRES_DB", "iceberg"),
         "postgres_user": os.getenv("POSTGRES_USER", "iceberg"),
-        "postgres_password": os.getenv("POSTGRES_PASSWORD", "iceberg"),
+        "postgres_password": password,
         "claude_api_key": os.getenv("CLAUDE_API_KEY"),
         # No cassette_domain here (IcebergProductionHarness's old config-
         # driven cassette lookup) -- GovernanceHarness takes a cassette
