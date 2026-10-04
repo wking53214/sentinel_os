@@ -20,12 +20,17 @@ def main():
         print("ICEBERG_LEDGER_RUNTIME_PASSWORD is not set -- nothing to do.", file=sys.stderr)
         sys.exit(1)
 
+    admin_password = os.getenv("POSTGRES_PASSWORD")
+    if not admin_password:
+        print("POSTGRES_PASSWORD is not set.", file=sys.stderr)
+        sys.exit(1)
+
     conn = psycopg2.connect(
         host=os.getenv("POSTGRES_HOST", "localhost"),
         port=int(os.getenv("POSTGRES_PORT", "5432")),
         dbname=os.getenv("POSTGRES_DB", "iceberg"),
         user=os.getenv("POSTGRES_USER", "iceberg"),
-        password=os.getenv("POSTGRES_PASSWORD", "iceberg"),
+        password=admin_password,
     )
     conn.autocommit = True
     try:

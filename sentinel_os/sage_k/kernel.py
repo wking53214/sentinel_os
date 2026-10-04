@@ -26,8 +26,10 @@ import json
 import math
 import os
 import random
+import secrets
 import statistics
 import time
+import warnings
 from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List
@@ -65,10 +67,35 @@ def safe_stdev(sequence_input: "deque | List[float]", default_value: float = 0.0
 # ---------------------------------------------------------------------------
 
 _AUDIT_LOG_PATH: str = os.getenv("FORTRESS_AUDIT_LOG", "fortress_audit.log")
-_AUDIT_KEY: str = os.getenv("FORTRESS_AUDIT_KEY", "development-key")
+# No default key: a key written in the source lets anyone forge records that
+# verify. _PUBLISHED_DEFAULT_KEY is the string an earlier version used as its
+# default; it is public, so production refuses it and other environments are
+# warned. Without FORTRESS_AUDIT_KEY, sign with a random key held only by this
+# process; the log is then tamper-evident only to this process, and records from
+# one run cannot be verified by another run or after a restart.
+_PUBLISHED_DEFAULT_KEY = "development-key"
+_CONFIGURED_AUDIT_KEY = os.getenv("FORTRESS_AUDIT_KEY")
 
-if _AUDIT_KEY == "development-key" and os.getenv("FORTRESS_ENV") == "production":
+if os.getenv("FORTRESS_ENV") == "production" and (
+    not _CONFIGURED_AUDIT_KEY or _CONFIGURED_AUDIT_KEY == _PUBLISHED_DEFAULT_KEY
+):
     raise RuntimeError("Security Exception: Production deployments require unique cryptographic keys.")
+
+_AUDIT_KEY: str = _CONFIGURED_AUDIT_KEY or secrets.token_hex(32)
+
+if not _CONFIGURED_AUDIT_KEY:
+    warnings.warn(
+        "FORTRESS_AUDIT_KEY is not set: signing the audit log with a random key held only "
+        "by this process, so its records cannot be verified after the process exits. "
+        "Set FORTRESS_AUDIT_KEY to a unique secret.",
+        RuntimeWarning,
+    )
+elif _CONFIGURED_AUDIT_KEY == _PUBLISHED_DEFAULT_KEY:
+    warnings.warn(
+        "FORTRESS_AUDIT_KEY is the published development key: anyone with the source can "
+        "forge audit records that verify. Set it to a unique secret.",
+        RuntimeWarning,
+    )
 
 
 def _compute_hmac_signature(key_bytes: bytes, message_bytes: bytes) -> str:
