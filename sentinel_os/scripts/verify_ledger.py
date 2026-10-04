@@ -6,14 +6,15 @@ auditor runs (AUDIT_PLAYBOOK.md section 1) and the one
 `scripts/ledger_backup_verify.sh` runs against a restored copy. Reports every
 violation rather than stopping at the first, and exits non-zero if any.
 
-    python3 scripts/verify_ledger.py                 # POSTGRES_* env or defaults
+    python3 scripts/verify_ledger.py                 # POSTGRES_* env
     python3 scripts/verify_ledger.py --db ledger_verify_123
 
-Connection: POSTGRES_HOST/PORT/DB/USER/PASSWORD (defaults localhost:5432
-iceberg/iceberg/iceberg); --db overrides POSTGRES_DB. The ledger opens as the
-restricted runtime role -- ICEBERG_LEDGER_RUNTIME_USER (default `ledger_reader`)
-/ ICEBERG_LEDGER_RUNTIME_PASSWORD -- because it refuses to start as a superuser.
-For a local dev database that role's password is typically `ledger_reader_test_pw`.
+Connection: POSTGRES_HOST/PORT/DB/USER (defaults localhost:5432
+iceberg/iceberg) and POSTGRES_PASSWORD (required, no default); --db overrides
+POSTGRES_DB. The ledger opens as the restricted runtime role --
+ICEBERG_LEDGER_RUNTIME_USER (default `ledger_reader`) /
+ICEBERG_LEDGER_RUNTIME_PASSWORD (required) -- because it refuses to start as a
+superuser.
 """
 import argparse
 import os
@@ -32,10 +33,12 @@ def main() -> int:
     port = int(os.environ.get("POSTGRES_PORT", "5432"))
     dbname = args.db or os.environ.get("POSTGRES_DB", "iceberg")
     user = os.environ.get("POSTGRES_USER", "iceberg")
-    password = os.environ.get("POSTGRES_PASSWORD", "iceberg")
+    password = os.environ.get("POSTGRES_PASSWORD")
+    if not password:
+        ap.error("POSTGRES_PASSWORD is not set")
     os.environ.setdefault("ICEBERG_LEDGER_RUNTIME_USER", "ledger_reader")
     if not os.environ.get("ICEBERG_LEDGER_RUNTIME_PASSWORD"):
-        os.environ["ICEBERG_LEDGER_RUNTIME_PASSWORD"] = "ledger_reader_test_pw"
+        ap.error("ICEBERG_LEDGER_RUNTIME_PASSWORD is not set")
 
     from governance.ledger_postgres import PostgreSQLLedger
 

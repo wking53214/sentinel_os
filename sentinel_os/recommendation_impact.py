@@ -295,8 +295,10 @@ def main() -> None:
     ap.add_argument("--postgres-db", default=_os.getenv("POSTGRES_DB", "iceberg"))
     ap.add_argument("--postgres-user", default=_os.getenv("POSTGRES_USER", "iceberg"))
     ap.add_argument("--postgres-password",
-                    default=_os.getenv("POSTGRES_PASSWORD", "iceberg"))
+                    default=_os.getenv("POSTGRES_PASSWORD"))
     args = ap.parse_args()
+    if not args.postgres_password:
+        ap.error("set POSTGRES_PASSWORD or pass --postgres-password")
 
     ledger = PostgreSQLLedger(
         host=args.postgres_host, port=args.postgres_port,
