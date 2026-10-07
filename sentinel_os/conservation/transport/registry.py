@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -113,7 +114,9 @@ class TransformationLedger:
         self._entries.append(entry)
         if self.path is not None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as handle:
+            # Created owner-only, and refuses a symlink at the path.
+            flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+            with os.fdopen(os.open(self.path, flags, 0o600), "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(entry.to_dict(), sort_keys=True) + "\n")
         return entry
 

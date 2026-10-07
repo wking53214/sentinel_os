@@ -95,7 +95,10 @@ class CustodianState:
             curr_hash = hashlib.sha256(canonical_json(core)).hexdigest()
             record = {**core, "curr_hash": curr_hash,
                       "sig": sign({**core, "curr_hash": curr_hash}, self.keys["log_sign_priv"])}
-            with open(self.log_path, "a") as fh:
+            # Created owner-only, and refuses a symlink at the path, so the
+            # custody audit trail cannot be read by other users or redirected.
+            flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+            with os.fdopen(os.open(self.log_path, flags, 0o600), "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record) + "\n")
             self.last_hash = curr_hash
             return record
