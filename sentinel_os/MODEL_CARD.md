@@ -194,7 +194,7 @@ All inference data is stored in PostgreSQL ledger with:
 | Output shape | IntentSignal(classification: str, confidence: float, reasoning: str, queue_chosen: str) |
 | Version control | Git tag: sentinel-intent-v1.1.0 |
 | Owner | Sentinel Governance Engine (SentinelCore) |
-| Reviewer | William King (github.com/wking53214) |
+| Reviewer | William N. King (github.com/wking53214) |
 | Review date | July 13, 2026 |
 
 ---
