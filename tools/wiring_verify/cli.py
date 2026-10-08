@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sys
 
@@ -63,6 +64,40 @@ def deployed_entry_points(graph: Graph, root: str):
     return report, eps
 
 
+def with_content_hash(body: str) -> str:
+    """Append the SHA-256 of the body (everything above the footer), so two
+    reports can be compared by their last line."""
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return f"{body}\n---\nReport SHA-256 (of everything above this line): {digest}\n"
+
+
+def format_chain(graph: Graph, chain):
+    """Call chain with the grade of each link between nodes, e.g. a -[B]-> b."""
+    if not chain:
+        return "(no chain)"
+    parts = [graph.node_label(chain[0])]
+    for a, b in zip(chain, chain[1:]):
+        parts.append(f"-[{rc.link_grade(graph, a, b)}]-> {graph.node_label(b)}")
+    return " ".join(parts)
+
+
+GRADE_LEGEND = ("Link grades: A = caller and callee in the same file; B = callee in another file, "
+                "reached through an import or tracked type; U = candidate only (getattr with a "
+                "literal name), never confirmed.")
+
+
+def unparsed_lines(graph: Graph):
+    """Markdown block naming every file that failed to parse, with the SHA-256
+    of its bytes. Those files are absent from the graph. Empty if none failed."""
+    if not graph.parse_errors:
+        return []
+    out = ["**Files that could not be parsed (absent from this graph):**"]
+    for relpath, err in graph.parse_errors:
+        out.append(f"- `{relpath}`: {err}")
+    out.append("")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # query mode
 # ---------------------------------------------------------------------------
@@ -76,16 +111,22 @@ def cmd_query(args) -> int:
     lines = []
     lines.append(f"# Wiring query: `{args.target}`\n")
     lines.append(f"Repo source root: `{args.root}`\n")
+    lines.extend(unparsed_lines(graph))
+    lines.append(GRADE_LEGEND + "\n")
 
     if not matches:
         lines.append(f"**NOT_FOUND** -- no module, class, function, or method matching "
                       f"`{args.target}` exists anywhere in the parsed source tree "
                       f"({len(graph.modules_by_relpath)} files parsed, Tests/ excluded).\n")
+        if graph.parse_errors:
+            lines.append(f"Caveat: {len(graph.parse_errors)} file(s) could not be parsed, so a match "
+                          "inside one of them would not appear here. Treat this NOT_FOUND as unverified "
+                          "until those files parse.\n")
         lines.append("This is distinct from UNREACHABLE: UNREACHABLE means the symbol exists "
                       "but no call path was found; NOT_FOUND means the symbol was never even "
                       "defined anywhere this tool looked (e.g. removed code, a typo, or a name "
                       "that only ever existed in documentation).\n")
-        print("\n".join(lines))
+        print(with_content_hash("\n".join(lines)))
         return 1
 
     for target_id in matches:
@@ -97,7 +138,7 @@ def cmd_query(args) -> int:
                 lines.append(f"| `{spec}` | ENTRY_NOT_FOUND | {entry.note} |")
                 continue
             result = rc.check_target(graph, entry.root_ids, target_id)
-            chain_str = " -> ".join(graph.node_label(n) for n in result.chain) if result.chain else "(no chain)"
+            chain_str = format_chain(graph, result.chain)
             lines.append(f"| `{spec}` | **{result.status}** | {chain_str}<br>{result.detail} |")
         lines.append("")
 
@@ -107,12 +148,12 @@ def cmd_query(args) -> int:
             lines.append("_No deployed entry point could be resolved from Dockerfile/compose/k8s configs._\n")
         for entry in deployed_eps:
             result = rc.check_target(graph, entry.root_ids, target_id)
-            chain_str = " -> ".join(graph.node_label(n) for n in result.chain) if result.chain else "(no chain)"
+            chain_str = format_chain(graph, result.chain)
             lines.append(f"- `{entry.spec}`: **{result.status}** -- {chain_str}")
             lines.append(f"  - {result.detail}")
         lines.append("")
 
-    print("\n".join(lines))
+    print(with_content_hash("\n".join(lines)))
     return 0
 
 
@@ -127,11 +168,10 @@ def cmd_sweep(args) -> int:
     lines.append(f"Repo source root: `{args.root}`  ")
     lines.append(f"Files parsed: {len(graph.modules_by_relpath)}  "
                  f"Functions/methods: {len(graph.functions)}  Classes: {len(graph.classes)}\n")
-    if graph.parse_errors:
-        lines.append("**Parse errors (these files were skipped):**")
-        for relpath, err in graph.parse_errors:
-            lines.append(f"- `{relpath}`: {err}")
-        lines.append("")
+    gc = rc.grade_counts(graph)
+    lines.append(f"Call links by grade: A={gc['A']}  B={gc['B']}  U={gc['U']}  \n")
+    lines.append(GRADE_LEGEND + "\n")
+    lines.extend(unparsed_lines(graph))
 
     sections = []
     if args.deployed or not args.entries_file_explicit:
@@ -205,7 +245,7 @@ def cmd_sweep(args) -> int:
         if len(graph.dynamic_sites) > 200:
             lines.append(f"- ... and {len(graph.dynamic_sites) - 200} more (use a target-scoped query for detail)")
 
-    out = "\n".join(lines)
+    out = with_content_hash("\n".join(lines))
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(out)
