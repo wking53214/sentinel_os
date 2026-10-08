@@ -79,10 +79,20 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 
+from backpressure import backpressure_delay_seconds
 from queue_schema import TransmissionQueue
 
 SERVICE = "sentinel-ingress"
 VERSION = "2.0.0"
+
+# Ingress backpressure. The queue has no hard limit. As it fills, each
+# submission waits a little longer, up to INGRESS_MAX_DELAY_SECONDS at
+# full. Nothing is refused. Capacity can be changed via the environment
+# without a code edit. Set it to 0 to turn the pause off.
+TRANSMISSION_QUEUE_CAPACITY = int(
+    os.environ.get("SENTINEL_TRANSMISSION_QUEUE_CAPACITY", "10000")
+)
+INGRESS_MAX_DELAY_SECONDS = 2.0
 
 # --------------------------------------------------------------------------
 # Logging: reuse the project's structured-JSON convention when importable
@@ -335,6 +345,21 @@ def _queue_unavailable(exc: Exception) -> HTTPException:
     )
 
 
+def _ingress_pause(q: TransmissionQueue) -> None:
+    """Slow a submission down as the queue fills. Never refuses work."""
+    if TRANSMISSION_QUEUE_CAPACITY <= 0:
+        return
+    try:
+        depth = q.ready_depth()
+    except (redis.exceptions.RedisError, OSError) as exc:
+        raise _queue_unavailable(exc)
+    delay = backpressure_delay_seconds(
+        depth, TRANSMISSION_QUEUE_CAPACITY, INGRESS_MAX_DELAY_SECONDS
+    )
+    if delay > 0:
+        time.sleep(delay)
+
+
 # --------------------------------------------------------------------------
 # POST /submit-call
 # --------------------------------------------------------------------------
@@ -348,6 +373,7 @@ def submit_call(call: CallSubmission, q: TransmissionQueue = Depends(get_queue))
     same submission gets the SAME job (deduped=true, current status echoed),
     never a duplicate and never a reset of a job already in flight.
     """
+    _ingress_pause(q)
     try:
         out = q.enqueue(job_id=call.sid, payload=call.model_dump())
     except (redis.exceptions.RedisError, OSError) as exc:
@@ -377,6 +403,7 @@ def submit_mortgage_decision(
     IcebergProductionHarness/IVR path submit_call feeds. job_id ==
     episode_id.
     """
+    _ingress_pause(q)
     try:
         out = q.enqueue(job_id=decision.episode_id, payload=decision.model_dump())
     except (redis.exceptions.RedisError, OSError) as exc:
