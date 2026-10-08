@@ -709,6 +709,17 @@ class TransmissionQueue:
         return n
 
     # ------------------------------------------------- observability --
+    def ready_depth(self) -> int:
+        """Jobs claimable right now: pending plus scheduled jobs that are
+        due. Two cheap reads, meant for ingress backpressure on every
+        submit (stats() is too heavy to call per request)."""
+        now = self._now_ms()
+        p = self.r.pipeline(transaction=False)
+        p.llen(self._k("pending"))
+        p.zcount(self._k("scheduled"), "-inf", now)
+        pending, due = p.execute()
+        return int(pending) + int(due)
+
     def stats(self) -> Dict[str, Any]:
         """Depth, staleness, DLQ state, lifetime counters -- one call,
         cheap enough for a /metrics scrape. Superset of both dialects:
