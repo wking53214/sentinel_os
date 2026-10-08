@@ -122,7 +122,9 @@ def _bfs(graph: Graph, roots: List[str], use_dynamic: bool) -> Dict[str, List[st
         neighbors = set(graph.edges.get(cur, ()))
         if use_dynamic:
             neighbors |= graph.dynamic_candidates.get(cur, set())
-        for nxt in neighbors:
+        # Sorted, so the first-found chain never depends on set iteration order
+        # (which varies with PYTHONHASHSEED).
+        for nxt in sorted(neighbors):
             if nxt not in chains:
                 chains[nxt] = chains[cur] + [nxt]
                 queue.append(nxt)
