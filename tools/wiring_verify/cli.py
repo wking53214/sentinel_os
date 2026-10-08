@@ -63,6 +63,18 @@ def deployed_entry_points(graph: Graph, root: str):
     return report, eps
 
 
+def unparsed_lines(graph: Graph):
+    """Markdown block naming every file that failed to parse, with the SHA-256
+    of its bytes. Those files are absent from the graph. Empty if none failed."""
+    if not graph.parse_errors:
+        return []
+    out = ["**Files that could not be parsed (absent from this graph):**"]
+    for relpath, err in graph.parse_errors:
+        out.append(f"- `{relpath}`: {err}")
+    out.append("")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # query mode
 # ---------------------------------------------------------------------------
@@ -76,11 +88,16 @@ def cmd_query(args) -> int:
     lines = []
     lines.append(f"# Wiring query: `{args.target}`\n")
     lines.append(f"Repo source root: `{args.root}`\n")
+    lines.extend(unparsed_lines(graph))
 
     if not matches:
         lines.append(f"**NOT_FOUND** -- no module, class, function, or method matching "
                       f"`{args.target}` exists anywhere in the parsed source tree "
                       f"({len(graph.modules_by_relpath)} files parsed, Tests/ excluded).\n")
+        if graph.parse_errors:
+            lines.append(f"Caveat: {len(graph.parse_errors)} file(s) could not be parsed, so a match "
+                          "inside one of them would not appear here. Treat this NOT_FOUND as unverified "
+                          "until those files parse.\n")
         lines.append("This is distinct from UNREACHABLE: UNREACHABLE means the symbol exists "
                       "but no call path was found; NOT_FOUND means the symbol was never even "
                       "defined anywhere this tool looked (e.g. removed code, a typo, or a name "
@@ -127,11 +144,7 @@ def cmd_sweep(args) -> int:
     lines.append(f"Repo source root: `{args.root}`  ")
     lines.append(f"Files parsed: {len(graph.modules_by_relpath)}  "
                  f"Functions/methods: {len(graph.functions)}  Classes: {len(graph.classes)}\n")
-    if graph.parse_errors:
-        lines.append("**Parse errors (these files were skipped):**")
-        for relpath, err in graph.parse_errors:
-            lines.append(f"- `{relpath}`: {err}")
-        lines.append("")
+    lines.extend(unparsed_lines(graph))
 
     sections = []
     if args.deployed or not args.entries_file_explicit:

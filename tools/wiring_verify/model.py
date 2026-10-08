@@ -21,6 +21,7 @@ Scope and honesty notes (see README.md for the full version):
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -224,11 +225,17 @@ class Graph:
     def _parse_module(self, relpath: str) -> None:
         full = os.path.join(self.root, relpath)
         try:
-            with open(full, "r", encoding="utf-8", errors="replace") as f:
-                src = f.read()
-            tree = ast.parse(src, filename=relpath)
-        except (SyntaxError, OSError) as exc:
-            self.parse_errors.append((relpath, str(exc)))
+            with open(full, "rb") as f:
+                raw = f.read()
+        except OSError as exc:
+            self.parse_errors.append((relpath, f"unreadable: {exc}"))
+            return
+        try:
+            tree = ast.parse(raw.decode("utf-8", errors="replace"), filename=relpath)
+        except SyntaxError as exc:
+            # Record the exact bytes that failed, so the report names a specific file version.
+            digest = hashlib.sha256(raw).hexdigest()
+            self.parse_errors.append((relpath, f"{exc} (file sha256 {digest})"))
             return
 
         dotted = relpath_to_dotted(relpath)
