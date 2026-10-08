@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sys
 
@@ -61,6 +62,13 @@ def deployed_entry_points(graph: Graph, root: str):
             continue
         eps.append(rc.resolve_entry_point(graph, candidate))
     return report, eps
+
+
+def with_content_hash(body: str) -> str:
+    """Append the SHA-256 of the body (everything above the footer), so two
+    reports can be compared by their last line."""
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return f"{body}\n---\nReport SHA-256 (of everything above this line): {digest}\n"
 
 
 def format_chain(graph: Graph, chain):
@@ -118,7 +126,7 @@ def cmd_query(args) -> int:
                       "but no call path was found; NOT_FOUND means the symbol was never even "
                       "defined anywhere this tool looked (e.g. removed code, a typo, or a name "
                       "that only ever existed in documentation).\n")
-        print("\n".join(lines))
+        print(with_content_hash("\n".join(lines)))
         return 1
 
     for target_id in matches:
@@ -145,7 +153,7 @@ def cmd_query(args) -> int:
             lines.append(f"  - {result.detail}")
         lines.append("")
 
-    print("\n".join(lines))
+    print(with_content_hash("\n".join(lines)))
     return 0
 
 
@@ -237,7 +245,7 @@ def cmd_sweep(args) -> int:
         if len(graph.dynamic_sites) > 200:
             lines.append(f"- ... and {len(graph.dynamic_sites) - 200} more (use a target-scoped query for detail)")
 
-    out = "\n".join(lines)
+    out = with_content_hash("\n".join(lines))
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(out)
