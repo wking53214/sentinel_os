@@ -188,6 +188,7 @@ class Graph:
         self.by_bare_name: Dict[str, List[str]] = defaultdict(list)
         self.edges: Dict[str, Set[str]] = defaultdict(set)
         self.edge_lines: Dict[Tuple[str, str], int] = {}
+        self.edge_grades: Dict[Tuple[str, str], str] = {}  # confirmed edges only: "A" or "B"
         self.dynamic_candidates: Dict[str, Set[str]] = defaultdict(set)
         self.dynamic_sites: List[DynamicSite] = []
         self.parse_errors: List[Tuple[str, str]] = []
@@ -602,6 +603,10 @@ class Graph:
     def add_edge(self, caller_id: str, callee_id: str, lineno: int) -> None:
         self.edges[caller_id].add(callee_id)
         self.edge_lines.setdefault((caller_id, callee_id), lineno)
+        # Grade: A = same file, B = resolved into another file. Candidate-only
+        # links (getattr literals) are never added here, so they are U by absence.
+        same_file = caller_id.split("::", 1)[0] == callee_id.split("::", 1)[0]
+        self.edge_grades.setdefault((caller_id, callee_id), "A" if same_file else "B")
 
     def add_dynamic_candidate(self, caller_id: str, callee_id: str) -> None:
         self.dynamic_candidates[caller_id].add(callee_id)

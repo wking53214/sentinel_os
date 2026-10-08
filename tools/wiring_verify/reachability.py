@@ -131,6 +131,25 @@ def _bfs(graph: Graph, roots: List[str], use_dynamic: bool) -> Dict[str, List[st
     return chains
 
 
+def link_grade(graph: Graph, caller_id: str, callee_id: str) -> str:
+    """Grade of one call link: A (same file), B (cross-file, resolved), or
+    U (candidate only, never confirmed)."""
+    return graph.edge_grades.get((caller_id, callee_id), "U")
+
+
+def grade_counts(graph: Graph) -> Dict[str, int]:
+    """How many links of each grade the graph holds. U counts candidate-only
+    pairs that have no confirmed edge."""
+    counts = {"A": 0, "B": 0, "U": 0}
+    for grade in graph.edge_grades.values():
+        counts[grade] += 1
+    for caller_id, callees in graph.dynamic_candidates.items():
+        for callee_id in callees:
+            if (caller_id, callee_id) not in graph.edge_grades:
+                counts["U"] += 1
+    return counts
+
+
 def reachable_set(graph: Graph, roots: List[str], use_dynamic: bool = False) -> Set[str]:
     return set(_bfs(graph, roots, use_dynamic).keys())
 

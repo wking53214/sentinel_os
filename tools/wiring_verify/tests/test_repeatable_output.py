@@ -71,5 +71,5 @@ def test_call_chain_does_not_depend_on_hash_seed(diamond_tree):
     only = next(iter(outputs.values()))
     chain_lines = [ln for ln in only.splitlines() if "**REACHABLE**" in ln and "diamond.py:entry" in ln]
     assert chain_lines, only
-    assert "diamond.py:x (function) -> " in chain_lines[0]
+    assert "diamond.py:x (function) -[A]-> " in chain_lines[0]
     assert "diamond.py:y (function)" not in chain_lines[0]
