@@ -112,7 +112,7 @@ class GraphExtractor(ast.NodeVisitor):
             return self.resolve_attr_chain(func)
         return None
 
-    def resolve_attr_chain(self, node: ast.Attribute) -> str:
+    def resolve_attr_chain(self, node: ast.Attribute) -> Optional[str]:
         parts = []
         cur = node
         while isinstance(cur, ast.Attribute):
@@ -120,7 +120,9 @@ class GraphExtractor(ast.NodeVisitor):
             cur = cur.value
         if isinstance(cur, ast.Name):
             parts.append(cur.id)
-        return ".".join(reversed(parts))
+            return ".".join(reversed(parts))
+        # Call-rooted chains such as f().g have no plain name to report.
+        return None
 
 
 def extract_graph(source: str, filename: str = "<module>") -> Graph:
