@@ -39,15 +39,25 @@ it stays flagged until max_history other distinct texts push it out.
 
 So callers should record a BLOCKED_LOOP and watch it, and should not deny a
 decision on it alone. Tests/test_governance_loop_guard.py pins this behaviour.
+
+PER-TRACE HISTORY
+------------------------------------------------------------------------
+With no trace_id, the window is shared by every call on one engine, so a busy
+engine fills it with other traces' text and a repeat inside one trace can be
+missed or flagged for the wrong reason. Passing trace_id gives each trace its
+own window of max_history outputs, so one trace's repeats are judged only
+against that trace's own outputs. At most max_traces traces are kept; the
+least recently used is dropped, and a dropped trace starts with an empty
+window if it returns. The retry counter is still shared by all calls.
 """
 
 from __future__ import annotations
 
 import hashlib
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
-from typing import Deque, Optional
+from typing import Deque, Dict, Optional
 
 
 @dataclass
@@ -56,26 +66,49 @@ class EngineState:
     last_output_hash: Optional[str] = None
     last_timestamp: Optional[float] = None
     retry_counter: int = 0
+    trace_outputs: Dict[str, Deque[str]] = field(default_factory=OrderedDict)
 
 
 class PipelineStateEngine:
     """Monitors output history to detect generation loops and manage
-    a bounded retry lifecycle."""
+    a bounded retry lifecycle.
 
-    def __init__(self, max_retries: int = 5, max_history: int = 1000):
+    Callers that pass a trace_id get a separate, bounded history for that
+    trace (see PER-TRACE HISTORY below). Callers that pass no trace_id keep
+    the original single shared history."""
+
+    def __init__(self, max_retries: int = 5, max_history: int = 1000,
+                 max_traces: int = 1000):
         self.state = EngineState(seen_outputs=deque(maxlen=max_history))
         self.max_retries = max_retries
+        self.max_history = max_history
+        self.max_traces = max_traces
 
     def evaluate_integrity(self, output: str) -> bool:
         if not output or not output.strip():
             return False
         return True
 
-    def check_loop_condition(self, output: str) -> bool:
-        return output in self.state.seen_outputs
+    def _trace_window(self, trace_id: str) -> Deque[str]:
+        traces = self.state.trace_outputs
+        window = traces.get(trace_id)
+        if window is None:
+            window = deque(maxlen=self.max_history)
+            traces[trace_id] = window
+            if len(traces) > self.max_traces:
+                traces.popitem(last=False)
+        else:
+            traces.move_to_end(trace_id)
+        return window
 
-    def record_state(self, output: str) -> None:
-        self.state.seen_outputs.append(output)
+    def check_loop_condition(self, output: str, trace_id: Optional[str] = None) -> bool:
+        if trace_id is None:
+            return output in self.state.seen_outputs
+        return output in self._trace_window(trace_id)
+
+    def record_state(self, output: str, trace_id: Optional[str] = None) -> None:
+        window = self.state.seen_outputs if trace_id is None else self._trace_window(trace_id)
+        window.append(output)
         self.state.last_output_hash = self._compute_hash(output)
         self.state.last_timestamp = time.time()
 
@@ -91,15 +124,15 @@ class PipelineStateEngine:
     def _compute_hash(self, payload: str) -> str:
         return hashlib.sha256(payload.encode()).hexdigest()
 
-    def process_lifecycle(self, output: str) -> str:
+    def process_lifecycle(self, output: str, trace_id: Optional[str] = None) -> str:
         """Returns one of: BLOCKED_LOOP, RETRY, SYSTEM_ERROR, ACCEPTED."""
-        if self.check_loop_condition(output):
+        if self.check_loop_condition(output, trace_id):
             return "BLOCKED_LOOP"
         if not self.evaluate_integrity(output):
             if self.check_retry_capacity():
                 self.increment_retry()
                 return "RETRY"
             return "SYSTEM_ERROR"
-        self.record_state(output)
+        self.record_state(output, trace_id)
         self.clear_retry_state()
         return "ACCEPTED"
