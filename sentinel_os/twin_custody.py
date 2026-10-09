@@ -616,37 +616,59 @@ _ANCHOR_DOMAIN = b"sentinel_os.head_anchor.v1"
 _ANCHOR_FIELDS = ("head", "entries", "sealed_at", "key_fingerprint")
 
 
+_ANCHOR_NAME_MAX = 64
+
+
+def _check_anchor_name(name: Any) -> Optional[str]:
+    """None for an unnamed anchor. A name is a short printable label that the
+    anchor's signature covers, so it can be checked later but not changed."""
+    if name is None:
+        return None
+    if not isinstance(name, str) or not name.strip() or len(name) > _ANCHOR_NAME_MAX \
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+        raise CustodyError(f"an anchor name must be 1-{_ANCHOR_NAME_MAX} printable characters")
+    return name
+
+
 def head_anchor_payload(head: str, entries: int, sealed_at: str,
-                        key_fingerprint: str) -> bytes:
-    body = canonical_json({"entries": int(entries), "head": head,
-                           "key_fingerprint": key_fingerprint,
-                           "sealed_at": sealed_at})
-    return _ANCHOR_DOMAIN + b"\x00" + body
+                        key_fingerprint: str, name: Optional[str] = None) -> bytes:
+    fields = {"entries": int(entries), "head": head,
+              "key_fingerprint": key_fingerprint, "sealed_at": sealed_at}
+    if name:  # present only when named, so unnamed anchors sign exactly as before
+        fields["name"] = name
+    return _ANCHOR_DOMAIN + b"\x00" + canonical_json(fields)
 
 
 def build_head_anchor(head: str, entries: int, key: bytes,
-                      sealed_at: Optional[str] = None) -> Dict[str, Any]:
+                      sealed_at: Optional[str] = None,
+                      name: Optional[str] = None) -> Dict[str, Any]:
     """The anchor for a chain whose head is `head` after `entries` rows,
     signed with `key` (the ledger attestation key). Never unsigned: an
-    anchor anybody could write anchors nothing."""
+    anchor anybody could write anchors nothing. An optional `name` labels
+    the checkpoint and is signed with it."""
     if not key:
         raise CustodyError("a head anchor needs the ledger attestation key")
+    name = _check_anchor_name(name)
     if sealed_at is None:
         from datetime import datetime, timezone
         sealed_at = datetime.now(timezone.utc).isoformat()
     fp = _key_fingerprint(bytes(key))
     import hmac as _hmac
-    digest = _hmac.new(bytes(key), head_anchor_payload(head, entries, sealed_at, fp),
+    digest = _hmac.new(bytes(key), head_anchor_payload(head, entries, sealed_at, fp, name),
                        hashlib.sha256).hexdigest()
-    return {"v": HEAD_ANCHOR_VERSION, "head": head, "entries": int(entries),
-            "sealed_at": sealed_at, "key_fingerprint": fp, "hmac": digest}
+    anchor = {"v": HEAD_ANCHOR_VERSION, "head": head, "entries": int(entries),
+              "sealed_at": sealed_at, "key_fingerprint": fp, "hmac": digest}
+    if name:
+        anchor["name"] = name
+    return anchor
 
 
 def write_head_anchor(path: str, head: str, entries: int, key: bytes,
-                      sealed_at: Optional[str] = None) -> Dict[str, Any]:
+                      sealed_at: Optional[str] = None,
+                      name: Optional[str] = None) -> Dict[str, Any]:
     """Write the anchor atomically (temp file, then rename) so a reader never
     sees a torn anchor. Returns the anchor as written."""
-    anchor = build_head_anchor(head, entries, key, sealed_at)
+    anchor = build_head_anchor(head, entries, key, sealed_at, name)
     tmp = f"{path}.tmp.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(anchor, fh, indent=2, sort_keys=True)
@@ -677,8 +699,10 @@ def verify_head_anchor(anchor: Dict[str, Any], keys: Any) -> Tuple[str, Optional
     if ks.is_empty():
         return (_ATT_UNVERIFIABLE, "no key held to check the anchor")
     fp = str(anchor.get("key_fingerprint"))
+    if "name" in anchor and not anchor["name"]:
+        return (_ATT_INVALID, "anchor carries an empty name field, which nothing signed")
     payload = head_anchor_payload(str(anchor.get("head")), int(anchor.get("entries") or 0),
-                                  str(anchor.get("sealed_at")), fp)
+                                  str(anchor.get("sealed_at")), fp, anchor.get("name") or None)
     expected = str(anchor.get("hmac"))
 
     def matches(k: bytes) -> bool:
