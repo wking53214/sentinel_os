@@ -26,6 +26,19 @@ failure. It has no way to notice a syntactically successful, correctly-
 parsed response that happens to repeat a prior call's exact reasoning
 text: not an error, but a plausible signal of a stuck or degenerate
 governor response. That is what this module catches instead.
+
+A REPEAT IS A SIGNAL, NOT PROOF
+------------------------------------------------------------------------
+BLOCKED_LOOP means only that this exact text is among the last max_history
+outputs seen. It does not mean the model is stuck. A healthy governor gives
+the same short verdict ("within normal bounds") to many different calls, and
+a retry of the same input returns the same wording. Two further properties
+follow from the code: the text is compared across every call that shares one
+engine, not within one input, and a flagged text is never recorded again, so
+it stays flagged until max_history other distinct texts push it out.
+
+So callers should record a BLOCKED_LOOP and watch it, and should not deny a
+decision on it alone. Tests/test_governance_loop_guard.py pins this behaviour.
 """
 
 from __future__ import annotations
