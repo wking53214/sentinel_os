@@ -57,13 +57,13 @@ Every governed decision is submitted to [`Conservation_Kernel`](https://github.c
 
 ## 4. Brutally Honest Current Status & Gaps
 
-Measured 2026-09-09 from clone `5341e3d`, 968 collected, **without Postgres**: 658 pass, 228 skip, 39 fail, 38 error.
+Measured 2026-10-10 from clone `4f2be13` on a clean install, run from `sentinel_os/` over `.` and `../tools`: with Postgres and Redis running, 1072 pass, 22 skip, 0 fail, 18 error. All 18 errors are the twin live suite, which needs the OS accounts that `scripts/twin_ensure_services.sh` creates. Without Postgres, the `sentinel_os/` suite alone gives 755 pass, 242 skip, 46 fail, 48 error; every failure there passes once Postgres is running, apart from the twin live errors above. Earlier measurement (2026-09-09, `5341e3d`, without Postgres): 658 pass, 228 skip, 39 fail, 38 error.
 
 | Gap | Detail |
 |---|---|
 | Root package metadata | Kernel `requirements.txt` exists under `sentinel_os/sentinel_os/`. Repo root does not install as a product. |
 | Required services | Postgres, Redis. Twin and live paths need `cryptography`, keys. |
-| Private `CNS` | `cns @ git+…/cns.git@9f8f3fed…` — **private**. Public clone cannot satisfy sage_k graph types. |
+| `CNS` pin | `cns @ git+…/cns.git@3b465db…` (tag v1.4.0). Public as of 2026-10-10: a clean install resolves it with no token. The ledger imports `cns.gate` and sage_k imports `cns.graph`. |
 | DIT pin | `dit @ git+…/DIT.git@26cee7b9…` (feat/sync-evaluate head). Squash-merge rewrites SHA. |
 | Anthropic | Governor path. `httpx<0.28` pin required for anthropic 0.116.0. |
 | No Cassette SDK | Cassettes are in-tree modules, not a versioned SDK. |
@@ -92,7 +92,7 @@ observe-perceive  ✗ does not import sentinel_os
 GSA-815           → vendor/sentinel_os submodule
 Conservation_Kernel @25145aa  ← mandatory boundary
 DIT               ← epistemic gate on governor text
-private CNS       ← graph types
+CNS @3b465db      ← gate contract (ledger) and graph types (sage_k)
 δ (interconnected_delta)  ← in-process extract of outcome_v1 + fairness
 ICEBURG/ICEBERG   ← lineage; not imported (ICEBERG_* env var names are fossils)
 ```

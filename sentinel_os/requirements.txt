@@ -24,13 +24,13 @@ pyyaml>=6.0  # tools/wiring_verify/deploy_config.py reads docker-compose files; 
 conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@25145aa0a10130c710dc71899c0da9930cf7d285
 # The shared graph substrate (sage_k Node/Edge/Graph) and the gate contract
 # (cns.gate: subject_digest, GatePosition, GateOutcome) that the ledger's
-# verdict receipts bind to. Private; pinned to a commit like
+# verdict receipts bind to. Public; pinned to a commit like
 # conservation-kernel above. This is tag v1.4.0 (composition code lives in
 # cns_composition and is not shipped).
 cns @ git+https://github.com/wking53214/cns.git@3b465dbcc1a6a4ab6f1040f93d44483196abd737
 # The epistemic gate: epistemic/dit_gate.py judges whether the governor's
 # free-text reasoning qualifies as evidence before it is sealed into the
-# ledger's canonical hash. Private; pinned to a commit like the two above.
+# ledger's canonical hash. Public; pinned to a commit like the two above.
 # NOTE: this SHA is DIT's feat/sync-evaluate head (the evaluate() API this
 # module calls). Re-pin to the merge commit if that PR is squash-merged --
 # a squash rewrites the SHA and this one becomes unreachable once the
