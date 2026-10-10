@@ -30,9 +30,10 @@ conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@
 cns @ git+https://github.com/wking53214/cns.git@3b465dbcc1a6a4ab6f1040f93d44483196abd737
 # The epistemic gate: epistemic/dit_gate.py judges whether the governor's
 # free-text reasoning qualifies as evidence before it is sealed into the
-# ledger's canonical hash. Public; pinned to a commit like the two above.
-# NOTE: this SHA is DIT's feat/sync-evaluate head (the evaluate() API this
-# module calls). Re-pin to the merge commit if that PR is squash-merged --
-# a squash rewrites the SHA and this one becomes unreachable once the
-# branch is deleted.
-dit @ git+https://github.com/wking53214/DIT.git@26cee7b9632a0b2ceead6827eb1071271995acc5
+# ledger's canonical hash. Public; pinned to a release tag.
+# NOTE: the tag is spelled V0.1.0 (capital V) and points at DIT main
+# a690dc3. It replaces the earlier pin to the feat/sync-evaluate branch head
+# (26cee7b), which a squash merge could have made unreachable. The only change
+# to DIT's source between the two is one added optional file,
+# src/dit/cns_connector.py.
+dit @ git+https://github.com/wking53214/DIT.git@V0.1.0
