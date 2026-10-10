@@ -2,6 +2,8 @@
 
 Domain-blind **custody runtime** with pluggable cassettes, Episode ground-truth tracking, independent twin replication, and a Postgres-backed hash-chained ledger. Second sellable unit after the governed action gate in [`observe-perceive`](https://github.com/wking53214/observe-perceive). **Not deployable from a clean public clone today.**
 
+New to the vocabulary (cassette, twin, ζ, δ, TACK and so on)? See [`docs/GLOSSARY_v1.md`](docs/GLOSSARY_v1.md).
+
 ## 1. Pipeline Position & Role
 
 **CUSTODY / LEDGER.** After execution (and, on the kernel's own harness, *around* judgment). Domain-agnostic witness and judge sitting beside a decision system.
