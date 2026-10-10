@@ -12,6 +12,7 @@ opentelemetry-sdk>=1.20
 opentelemetry-exporter-otlp-proto-grpc>=1.20  # only needed if OTEL_EXPORTER_OTLP_ENDPOINT is set
 redis==8.0.1
 cryptography>=41.0  # twin_custody.py: ECIES envelopes, Ed25519/X25519, AES-GCM, HKDF
+pyyaml>=6.0  # tools/wiring_verify/deploy_config.py reads docker-compose files; without it those tests cannot load on a clean install
 # The mandatory conservation boundary: governance_harness._write_decision routes
 # every governed decision through conservation/boundary.py, which submits the
 # episode->judgment transformation to conservation_kernel's verifier (via the
