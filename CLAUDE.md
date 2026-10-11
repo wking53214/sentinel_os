@@ -12,8 +12,11 @@ may add to them; it may not relax them.
    existing hashed slot (the `output` mapping) or into
    `OPTIONAL_HASHED_FIELDS` in `canonical_fields.py` as a one-line,
    present-when-truthy addition, and nowhere else. Never a second list.
-4. Never hard-code a key. Never truncate a hash. Never accept a default key
-   in a production profile.
+4. Never hard-code a key. Never truncate a hash that provides integrity or
+   authenticity. A key identifier is a label, not a MAC or a secret, and may
+   be the truncated fingerprint defined by `key_fingerprint` in
+   `governance/authorized_by_attestation.py`. Never accept a default key in a
+   production profile.
 5. Run the affected test suite after every step. If a pre-existing test
    fails for any reason other than the intended change, stop and report.
    Do not edit the test to make it pass.
