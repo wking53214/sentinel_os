@@ -25,9 +25,9 @@ conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@
 # The shared graph substrate (sage_k Node/Edge/Graph) and the gate contract
 # (cns.gate: subject_digest, GatePosition, GateOutcome) that the ledger's
 # verdict receipts bind to. Public; pinned to a commit like
-# conservation-kernel above. This is tag v1.4.0 (composition code lives in
+# conservation-kernel above. This is tag v1.5.1 (composition code lives in
 # cns_composition and is not shipped).
-cns @ git+https://github.com/wking53214/cns.git@3b465dbcc1a6a4ab6f1040f93d44483196abd737
+cns @ git+https://github.com/wking53214/cns.git@da9ab8c8c47097b38ad9792dec23fed45d31ae3f
 # The epistemic gate: epistemic/dit_gate.py judges whether the governor's
 # free-text reasoning qualifies as evidence before it is sealed into the
 # ledger's canonical hash. Public; pinned to a release tag.
