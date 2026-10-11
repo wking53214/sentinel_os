@@ -102,6 +102,15 @@ def _compute_hmac_signature(key_bytes: bytes, message_bytes: bytes) -> str:
     return hmac.new(key_bytes, message_bytes, hashlib.sha256).hexdigest()
 
 
+# Same key-ID formula as sentinel_os.governance.authorized_by_attestation.key_fingerprint.
+# Repeated here because sage_k is importable on its own and must not depend on governance.
+_KEYID_DOMAIN = b"sentinel_os.authorized_by.keyid.v1"
+
+
+def _key_id(key: bytes) -> str:
+    return hashlib.sha256(_KEYID_DOMAIN + b"\x00" + key).hexdigest()[:16]
+
+
 def audit_append(event_type: str, data_payload: Dict[str, Any]) -> None:
     """Appends an HMAC-signed JSON line to the audit log. Fails silently on IOError."""
     record_structure = {
@@ -109,6 +118,9 @@ def audit_append(event_type: str, data_payload: Dict[str, Any]) -> None:
         "run_id": os.getenv("FORTRESS_RUN_ID", "none"),
         "event": event_type,
         "data": data_payload,
+        # Algorithm and key ID are signed with the record, so they are tamper-evident.
+        "signature_algorithm": "hmac-sha256",
+        "key_id": _key_id(_AUDIT_KEY.encode()),
     }
     serialized_bytes = json.dumps(record_structure, separators=(",", ":"), sort_keys=True).encode()
     record_structure["hmac"] = _compute_hmac_signature(_AUDIT_KEY.encode(), serialized_bytes)
