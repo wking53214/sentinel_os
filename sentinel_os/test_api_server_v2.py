@@ -385,6 +385,137 @@ def test_T10_ingress_never_imports_the_harness(tc):
             assert "IcebergProductionHarness" not in n
 
 
+class _ReviewLedgerStub:
+    def __init__(self, *, missing=False, write_error=None, integrity_verified=True):
+        self.missing = missing
+        self.write_error = write_error
+        self.integrity_verified = integrity_verified
+        self.writes = []
+
+    def get_decision_with_cassette(self, decision_id):
+        if self.missing:
+            raise ValueError(f"Decision {decision_id} not found")
+        return {
+            "decision": {
+                "id": decision_id,
+                "current_hash": "decision-hash-123",
+                "reasoning": "stored governor rationale",
+                "output": {"safe": False, "findings": [{"code": "risk"}]},
+            },
+            "cassette_proof": {"integrity_verified": self.integrity_verified},
+        }
+
+    def record_human_selection(self, **kwargs):
+        if self.write_error:
+            raise self.write_error
+        self.writes.append(kwargs)
+        return {
+            "status": "created",
+            "decision_hash": kwargs["decision_hash"],
+            "human_selection": kwargs["human_selection"],
+            "current_hash": "selection-hash-456",
+        }
+
+
+def _review_client(tc, monkeypatch, ledger):
+    import api_server_v2
+
+    monkeypatch.setitem(
+        api_server_v2.app.dependency_overrides,
+        api_server_v2.require_api_key,
+        lambda: {"name": "reviewer-alice"},
+    )
+    monkeypatch.setitem(
+        api_server_v2.app.dependency_overrides,
+        api_server_v2.get_human_review_ledger_dependency,
+        lambda: ledger,
+    )
+    return tc
+
+
+def test_human_review_get_returns_stored_verdict_and_findings(tc, monkeypatch):
+    client = _review_client(tc, monkeypatch, _ReviewLedgerStub())
+    response = client.get("/governance/decisions/42")
+    assert response.status_code == 200
+    assert response.json()["decision"]["output"] == {
+        "safe": False, "findings": [{"code": "risk"}]
+    }
+
+
+def test_human_review_get_requires_authentication(tc):
+    response = tc.get("/governance/decisions/42")
+    assert response.status_code == 401
+
+
+def test_human_review_get_missing_decision_is_404(tc, monkeypatch):
+    client = _review_client(tc, monkeypatch, _ReviewLedgerStub(missing=True))
+    response = client.get("/governance/decisions/42")
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("choice", ["CONCUR", "OVERRIDE", "ESCALATE"])
+def test_human_review_selection_records_authenticated_principal(tc, monkeypatch, choice):
+    ledger = _ReviewLedgerStub()
+    client = _review_client(tc, monkeypatch, ledger)
+    response = client.post("/governance/decisions/42/human-selection", json={
+        "human_selection": choice,
+        "rationale": "reviewed",
+        "selected_by": "attacker-controlled-name",
+    })
+    assert response.status_code == 422
+    assert ledger.writes == []
+    response = client.post("/governance/decisions/42/human-selection", json={
+        "human_selection": choice, "rationale": "reviewed"
+    })
+    assert response.status_code == 201
+    assert ledger.writes == [{
+        "decision_hash": "decision-hash-123",
+        "human_selection": choice,
+        "selected_by": "reviewer-alice",
+        "rationale": "reviewed",
+    }]
+
+
+def test_human_review_rejects_invalid_selection_without_write(tc, monkeypatch):
+    ledger = _ReviewLedgerStub()
+    client = _review_client(tc, monkeypatch, ledger)
+    response = client.post("/governance/decisions/42/human-selection", json={
+        "human_selection": "approve"
+    })
+    assert response.status_code == 422
+    assert ledger.writes == []
+
+
+def test_human_review_missing_decision_is_not_recorded(tc, monkeypatch):
+    ledger = _ReviewLedgerStub(missing=True)
+    client = _review_client(tc, monkeypatch, ledger)
+    response = client.post("/governance/decisions/42/human-selection", json={
+        "human_selection": "CONCUR"
+    })
+    assert response.status_code == 404
+    assert ledger.writes == []
+
+
+def test_human_review_ledger_failure_is_not_reported_as_success(tc, monkeypatch):
+    ledger = _ReviewLedgerStub(write_error=OSError("database unavailable"))
+    client = _review_client(tc, monkeypatch, ledger)
+    response = client.post("/governance/decisions/42/human-selection", json={
+        "human_selection": "CONCUR"
+    })
+    assert response.status_code == 503
+    assert response.status_code != 201
+
+
+def test_human_review_fails_closed_when_decision_integrity_is_unverified(tc, monkeypatch):
+    ledger = _ReviewLedgerStub(integrity_verified=False)
+    client = _review_client(tc, monkeypatch, ledger)
+    response = client.post("/governance/decisions/42/human-selection", json={
+        "human_selection": "CONCUR"
+    })
+    assert response.status_code == 503
+    assert ledger.writes == []
+
+
 # ---------------------------------------------------------------------------
 # L-series: live server, real HTTP, real chaos.
 # ---------------------------------------------------------------------------

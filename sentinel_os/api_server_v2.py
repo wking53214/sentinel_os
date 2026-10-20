@@ -80,6 +80,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 
 from queue_schema import TransmissionQueue
+from api_key_auth import require_api_key
+from human_review_ledger import get_human_review_ledger
 
 SERVICE = "sentinel-ingress"
 VERSION = "2.0.0"
@@ -316,6 +318,25 @@ class MortgageDecisionSubmission(BaseModel):
         return _validate_job_key(v, "episode_id")
 
 
+class HumanSelectionSubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    human_selection: StrictStr
+    rationale: Optional[StrictStr] = None
+
+    @field_validator("human_selection")
+    @classmethod
+    def _selection_is_valid(cls, value: str) -> str:
+        if value not in {"CONCUR", "OVERRIDE", "ESCALATE"}:
+            raise ValueError("human_selection must be CONCUR, OVERRIDE, or ESCALATE")
+        return value
+
+
+def get_human_review_ledger_dependency():
+    """Resolve the shared, integrity-preserving governance ledger adapter."""
+    return get_human_review_ledger()
+
+
 def _iso(epoch: Optional[float]) -> Optional[str]:
     if epoch is None:
         return None
@@ -462,6 +483,88 @@ def job_status(job_id: str, q: TransmissionQueue = Depends(get_queue)) -> Dict[s
             },
         )
     return _public_view(job)
+
+
+@app.get("/governance/decisions/{decision_id}")
+def get_governance_decision(
+        decision_id: int,
+        principal: Dict[str, Any] = Depends(require_api_key),
+        ledger=Depends(get_human_review_ledger_dependency)) -> Dict[str, Any]:
+    """Return the stored decision record for an authenticated reviewer."""
+    _reviewer_name(principal)
+    try:
+        result = ledger.get_decision_with_cassette(decision_id)
+        _require_verified_decision(result)
+        return result
+    except ValueError as exc:
+        if f"Decision {decision_id} not found" in str(exc):
+            raise HTTPException(status_code=404, detail="governed_decision_not_found") from exc
+        logger.error(f"decision review integrity failure id={decision_id}: {exc}")
+        raise HTTPException(status_code=503, detail="decision_review_unavailable") from exc
+    except Exception as exc:
+        logger.error(f"decision review unavailable id={decision_id}: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=503, detail="decision_review_unavailable") from exc
+
+
+@app.post("/governance/decisions/{decision_id}/human-selection", status_code=201)
+def submit_human_selection(
+        decision_id: int,
+        selection: HumanSelectionSubmission,
+        principal: Dict[str, Any] = Depends(require_api_key),
+        ledger=Depends(get_human_review_ledger_dependency)) -> Dict[str, Any]:
+    """Record an authenticated human's selection against the stored hash."""
+    selected_by = _reviewer_name(principal)
+    try:
+        result = ledger.get_decision_with_cassette(decision_id)
+        _require_verified_decision(result)
+        decision = result["decision"]
+        decision_hash = decision.get("current_hash")
+        if not decision_hash:
+            logger.error(f"decision review record lacks current hash id={decision_id}")
+            raise HTTPException(status_code=503, detail="decision_review_unavailable")
+    except ValueError as exc:
+        if f"Decision {decision_id} not found" in str(exc):
+            raise HTTPException(status_code=404, detail="governed_decision_not_found") from exc
+        logger.error(f"decision review integrity failure id={decision_id}: {exc}")
+        raise HTTPException(status_code=503, detail="decision_review_unavailable") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"decision review unavailable id={decision_id}: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=503, detail="decision_review_unavailable") from exc
+
+    try:
+        recorded = ledger.record_human_selection(
+            decision_hash=decision_hash,
+            human_selection=selection.human_selection,
+            selected_by=selected_by,
+            rationale=selection.rationale,
+        )
+    except ValueError as exc:
+        # The row may have disappeared between lookup and write, or the ledger
+        # may reject its own contract. Neither case is a successful response.
+        raise HTTPException(status_code=404, detail="governed_decision_not_found") from exc
+    except Exception as exc:
+        logger.error(f"human selection ledger write failed id={decision_id}: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=503, detail="human_selection_recording_failed") from exc
+    if recorded.get("status") != "created" or recorded.get("decision_hash") != decision_hash:
+        logger.error(f"human selection ledger did not confirm expected write id={decision_id}")
+        raise HTTPException(status_code=503, detail="human_selection_recording_failed")
+    return recorded
+
+
+def _reviewer_name(principal: Dict[str, Any]) -> str:
+    """Use the API key's configured principal name, never request identity."""
+    name = principal.get("name") if isinstance(principal, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        raise HTTPException(status_code=403, detail="authenticated_reviewer_identity_missing")
+    return name.strip()
+
+
+def _require_verified_decision(result: Dict[str, Any]) -> None:
+    proof = result.get("cassette_proof") if isinstance(result, dict) else None
+    if not isinstance(proof, dict) or proof.get("integrity_verified") is not True:
+        raise RuntimeError("decision cassette integrity was not verified")
 
 
 # --------------------------------------------------------------------------
