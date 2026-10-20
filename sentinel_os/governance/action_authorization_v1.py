@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional, Protocol, Tuple
 
-from .human_selection_v1 import HUMAN_SELECTIONS
+from .human_selection_v1 import HUMAN_SELECTIONS, HUMAN_SELECTION_OVERRIDE
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -90,11 +90,19 @@ class DecisionState:
 
 @dataclass(frozen=True)
 class PolicyAssessment:
-    """Trusted policy result; empty permitted selections means deny release."""
+    """Trusted policy result; empty permitted selections means deny release.
 
+    For an ACTION_BLOCK, ``action_block_override_policy_permitted`` must be
+    backed by a separately established, target-specific policy. The target
+    and action fields bind the assessment; reviewer identity and authority for
+    that target/action/policy are checked by the evidence verifier.
+    """
+
+    target: AuthorizationTarget
+    action: str
     requirement: ReviewRequirement
     permitted_selections: Tuple[str, ...] = ()
-    action_block_release_permitted: bool = False
+    action_block_override_policy_permitted: bool = False
     policy_id: Optional[str] = None
     policy_version: Optional[str] = None
 
@@ -136,8 +144,17 @@ class ReviewEvidenceProvider(Protocol):
 
 
 class ReviewEvidenceVerifier(Protocol):
+    """Verify ledger integrity and reviewer authority for this exact scope.
+
+    A successful ``reviewer_authorized`` result must establish that this
+    authenticated individual may apply this evidence selection to this exact
+    target, action, and policy assessment. An API-key label or attested name
+    alone is insufficient.
+    """
+
     def verify(self, evidence: ReviewEvidence, target: AuthorizationTarget,
-               action: str) -> VerificationResult: ...
+               action: str, assessment: PolicyAssessment
+               ) -> VerificationResult: ...
 
 
 class ActionAuthorizationGate:
@@ -189,10 +206,14 @@ class ActionAuthorizationGate:
         if not isinstance(assessment, PolicyAssessment):
             return self._result(AuthorizationStatus.INDETERMINATE,
                                 "invalid_policy_result", target, action)
+        if assessment.target != target or assessment.action != action:
+            return self._result(AuthorizationStatus.INDETERMINATE,
+                                "policy_target_or_action_mismatch",
+                                target, action)
         if (not isinstance(assessment.permitted_selections, tuple)
                 or any(selection not in HUMAN_SELECTIONS
                        for selection in assessment.permitted_selections)
-                or not isinstance(assessment.action_block_release_permitted,
+                or not isinstance(assessment.action_block_override_policy_permitted,
                                   bool)):
             return self._result(AuthorizationStatus.INDETERMINATE,
                                 "invalid_policy_selection_vocabulary",
@@ -211,9 +232,18 @@ class ActionAuthorizationGate:
             return self._result(AuthorizationStatus.INDETERMINATE,
                                 "invalid_review_requirement", target, action)
 
-        if state.action_block and not assessment.action_block_release_permitted:
+        if (state.action_block
+                and assessment.action_block_override_policy_permitted is not True):
             return self._result(AuthorizationStatus.DENIED,
                                 "action_block_release_not_authorized",
+                                target, action)
+        if state.action_block and (
+                not isinstance(assessment.policy_id, str)
+                or not assessment.policy_id.strip()
+                or not isinstance(assessment.policy_version, str)
+                or not assessment.policy_version.strip()):
+            return self._result(AuthorizationStatus.DENIED,
+                                "action_block_release_policy_unidentified",
                                 target, action)
 
         try:
@@ -238,9 +268,15 @@ class ActionAuthorizationGate:
             return self._result(AuthorizationStatus.DENIED,
                                 "selection_not_permitted_by_policy",
                                 target, action, evidence.evidence_id)
+        if (state.action_block
+                and evidence.selection != HUMAN_SELECTION_OVERRIDE):
+            return self._result(AuthorizationStatus.DENIED,
+                                "action_block_selection_preserves_block",
+                                target, action, evidence.evidence_id)
 
         try:
-            verification = self._verifier.verify(evidence, target, action)
+            verification = self._verifier.verify(
+                evidence, target, action, assessment)
         except Exception:
             return self._result(AuthorizationStatus.INDETERMINATE,
                                 "review_verification_failed",
