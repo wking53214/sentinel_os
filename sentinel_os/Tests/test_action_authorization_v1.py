@@ -46,9 +46,7 @@ class _DecisionProvider:
 
 class _Policy:
     def __init__(self, assessment=None, error=None):
-        self.assessment = assessment or PolicyAssessment(
-            ReviewRequirement.REQUIRED,
-            permitted_selections=(HUMAN_SELECTION_CONCUR,))
+        self.assessment = assessment
         self.error = error
 
     def assess(self, state, action):
@@ -72,24 +70,29 @@ class _Verifier:
     def __init__(self, result=None, error=None):
         self.result = result or VerificationResult(True, True, True, "verified")
         self.error = error
+        self.calls = []
 
-    def verify(self, evidence, target, action):
+    def verify(self, evidence, target, action, assessment):
         if self.error:
             raise self.error
+        self.calls.append((evidence, target, action, assessment))
         return self.result
 
 
 def _gate(target=None, *, requirement=ReviewRequirement.REQUIRED,
           action_block=False, permitted=(HUMAN_SELECTION_CONCUR,), evidence=None,
-          verification=None, state=_UNSET, policy_error=None,
+          verification=None, action_block_override_policy_permitted=False,
+          policy_id=None, policy_version=None, state=_UNSET, policy_error=None,
           decision_error=None, review_error=None, verifier_error=None):
     target = target or _target()
     if state is _UNSET:
         state = DecisionState(target=target, action_block=action_block)
     return ActionAuthorizationGate(
         decisions=_DecisionProvider(state, decision_error),
-        policy=_Policy(PolicyAssessment(requirement, permitted,
-                                       action_block_release_permitted=False),
+        policy=_Policy(PolicyAssessment(
+            target, "release", requirement, permitted,
+            action_block_override_policy_permitted,
+            policy_id=policy_id, policy_version=policy_version),
                        policy_error),
         reviews=_ReviewProvider(evidence, review_error),
         verifier=_Verifier(verification, verifier_error),
@@ -184,19 +187,65 @@ def test_action_block_is_denied_without_explicit_release_policy():
 
 @pytest.mark.parametrize("selection", [
     HUMAN_SELECTION_CONCUR,
-    HUMAN_SELECTION_OVERRIDE,
     HUMAN_SELECTION_ESCALATE,
 ])
-def test_existing_selection_vocabulary_does_not_release_action_block(selection):
+def test_concur_and_escalate_preserve_action_block_even_if_listed_by_policy(selection):
+    """These selections cannot release a block, even under an overly broad
+    policy assessment. The assessment/verifier here are mocks, not deployed
+    policy or reviewer authority.
+    """
+    target = _target(TargetType.REGULATORY_DISCLOSURE_FINDING)
     result = _gate(
-        target=_target(TargetType.REGULATORY_DISCLOSURE_FINDING),
+        target=target,
         action_block=True,
-        permitted=(selection,),
-        evidence=_evidence(_target(TargetType.REGULATORY_DISCLOSURE_FINDING),
-                          selection),
-    ).authorize(_target(TargetType.REGULATORY_DISCLOSURE_FINDING), "release")
+        permitted=(HUMAN_SELECTION_CONCUR, HUMAN_SELECTION_OVERRIDE,
+                   HUMAN_SELECTION_ESCALATE),
+        action_block_override_policy_permitted=True,
+        policy_id="test-only-policy",
+        policy_version="test-only-version",
+        evidence=_evidence(target, selection),
+    ).authorize(target, "release")
     assert result.status is AuthorizationStatus.DENIED
-    assert result.reason == "action_block_release_not_authorized"
+    assert result.reason == "action_block_selection_preserves_block"
+
+
+def test_override_requires_explicit_identified_policy_and_verified_reviewer():
+    """This uses mock adapters to exercise the conditional OVERRIDE path; it
+    does not assert that a production release policy or identity provider exists.
+    """
+    target = _target(TargetType.REGULATORY_DISCLOSURE_FINDING)
+    gate = _gate(
+        target=target,
+        action_block=True,
+        permitted=(HUMAN_SELECTION_OVERRIDE,),
+        action_block_override_policy_permitted=True,
+        policy_id="test-only-explicit-override-policy",
+        policy_version="test-only-version",
+        evidence=_evidence(target, HUMAN_SELECTION_OVERRIDE),
+        verification=VerificationResult(True, True, True,
+                                        "mocked exact-target reviewer verification"),
+    )
+    result = gate.authorize(target, "release")
+    assert result.status is AuthorizationStatus.PERMITTED
+    assert result.reason == "policy_valid_review_verified"
+    evidence, verified_target, verified_action, assessment = gate._verifier.calls[0]
+    assert evidence.target == verified_target == target
+    assert verified_action == "release"
+    assert assessment.target == target
+    assert assessment.policy_id == "test-only-explicit-override-policy"
+
+
+def test_override_without_policy_identity_is_denied():
+    target = _target(TargetType.REGULATORY_DISCLOSURE_FINDING)
+    result = _gate(
+        target=target,
+        action_block=True,
+        permitted=(HUMAN_SELECTION_OVERRIDE,),
+        action_block_override_policy_permitted=True,
+        evidence=_evidence(target, HUMAN_SELECTION_OVERRIDE),
+    ).authorize(target, "release")
+    assert result.status is AuthorizationStatus.DENIED
+    assert result.reason == "action_block_release_policy_unidentified"
 
 
 def test_api_key_label_alone_cannot_establish_human_authority():
@@ -212,7 +261,7 @@ def test_api_key_label_alone_cannot_establish_human_authority():
 
 def test_policy_that_requires_no_review_preserves_non_block_behavior():
     result = _gate(requirement=ReviewRequirement.NOT_REQUIRED).authorize(
-        _target(), "continue")
+        _target(), "release")
     assert result.status is AuthorizationStatus.PERMITTED
     assert result.reason == "policy_does_not_require_review"
 
@@ -226,7 +275,7 @@ def test_review_required_selection_must_be_explicitly_permitted_by_policy():
 
 
 def test_verified_policy_permitted_review_can_yield_permitted_result():
-    result = _gate(evidence=_evidence()).authorize(_target(), "continue")
+    result = _gate(evidence=_evidence()).authorize(_target(), "release")
     assert result.status is AuthorizationStatus.PERMITTED
     assert result.reason == "policy_valid_review_verified"
     assert result.evidence_id == "review-row-23"
@@ -247,13 +296,33 @@ def test_unrecognized_selection_policy_vocabulary_is_indeterminate():
     target = _target()
     gate = ActionAuthorizationGate(
         decisions=_DecisionProvider(DecisionState(target)),
-        policy=_Policy(PolicyAssessment(ReviewRequirement.REQUIRED,
-                                        permitted_selections=("approve",))),
+        policy=_Policy(PolicyAssessment(
+            target, "release", ReviewRequirement.REQUIRED,
+            permitted_selections=("approve",))),
         reviews=_ReviewProvider(_evidence()), verifier=_Verifier(),
     )
     result = gate.authorize(target, "release")
     assert result.status is AuthorizationStatus.INDETERMINATE
     assert result.reason == "invalid_policy_selection_vocabulary"
+
+
+@pytest.mark.parametrize("policy_target,policy_action", [
+    (AuthorizationTarget(TargetType.GOVERNANCE_DECISION, "other", HASH_A),
+     "release"),
+    (_target(), "different-action"),
+])
+def test_policy_assessment_must_bind_exact_target_and_action(policy_target,
+                                                              policy_action):
+    target = _target()
+    gate = ActionAuthorizationGate(
+        decisions=_DecisionProvider(DecisionState(target)),
+        policy=_Policy(PolicyAssessment(
+            policy_target, policy_action, ReviewRequirement.NOT_REQUIRED)),
+        reviews=_ReviewProvider(), verifier=_Verifier(),
+    )
+    result = gate.authorize(target, "release")
+    assert result.status is AuthorizationStatus.INDETERMINATE
+    assert result.reason == "policy_target_or_action_mismatch"
 
 
 def test_ambiguous_action_block_state_is_indeterminate():
