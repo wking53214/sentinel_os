@@ -56,9 +56,10 @@ meaning remains scoped to the existing governor-verdict contract.
 
 The review provider loads evidence by exact target. The verifier must confirm
 ledger integrity and attestation, authenticated individual reviewer identity,
-and reviewer authority. All three verifications must explicitly succeed. A
-ledger attestation of an API-key label alone is insufficient. No production
-provider currently implements these checks for action authorization.
+and reviewer authority for this exact target, action, and selection. All three
+verifications must explicitly succeed. A ledger attestation of an API-key
+label alone is insufficient. No production provider currently implements
+these checks for action authorization.
 
 The gate fails closed for missing targets, target/hash mismatches, invalid
 policy selection vocabulary, missing or malformed evidence, provider
@@ -68,17 +69,20 @@ results. A recorded human selection alone cannot grant authorization.
 ## Policy decisions intentionally unresolved
 
 Existing `CONCUR`, `OVERRIDE`, and `ESCALATE` semantics apply to the governor's
-verdict on a `governance_decision`. They do not define release semantics for a
-regulatory `ACTION_BLOCK`. The gate therefore denies an `ACTION_BLOCK` unless
-an explicit policy assessment permits release and specifies an allowed
-selection. No such release policy is currently established.
+verdict on a `governance_decision`. For a regulatory `ACTION_BLOCK`, `CONCUR`
+and `ESCALATE` always preserve the block. Only `OVERRIDE` can proceed to
+verification, and then only when an explicit target-specific policy assessment
+permits override, identifies its policy and version, permits the selection,
+and the verifier confirms the specific reviewer may override that exact
+finding and action. No such release policy or reviewer authority is currently
+established, so the current outcome is denial.
 
 Before any regulatory block can be released, policy owners must specify which
 findings require review, who may review them, how reviewer identity and roles
-are established, which selection has what effect, and how supersession or
-revocation works. The current API-key authentication does not provide
-individual human identity or reviewer roles. These decisions are not inferred
-by this interface.
+are established, the exact finding-specific OVERRIDE rule, and how
+supersession or revocation works. The current API-key authentication does not
+provide individual human identity or reviewer roles. These decisions are not
+inferred by this interface.
 
 ## Relationship to existing components
 
