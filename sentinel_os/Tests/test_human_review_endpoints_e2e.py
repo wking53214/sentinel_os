@@ -207,3 +207,64 @@ def test_an_invalid_selection_is_refused_and_nothing_is_written(
         json={"human_selection": "APPROVE"})
     assert answered.status_code == 422
     assert _selection_count(test_ledger) == 0
+
+
+class _LedgerProxy:
+    """The real ledger, with one seam to bend: what the route is told about the
+    decision (`hash_override`) or what it is allowed to write (`selected_by`).
+    Every call still reaches the real ledger, so the errors are its real ones."""
+
+    def __init__(self, real, hash_override=None, selected_by=None):
+        self._real = real
+        self._hash_override = hash_override
+        self._selected_by = selected_by
+
+    def get_decision_with_cassette(self, decision_id):
+        result = self._real.get_decision_with_cassette(decision_id)
+        if self._hash_override is not None:
+            result["decision"]["current_hash"] = self._hash_override
+        return result
+
+    def record_human_selection(self, **kwargs):
+        if self._selected_by is not None:
+            kwargs["selected_by"] = self._selected_by
+        return self._real.record_human_selection(**kwargs)
+
+
+def _bend_the_ledger(review, monkeypatch, proxy):
+    from api_server_v2 import get_human_review_ledger_dependency
+    monkeypatch.setitem(
+        review.app.dependency_overrides,
+        get_human_review_ledger_dependency, lambda: proxy)
+
+
+def test_a_decision_that_vanishes_before_the_write_is_a_404(
+        review, test_ledger, monkeypatch):
+    """The decision was read, then the ledger could not find it at write time.
+    That is a genuine "not found", and it must be the ledger's real wording
+    that the route recognises, not a stand-in's."""
+    decision_id, _ = _write_real_decision(test_ledger)
+    _bend_the_ledger(review, monkeypatch, _LedgerProxy(
+        test_ledger, hash_override="0" * 64))
+    answered = review.post(
+        f"/governance/decisions/{decision_id}/human-selection",
+        json={"human_selection": API_CONCUR})
+    assert answered.status_code == 404
+    assert answered.json()["detail"] == "governed_decision_not_found"
+    assert _selection_count(test_ledger) == 0
+
+
+def test_a_write_the_ledger_rejects_is_a_server_fault_not_a_missing_decision(
+        review, test_ledger, monkeypatch):
+    """If the route ever sends the ledger something it refuses, that is a bug
+    on our side. It must not be reported to the reviewer as "decision not
+    found", which is what hid the uppercase-versus-lowercase defect."""
+    decision_id, _ = _write_real_decision(test_ledger)
+    _bend_the_ledger(review, monkeypatch, _LedgerProxy(
+        test_ledger, selected_by=""))
+    answered = review.post(
+        f"/governance/decisions/{decision_id}/human-selection",
+        json={"human_selection": API_CONCUR})
+    assert answered.status_code == 503
+    assert answered.json()["detail"] == "human_selection_recording_failed"
+    assert _selection_count(test_ledger) == 0
