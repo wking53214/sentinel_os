@@ -34,26 +34,29 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the doc-freshness gate below reads git history.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Authorise reads of the library's private repos
+      - name: Authorise reads of the library's repos (optional token)
         # This repo's dependencies pull sibling repos straight from GitHub
-        # (git+https://github.com/wking53214/...), and every repo in the
-        # library is private. The job's own GITHUB_TOKEN can only read THIS
-        # repo, so a fine-grained token with Contents: read on the library's
-        # repos is stored as the LIBRARY_READ_TOKEN secret and git is told
-        # to use it for github.com. Fail here, by name, rather than later
-        # with "could not read Username".
+        # (git+https://github.com/wking53214/...). Those repos (cns, DIT,
+        # Conservation_Kernel) are public now, so the token below is
+        # optional. If a library repo is made private again, store a
+        # fine-grained token with Contents: read as the LIBRARY_READ_TOKEN
+        # secret and git is told to use it for github.com. The job's own
+        # GITHUB_TOKEN can only read THIS repo.
         env:
           LIBRARY_READ_TOKEN: ${{ secrets.LIBRARY_READ_TOKEN }}
         run: |
           if [ -z "$LIBRARY_READ_TOKEN" ]; then
-            echo "::error::LIBRARY_READ_TOKEN secret is not set; the library's private dependencies cannot be fetched"
-            exit 1
+            echo "LIBRARY_READ_TOKEN is not set; fetching the library repos anonymously (they are public)."
+            exit 0
           fi
           git config --global url."https://x-access-token:${LIBRARY_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Install dependencies
@@ -190,6 +193,17 @@ jobs:
           # plain-comment justification above it.
           bandit -r . -c bandit.yaml
 
+      - name: Doc freshness (COMPLIANCE.md)
+        if: always()
+        run: |
+          # Hard gate: a status document is a claim to test, not evidence.
+          # Fails when a source file COMPLIANCE.md names has changed since
+          # the document was last updated, or its verification stamp is not a
+          # real ancestor commit within 28 days of HEAD. Fix by re-checking
+          # the claims and updating the document and its stamp, in the same
+          # pull request as the code change. See tools/doc_freshness.py.
+          python ../tools/doc_freshness.py
+
   deps:
     # Known-CVE audit of the pinned dependency set. Separate job: no Postgres
     # / Redis / TLS setup needed, and it runs in parallel with the suite.
@@ -203,20 +217,20 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Authorise reads of the library's private repos
+      - name: Authorise reads of the library's repos (optional token)
         # This repo's dependencies pull sibling repos straight from GitHub
-        # (git+https://github.com/wking53214/...), and every repo in the
-        # library is private. The job's own GITHUB_TOKEN can only read THIS
-        # repo, so a fine-grained token with Contents: read on the library's
-        # repos is stored as the LIBRARY_READ_TOKEN secret and git is told
-        # to use it for github.com. Fail here, by name, rather than later
-        # with "could not read Username".
+        # (git+https://github.com/wking53214/...). Those repos (cns, DIT,
+        # Conservation_Kernel) are public now, so the token below is
+        # optional. If a library repo is made private again, store a
+        # fine-grained token with Contents: read as the LIBRARY_READ_TOKEN
+        # secret and git is told to use it for github.com. The job's own
+        # GITHUB_TOKEN can only read THIS repo.
         env:
           LIBRARY_READ_TOKEN: ${{ secrets.LIBRARY_READ_TOKEN }}
         run: |
           if [ -z "$LIBRARY_READ_TOKEN" ]; then
-            echo "::error::LIBRARY_READ_TOKEN secret is not set; the library's private dependencies cannot be fetched"
-            exit 1
+            echo "LIBRARY_READ_TOKEN is not set; fetching the library repos anonymously (they are public)."
+            exit 0
           fi
           git config --global url."https://x-access-token:${LIBRARY_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Audit pinned dependencies for known CVEs
@@ -250,10 +264,9 @@ jobs:
         run: |
           # Hard gate: gitleaks over the working tree (`gitleaks dir`), NOT git
           # history. A self-signed dev TLS cert (sentinel_os/certs/key.pem) was
-          # committed once in 8dfa1c6 and removed in 8ce3e0c -- it is in
-          # history but not in any checkout, `certs/` and `*.pem` are
-          # gitignored, and "is there a secret in the code now" is what a
-          # working-tree scan answers. .gitleaks.toml carries the one allowlist
+          # committed once early on and has since been removed, `certs/` and
+          # `*.pem` are gitignored, and "is there a secret in the code now"
+          # is what a working-tree scan answers. .gitleaks.toml carries the one allowlist
           # entry (a fixed fake key in api_server_v2's auth tests), justified
           # there. Pinned, same reasoning as the other static-analysis gates.
           VERSION=8.30.1

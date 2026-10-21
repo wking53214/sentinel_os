@@ -12,6 +12,7 @@ opentelemetry-sdk>=1.20
 opentelemetry-exporter-otlp-proto-grpc>=1.20  # only needed if OTEL_EXPORTER_OTLP_ENDPOINT is set
 redis==8.0.1
 cryptography>=41.0  # twin_custody.py: ECIES envelopes, Ed25519/X25519, AES-GCM, HKDF
+pyyaml>=6.0  # tools/wiring_verify/deploy_config.py reads docker-compose files; without it those tests cannot load on a clean install
 # The mandatory conservation boundary: governance_harness._write_decision routes
 # every governed decision through conservation/boundary.py, which submits the
 # episode->judgment transformation to conservation_kernel's verifier (via the
@@ -23,15 +24,16 @@ cryptography>=41.0  # twin_custody.py: ECIES envelopes, Ed25519/X25519, AES-GCM,
 conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@25145aa0a10130c710dc71899c0da9930cf7d285
 # The shared graph substrate (sage_k Node/Edge/Graph) and the gate contract
 # (cns.gate: subject_digest, GatePosition, GateOutcome) that the ledger's
-# verdict receipts bind to. Private; pinned to a commit like
-# conservation-kernel above. This is tag v1.4.0 (composition code lives in
-# cns_composition and is not shipped).
-cns @ git+https://github.com/wking53214/cns.git@3b465dbcc1a6a4ab6f1040f93d44483196abd737
+# verdict receipts bind to. Public; pinned to a release tag. This is tag
+# v1.9.0 (cns_composition ships beside cns in the wheel; this repo imports
+# only cns.gate and cns.graph).
+cns @ git+https://github.com/wking53214/CNS.git@v1.9.0
 # The epistemic gate: epistemic/dit_gate.py judges whether the governor's
 # free-text reasoning qualifies as evidence before it is sealed into the
-# ledger's canonical hash. Private; pinned to a commit like the two above.
-# NOTE: this SHA is DIT's feat/sync-evaluate head (the evaluate() API this
-# module calls). Re-pin to the merge commit if that PR is squash-merged --
-# a squash rewrites the SHA and this one becomes unreachable once the
-# branch is deleted.
-dit @ git+https://github.com/wking53214/DIT.git@26cee7b9632a0b2ceead6827eb1071271995acc5
+# ledger's canonical hash. Public; pinned to a release tag.
+# NOTE: the tag is spelled V0.1.0 (capital V) and points at DIT main
+# a690dc3. It replaces the earlier pin to the feat/sync-evaluate branch head
+# (26cee7b), which a squash merge could have made unreachable. The only change
+# to DIT's source between the two is one added optional file,
+# src/dit/cns_connector.py.
+dit @ git+https://github.com/wking53214/DIT.git@V0.1.0
