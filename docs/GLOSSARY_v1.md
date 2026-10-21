@@ -75,7 +75,7 @@ Plain-English meanings for the symbols, codenames and jargon used across this re
   - **ζ** is the locking stage ("ζ locks"). This repo does not implement Raft or any lock consensus; its Redis queue is not that.
   - **α** is the first stage of the spine. This repo does not describe what it does.
 - **α-ζ-β decisioning.** The live decision path in those sibling repos. This kernel does not make that decision; it records and judges it afterward.
-- **CNS.** A pinned shared package. This repo uses `cns.gate` (the types behind verdict receipts and `subject_digest`) and `cns.graph` (graph types used by `sage_k`). Pinned to v1.4.0.
+- **CNS.** A pinned shared package. This repo uses `cns.gate` (the types behind verdict receipts and `subject_digest`) and `cns.graph` (graph types used by `sage_k`). Pinned to v1.9.0.
 - **TACK (≡TACK) and "Layer 5".** The layered architecture this repo is one part of. This repo implements Layer 5, verdict receipts. The other layers live elsewhere.
 - **`sage_k`.** An experiment inside the kernel: a seeded simulation kernel (Fortress), a hash-chain adapter, and a call-graph extractor. Not part of the core custody path.
 - **GSA-815.** The IVR (phone menu) consumer repo. It includes this kernel as a submodule.

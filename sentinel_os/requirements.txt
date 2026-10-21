@@ -24,10 +24,10 @@ pyyaml>=6.0  # tools/wiring_verify/deploy_config.py reads docker-compose files; 
 conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@25145aa0a10130c710dc71899c0da9930cf7d285
 # The shared graph substrate (sage_k Node/Edge/Graph) and the gate contract
 # (cns.gate: subject_digest, GatePosition, GateOutcome) that the ledger's
-# verdict receipts bind to. Public; pinned to a commit like
-# conservation-kernel above. This is tag v1.5.1 (composition code lives in
-# cns_composition and is not shipped).
-cns @ git+https://github.com/wking53214/cns.git@da9ab8c8c47097b38ad9792dec23fed45d31ae3f
+# verdict receipts bind to. Public; pinned to a release tag. This is tag
+# v1.9.0 (cns_composition ships beside cns in the wheel; this repo imports
+# only cns.gate and cns.graph).
+cns @ git+https://github.com/wking53214/CNS.git@v1.9.0
 # The epistemic gate: epistemic/dit_gate.py judges whether the governor's
 # free-text reasoning qualifies as evidence before it is sealed into the
 # ledger's canonical hash. Public; pinned to a release tag.
