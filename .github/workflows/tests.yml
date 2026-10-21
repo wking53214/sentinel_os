@@ -34,6 +34,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the doc-freshness gate below reads git history.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -189,6 +192,17 @@ jobs:
           # local-dev defaults, each with an inline `# nosec BXXX` and a
           # plain-comment justification above it.
           bandit -r . -c bandit.yaml
+
+      - name: Doc freshness (COMPLIANCE.md)
+        if: always()
+        run: |
+          # Hard gate: a status document is a claim to test, not evidence.
+          # Fails when a source file COMPLIANCE.md names has changed since
+          # the document was last updated, or its verification stamp is not a
+          # real ancestor commit within 28 days of HEAD. Fix by re-checking
+          # the claims and updating the document and its stamp, in the same
+          # pull request as the code change. See tools/doc_freshness.py.
+          python ../tools/doc_freshness.py
 
   deps:
     # Known-CVE audit of the pinned dependency set. Separate job: no Postgres
