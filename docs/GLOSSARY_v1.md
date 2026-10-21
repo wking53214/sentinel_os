@@ -2,7 +2,7 @@
 
 Plain-English meanings for the symbols, codenames and jargon used across this repo.
 
-**How to trust this page.** Written 2026-10-10 against `main` @ `4f2be13`. Each entry is drawn from this repo's own README, STACK.md, COMPLIANCE.md, module docstrings and tests. Where a term is defined in another repo and this repo does not explain it, the entry says so instead of guessing. If a definition here disagrees with the code, the code wins; please fix this page.
+**How to trust this page.** Written 2026-10-10 against `main` @ `419642d`. Each entry is drawn from this repo's own README, STACK.md, COMPLIANCE.md, module docstrings and tests. Where a term is defined in another repo and this repo does not explain it, the entry says so instead of guessing. If a definition here disagrees with the code, the code wins; please fix this page.
 
 ## The core objects
 

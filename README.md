@@ -59,7 +59,7 @@ Every governed decision is submitted to [`Conservation_Kernel`](https://github.c
 
 ## 4. Brutally Honest Current Status & Gaps
 
-Measured 2026-10-10 from clone `4f2be13` on a clean install, run from `sentinel_os/` over `.` and `../tools`: with Postgres and Redis running, 1072 pass, 22 skip, 0 fail, 18 error. All 18 errors are the twin live suite, which needs the OS accounts that `scripts/twin_ensure_services.sh` creates. Without Postgres, the `sentinel_os/` suite alone gives 755 pass, 242 skip, 46 fail, 48 error; every failure there passes once Postgres is running, apart from the twin live errors above. Earlier measurement (2026-09-09, `5341e3d`, without Postgres): 658 pass, 228 skip, 39 fail, 38 error.
+Measured 2026-10-10 from clone `419642d` on a clean install, run from `sentinel_os/` over `.` and `../tools`: with Postgres and Redis running, 1072 pass, 22 skip, 0 fail, 18 error. All 18 errors are the twin live suite, which needs the OS accounts that `scripts/twin_ensure_services.sh` creates. Without Postgres, the `sentinel_os/` suite alone gives 755 pass, 242 skip, 46 fail, 48 error; every failure there passes once Postgres is running, apart from the twin live errors above. Earlier measurement (2026-09-09, `5341e3d`, without Postgres): 658 pass, 228 skip, 39 fail, 38 error.
 
 | Gap | Detail |
 |---|---|
