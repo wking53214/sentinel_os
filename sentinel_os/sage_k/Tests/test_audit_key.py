@@ -66,13 +66,13 @@ def test_empty_key_is_treated_as_unset():
 
 
 def test_the_published_default_is_refused_in_production_even_when_set_explicitly():
-    result = run_kernel(FORTRESS_ENV="production", FORTRESS_AUDIT_KEY=PUBLISHED_DEFAULT)
+    result = run_kernel(FORTRESS_ENV="production", FORTRESS_AUDIT_KEY=PUBLISHED_DEFAULT, FORTRESS_AUDIT_KEY_ID="published")
     assert result.returncode != 0
     assert "RuntimeError" in result.stderr and REFUSAL in result.stderr
 
 
 def test_the_published_default_outside_production_is_used_but_warns():
-    result = run_kernel(FORTRESS_AUDIT_KEY=PUBLISHED_DEFAULT)
+    result = run_kernel(FORTRESS_AUDIT_KEY=PUBLISHED_DEFAULT, FORTRESS_AUDIT_KEY_ID="published")
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == PUBLISHED_DEFAULT
     assert "RuntimeWarning" in result.stderr and PUBLISHED_WARNING in result.stderr
@@ -81,7 +81,7 @@ def test_the_published_default_outside_production_is_used_but_warns():
 @pytest.mark.parametrize("environment", [{"FORTRESS_ENV": "production"}, {}])
 def test_a_real_key_is_used_without_any_warning(environment):
     """Production and not production: a configured unique key must be silent."""
-    result = run_kernel(FORTRESS_AUDIT_KEY="a-unique-secret", **environment)
+    result = run_kernel(FORTRESS_AUDIT_KEY="a-unique-secret", FORTRESS_AUDIT_KEY_ID="unique", **environment)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "a-unique-secret"
     assert result.stderr == ""
@@ -99,7 +99,7 @@ def test_only_exactly_production_is_gated(environment_name):
 def test_the_configured_key_is_the_one_that_signs_the_log(tmp_path):
     log = tmp_path / "audit.log"
     code = "import sage_k.kernel as k; k.audit_append('probe', {'n': 1})"
-    result = run_kernel(code, FORTRESS_AUDIT_KEY="a-unique-secret", FORTRESS_AUDIT_LOG=str(log))
+    result = run_kernel(code, FORTRESS_AUDIT_KEY="a-unique-secret", FORTRESS_AUDIT_KEY_ID="unique", FORTRESS_AUDIT_LOG=str(log))
     assert result.returncode == 0, result.stderr
     record = json.loads(log.read_text().splitlines()[-1])
     signature = record.pop("hmac")
