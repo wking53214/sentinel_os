@@ -36,14 +36,38 @@ carries none of it.
 
 ## Running it
 
+These are two separate things with separate setup.
+
+**The governed lane** (ledger, redis, ingress and worker, in Docker). From this
+directory:
+
 ```bash
-pip install -r requirements.txt
-docker compose up -d       # governed lane: ledger + redis + ingress + worker
-python3 -m pytest .        # run from this directory; ledger/queue/twin tests need Postgres + Redis
+export POSTGRES_PASSWORD="choose-one"
+export ICEBERG_LEDGER_RUNTIME_PASSWORD="choose-another"
+export ICEBERG_LEDGER_ATTESTATION_KEY="$(openssl rand -hex 32)"
+export ICEBERG_API_KEYS="yourkey:yourname"
+docker compose up -d
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for environment variables and TLS/DB setup,
-and the [root CONTRIBUTING.md](../CONTRIBUTING.md) for the full local test setup.
+`docker compose up` refuses to start unless all four are set (see
+[.env.example](.env.example) and [TROUBLESHOOTING.md](../TROUBLESHOOTING.md)).
+Only the ingress is published, on port 8000. The database and Redis stay inside
+Docker's network.
+
+**The test suite** does not use that stack. It needs its own PostgreSQL (a role
+and database both named `iceberg`) and Redis on localhost, and the twin tests
+also need three OS accounts created by `sudo scripts/twin_ensure_services.sh`.
+Without them, tests that need a database or Redis fail with "connection
+refused" or are skipped. Setup commands are in the
+[root CONTRIBUTING.md](../CONTRIBUTING.md) under "Local setup". Then, from this
+directory:
+
+```bash
+pip install -r requirements.txt
+python3 -m pytest .
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for environment variables and TLS/DB setup.
 `.github/workflows/tests.yml` is the executable spec.
 
 ## License
