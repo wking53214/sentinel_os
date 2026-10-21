@@ -234,6 +234,23 @@ def should_refuse(verdict: Optional[Dict[str, Any]], mode: Optional[str] = None)
     return False
 
 
+def integrity_summary(verdict: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The part of a verdict that is safe to seal into the ledger hash.
+
+    Keeps the status, the gate that failed, and the gate names. Deliberately
+    drops `failures`: those strings come from the DIT library, and nothing
+    here has confirmed they never quote the rejected prose. Returns None when
+    there is no verdict, so records without one stay unchanged.
+    """
+    if not verdict:
+        return None
+    return {
+        "status": verdict.get("status"),
+        "terminal_gate": verdict.get("terminal_gate"),
+        "gates": list(verdict.get("gates") or []),
+    }
+
+
 def refusal_reason(verdict: Dict[str, Any]) -> str:
     """The `reasoning` string recorded when an epistemic refusal happens.
 

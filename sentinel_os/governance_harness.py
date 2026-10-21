@@ -350,6 +350,11 @@ class GovernanceHarness:
     def _write_decision(self, episode: Episode, params, issue_count: int,
                         decision: Dict[str, Any]) -> None:
         from governance.ledger_postgres import GovernanceDecisionRecord
+        from epistemic.dit_gate import integrity_summary
+        output = {"approved": bool(decision.get("safe"))}
+        summary = integrity_summary(decision.get("reasoning_integrity"))
+        if summary is not None:
+            output["reasoning_integrity"] = summary
         record = GovernanceDecisionRecord(
             action_type="governance_decision",
             node=self.cassette.get_config().domain,
@@ -361,7 +366,7 @@ class GovernanceHarness:
             },
             policy_parameters=serialize_cassette_for_ledger(params),
             reasoning=decision.get("reasoning") or "",
-            output={"approved": bool(decision.get("safe"))},
+            output=output,
             model_identity=decision.get("model_identity"),
             ai_cost=decision.get("cost"),
             outcome_obligation=self._outcome_obligation_declaration(),

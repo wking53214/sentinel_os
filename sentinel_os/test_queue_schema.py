@@ -101,6 +101,16 @@ def test_enqueue_idempotent_on_job_id(redis_url):
     _assert_invariant(q)
 
 
+def test_ready_depth_counts_claimable_jobs(redis_url):
+    q = make_q(redis_url)
+    assert q.ready_depth() == 0
+    for i in range(3):
+        q.enqueue({"i": i}, job_id=f"rd{i}")
+    assert q.ready_depth() == 3
+    q.claim("w")   # moves one job to processing; it is no longer claimable
+    assert q.ready_depth() == 2
+
+
 def test_fifo_order(redis_url):
     q = make_q(redis_url)
     for i in range(5):
