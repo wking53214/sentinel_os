@@ -563,7 +563,10 @@ def submit_human_selection(
     try:
         recorded = ledger.record_human_selection(
             decision_hash=decision_hash,
-            human_selection=selection.human_selection,
+            # The API speaks CONCUR / OVERRIDE / ESCALATE; the ledger stores the
+            # lowercase constants. The request model has already restricted the
+            # value to those three, so lower() maps each to its ledger constant.
+            human_selection=selection.human_selection.lower(),
             selected_by=selected_by,
             rationale=selection.rationale,
         )
