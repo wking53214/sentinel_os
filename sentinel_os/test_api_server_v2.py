@@ -470,7 +470,7 @@ def test_human_review_selection_records_authenticated_principal(tc, monkeypatch,
     assert response.status_code == 201
     assert ledger.writes == [{
         "decision_hash": "decision-hash-123",
-        "human_selection": choice,
+        "human_selection": choice.lower(),
         "selected_by": "reviewer-alice",
         "rationale": "reviewed",
     }]
