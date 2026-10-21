@@ -65,7 +65,7 @@ Measured 2026-10-10 from clone `419642d` on a clean install, run from `sentinel_
 |---|---|
 | Root package metadata | Kernel `requirements.txt` exists under `sentinel_os/sentinel_os/`. Repo root does not install as a product. |
 | Required services | Postgres, Redis. Twin and live paths need `cryptography`, keys. |
-| `CNS` pin | `cns @ git+…/cns.git@da9ab8c…` (tag v1.5.1). Public as of 2026-10-10: a clean install resolves it with no token. The ledger imports `cns.gate` and sage_k imports `cns.graph`. |
+| `CNS` pin | `cns @ git+…/CNS.git@v1.9.0` (release tag). Public as of 2026-10-10: a clean install resolves it with no token. The ledger imports `cns.gate` and sage_k imports `cns.graph`. |
 | DIT pin | `dit @ git+…/DIT.git@V0.1.0` (release tag, DIT main `a690dc3`). Pinned to a tag so a squash merge cannot make it unreachable. |
 | Anthropic | Governor path. `httpx<0.28` pin required for anthropic 0.116.0. |
 | No Cassette SDK | Cassettes are in-tree modules, not a versioned SDK. |
@@ -94,7 +94,7 @@ observe-perceive  ✗ does not import sentinel_os
 GSA-815           → vendor/sentinel_os submodule
 Conservation_Kernel @25145aa  ← mandatory boundary
 DIT               ← epistemic gate on governor text
-CNS @da9ab8c      ← gate contract (ledger) and graph types (sage_k)
+CNS @v1.9.0       ← gate contract (ledger) and graph types (sage_k)
 δ (interconnected_delta)  ← in-process extract of outcome_v1 + fairness
 ICEBURG/ICEBERG   ← lineage; not imported (ICEBERG_* env var names are fossils)
 ```
