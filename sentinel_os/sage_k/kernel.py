@@ -82,14 +82,6 @@ if os.getenv("FORTRESS_ENV") == "production" and (
     raise RuntimeError("Security Exception: Production deployments require unique cryptographic keys.")
 
 _AUDIT_KEY: str = _CONFIGURED_AUDIT_KEY or secrets.token_hex(32)
-# The key ID is caller-named, never derived from the key. A configured key must be
-# named by FORTRESS_AUDIT_KEY_ID; a random key is labelled ephemeral.
-if _CONFIGURED_AUDIT_KEY:
-    if not os.getenv("FORTRESS_AUDIT_KEY_ID"):
-        raise RuntimeError("FORTRESS_AUDIT_KEY needs FORTRESS_AUDIT_KEY_ID to name it.")
-    _AUDIT_KEY_ID: str = os.environ["FORTRESS_AUDIT_KEY_ID"]
-else:
-    _AUDIT_KEY_ID = f"ephemeral-{secrets.token_hex(4)}"
 
 if not _CONFIGURED_AUDIT_KEY:
     warnings.warn(
