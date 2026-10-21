@@ -1,10 +1,9 @@
 # Secret-scanning config for CI:  gitleaks dir . --config .gitleaks.toml
 #
 # Working-tree scan, not git history: a self-signed dev TLS cert
-# (sentinel_os/certs/key.pem) was committed once in 8dfa1c6 and removed in
-# 8ce3e0c. It is in history but not in any checkout, and "is there a secret in
-# the code now" is what a working-tree scan answers. `certs/` and `*.pem` are
-# gitignored so it cannot recur.
+# (sentinel_os/certs/key.pem) was committed once early on and has since been
+# removed. "Is there a secret in the code now" is what a working-tree scan
+# answers. `certs/` and `*.pem` are gitignored so it cannot recur.
 
 title = "sentinel_os"
 

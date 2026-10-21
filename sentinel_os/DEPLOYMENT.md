@@ -41,12 +41,12 @@ openssl req -x509 -newkey rsa:2048 -nodes \
 
 **Note on git history:** a self-signed dev cert/key pair (`certs/cert.pem`,
 `certs/key.pem`, generic `CN=localhost` subject) was committed in an early
-commit (`8dfa1c6e`) before `certs/` was gitignored. It's still retrievable
-from git history. Decision: leave history as-is rather than rewrite it —
-the cert is a throwaway self-signed placeholder, never used for any real
-deployment, and rewriting history would break every existing clone. If you
-ever *did* use that specific keypair for something real, treat it as
-compromised and regenerate; otherwise no action needed.
+commit before `certs/` was gitignored. The private key was removed from the
+repository history on 2026-10-21 by a history rewrite. Clones or forks made
+before that date may still contain it. The cert is a throwaway self-signed
+placeholder, never used for any real deployment. If you ever *did* use that
+specific keypair for something real, treat it as compromised and regenerate;
+otherwise no action needed.
 
 ## Ledger `authorized_by` attestation
 
