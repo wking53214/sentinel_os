@@ -114,6 +114,30 @@ pip install -r sentinel_os/requirements.txt
 pip install "httpx<0.28"
 ```
 
+### "Wrong cns or dit installed"
+
+Symptoms: `ModuleNotFoundError: No module named 'cns.DateTimeX'` when importing
+`cns`, or `Tests/test_dependency_provenance.py` failing with "installed from a
+package index".
+
+Cause: `cns` and `dit` are also the names of unrelated packages on PyPI, and
+both import under the same names. `requirements.txt` installs ours by GitHub
+address, but a command such as `pip install -U cns`, or another project in the
+same environment that asks for `cns` or `dit` by name, replaces ours with the
+PyPI package.
+
+Fix, in a virtual environment used only for this repo:
+
+```bash
+pip uninstall -y cns dit
+pip install -r sentinel_os/requirements.txt
+```
+
+Keep a different environment for anything that needs the PyPI `dit` (the
+information-theory package). If you are deliberately working from a local
+checkout of a sibling repo, set `SENTINEL_ALLOW_LOCAL_DEPS=1` and the check
+skips instead of failing.
+
 ---
 
 ## TLS certificate issues

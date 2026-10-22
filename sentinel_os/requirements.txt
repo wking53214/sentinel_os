@@ -27,6 +27,11 @@ conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@
 # verdict receipts bind to. Public; pinned to a release tag. This is tag
 # v1.9.0 (cns_composition ships beside cns in the wheel; this repo imports
 # only cns.gate and cns.graph).
+# NAME COLLISION: "cns" and "dit" are also the names of unrelated PyPI
+# packages that import under the same names. Install only from this file, in a
+# virtual environment of its own, and never `pip install -U cns` or name either
+# one without its address. Tests/test_dependency_provenance.py fails if the
+# installed copy did not come from the repository pinned here.
 cns @ git+https://github.com/wking53214/CNS.git@v1.9.0
 # The epistemic gate: epistemic/dit_gate.py judges whether the governor's
 # free-text reasoning qualifies as evidence before it is sealed into the
