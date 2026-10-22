@@ -533,6 +533,12 @@ def get_governance_decision(
         raise HTTPException(status_code=503, detail="decision_review_unavailable") from exc
 
 
+# The ledger's wording when record_human_selection finds no governance_decision
+# row for the hash it was given. A real ledger test pins it, so a rewording
+# there fails a test here instead of quietly turning 404s into 503s.
+_SELECTION_PARENT_MISSING = "does not match any governance_decision row"
+
+
 @app.post("/governance/decisions/{decision_id}/human-selection", status_code=201)
 def submit_human_selection(
         decision_id: int,
@@ -571,9 +577,14 @@ def submit_human_selection(
             rationale=selection.rationale,
         )
     except ValueError as exc:
-        # The row may have disappeared between lookup and write, or the ledger
-        # may reject its own contract. Neither case is a successful response.
-        raise HTTPException(status_code=404, detail="governed_decision_not_found") from exc
+        if _SELECTION_PARENT_MISSING in str(exc):
+            # The row disappeared between lookup and write.
+            raise HTTPException(status_code=404, detail="governed_decision_not_found") from exc
+        # Any other ValueError means this route sent the ledger something it
+        # refuses. That is a fault on our side, not a missing decision, so it
+        # is logged and reported as a failed write.
+        logger.error(f"human selection ledger rejected the write id={decision_id}: {exc}")
+        raise HTTPException(status_code=503, detail="human_selection_recording_failed") from exc
     except Exception as exc:
         logger.error(f"human selection ledger write failed id={decision_id}: {type(exc).__name__}: {exc}")
         raise HTTPException(status_code=503, detail="human_selection_recording_failed") from exc
