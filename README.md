@@ -46,7 +46,7 @@ Cassette contract: domain packs declare capabilities; unknown/unevaluated casset
 
 ### Conservation seam
 
-Every governed decision is submitted to [`Conservation_Kernel`](https://github.com/wking53214/Conservation_Kernel) `@c4a121a`. Ledger write does not proceed on REJECT/UNVERIFIABLE.
+Every governed decision is submitted to [`Conservation_Kernel`](https://github.com/wking53214/Conservation_Kernel) `@7b08c79`. Ledger write does not proceed on REJECT/UNVERIFIABLE.
 
 ## 3. What It Does NOT Do / Non-Goals
 
@@ -92,7 +92,7 @@ Measured 2026-10-10 from clone `419642d` on a clean install, run from `sentinel_
 ```text
 observe-perceive  ✗ does not import sentinel_os
 GSA-815           → vendor/sentinel_os submodule
-Conservation_Kernel @c4a121a  ← mandatory boundary
+Conservation_Kernel @7b08c79  ← mandatory boundary
 DIT               ← epistemic gate on governor text
 CNS @v1.9.0       ← gate contract (ledger) and graph types (sage_k)
 δ (interconnected_delta)  ← in-process extract of outcome_v1 + fairness
