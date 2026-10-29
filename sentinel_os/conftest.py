@@ -33,6 +33,15 @@ if not (os.environ.get("ICEBERG_LEDGER_ATTESTATION_KEY")
         or os.environ.get("ICEBERG_LEDGER_ATTESTATION_KEY_FILE")
         or os.environ.get("ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE")):
     os.environ["ICEBERG_LEDGER_ATTESTATION_KEY"] = _TEST_ATTESTATION_KEY
+# The ledger refuses a governance decision that arrives without the episode
+# it was judged from, because the conservation boundary needs the episode and
+# the ledger is the point of durability. Most tests in this suite test the
+# ledger itself (chain, receipts, attestation) and append hand-built records
+# with no episode, so the suite runs with the dev-only override on. A decision
+# that DOES arrive with an episode is verified regardless of the override, and
+# the tests that prove enforcement (test_ledger_conservation_boundary.py)
+# switch the override off for themselves.
+os.environ.setdefault("ICEBERG_LEDGER_CONSERVATION_DEV_OVERRIDE", "1")
 _LEDGER_READER_TEST_PASSWORD = "ledger_reader_test_pw"
 
 

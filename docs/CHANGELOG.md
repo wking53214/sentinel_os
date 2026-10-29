@@ -3,6 +3,21 @@
 Dated, human-readable summary of notable changes. Git history has the
 full detail; this is the skim version.
 
+## 2026-10-29
+
+- **The conservation boundary is now enforced at the ledger.** The check
+  (`verify_governed_decision`) used to run only inside
+  `governance_harness._write_decision`, so a caller that went straight to
+  `PostgreSQLLedger.append_decision` got durable state with no verification.
+  `append_decision` now takes `episode=`, verifies it before any row is
+  written, and refuses a decision that arrives without one. A rejection, or a
+  failure of the check itself, writes nothing. The harness passes its episode
+  through. The only exception is the dev-only
+  `ICEBERG_LEDGER_CONSERVATION_DEV_OVERRIDE` (permits a missing episode, never
+  waives a supplied one, warns once on stderr). External callers that pass no
+  episode now fail closed. Delivery record:
+  `APPLY_ledger_conservation_boundary.md`.
+
 ## 2026-09-30
 
 - **Verdict receipts (TACK Layer 5, Blueprint B).** Every governance

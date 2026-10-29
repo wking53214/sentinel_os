@@ -40,6 +40,30 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from psycopg2.pool import SimpleConnectionPool
 
+#: The one way a governance decision may reach the ledger without the episode
+#: it was judged from. Development machines and the test suite only: the
+#: conservation boundary needs the episode, so without it the ledger cannot
+#: verify anything. Same shape as ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE.
+ENV_CONSERVATION_DEV_OVERRIDE = "ICEBERG_LEDGER_CONSERVATION_DEV_OVERRIDE"
+_CONSERVATION_TRUTHY = {"1", "true", "yes", "on"}
+_conservation_override_warned = False
+
+
+def conservation_boundary_waived() -> bool:
+    """True only when the dev override is set. Warns once per process on stderr."""
+    global _conservation_override_warned
+    if os.environ.get(ENV_CONSERVATION_DEV_OVERRIDE, "").strip().lower() not in _CONSERVATION_TRUTHY:
+        return False
+    if not _conservation_override_warned:
+        _conservation_override_warned = True
+        import sys
+        print(
+            f"WARNING: {ENV_CONSERVATION_DEV_OVERRIDE} is set. A governance decision "
+            f"that arrives without its episode is written with NO conservation "
+            f"verification. Development machines only; never a production profile.",
+            file=sys.stderr, flush=True)
+    return True
+
 # Forensic cassette handling (ledger item: cassette snapshots for audit)
 try:
     from cassette_forensics import serialize_cassette_for_ledger, compute_cassette_hash, reconstruct_cassette_for_decision
@@ -936,8 +960,21 @@ class PostgreSQLLedger:
     
     def append_decision(self, record: GovernanceDecisionRecord,
                        governance_params: Optional[Any] = None,
-                       observed_events: "Optional[Any]" = None) -> bool:
+                       observed_events: "Optional[Any]" = None,
+                       episode: "Optional[Any]" = None) -> bool:
         """Append one structured governance decision (transaction).
+
+        MANDATORY CONSERVATION BOUNDARY, enforced here and not only in the
+        harness: the ledger is the point of durability, so it is the one place
+        no caller can route around. `episode` is the Episode the decision was
+        judged from. When it is given, conservation.boundary verifies
+        episode -> judgment before anything is written, and the decision is
+        refused (ConservationBoundaryRejected, or RuntimeError if the check
+        itself failed) if the kernel does not accept it. When it is absent the
+        decision is refused with ValueError, because nothing can be verified
+        without it, unless the dev-only override
+        ICEBERG_LEDGER_CONSERVATION_DEV_OVERRIDE is set. The override only
+        permits a missing episode; a given episode is always verified.
 
         TRIPWIRE: a decision without a cassette_version is an error,
         not a warning. The whole point of the record is "which policy
@@ -1044,6 +1081,28 @@ class PostgreSQLLedger:
                     f"episodes {sorted(episode_ids)!r} -- one decision's stream is "
                     f"one episode"
                 )
+
+        # MANDATORY CONSERVATION BOUNDARY (see the docstring). Fail-closed and
+        # before any connection is taken: no durable state without verification.
+        if episode is not None:
+            from conservation.boundary import (  # lazy: keeps the cold path clean
+                verify_governed_decision,
+                ConservationBoundaryRejected,
+            )
+            try:
+                verify_governed_decision(episode, record)
+            except ConservationBoundaryRejected:
+                raise
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Conservation boundary failed, decision not persisted: {exc}"
+                ) from exc
+        elif not conservation_boundary_waived():
+            raise ValueError(
+                "Governance decision rejected: no episode was supplied, so the "
+                "conservation boundary cannot verify it, and the boundary is "
+                "mandatory at the ledger (pass episode=; the only exception is "
+                f"{ENV_CONSERVATION_DEV_OVERRIDE}, for development machines)")
 
         # NEW: Capture cassette snapshot for forensic reconstruction
         cassette_snapshot = None

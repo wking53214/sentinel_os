@@ -1,8 +1,9 @@
 """The mandatory conservation boundary for governed decisions.
 
-`governance_harness._write_decision` calls `verify_governed_decision(episode,
-record)` before persisting to the ledger. It raises on anything other than a
-clean acceptance -- no durable state without conservation verification.
+`PostgreSQLLedger.append_decision` calls `verify_governed_decision(episode,
+record)` before it writes a row, and the harness calls it first as well. It
+raises on anything other than a clean acceptance -- no durable state without
+conservation verification.
 
 A fresh gateway per call: the kernel is used here as a stateless verifier plus
 choke point, not as an accumulating ledger. Sentinel's durable ledger is
