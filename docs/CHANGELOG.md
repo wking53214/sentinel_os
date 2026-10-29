@@ -5,6 +5,16 @@ full detail; this is the skim version.
 
 ## 2026-10-29
 
+- **Conservation-kernel pin bumped** `25145aa` to the head of kernel PR #20,
+  which makes an unguarded kernel an error. `ConservationGateway`'s default
+  kernel (`conservation/transport/transport.py`) is built with
+  `allow_unguarded_roots=True`: this repository registers source roots through
+  `ingest_source` and has not yet decided what authorizes a root, so the flag
+  records that rather than hiding it. The real fix is a root guard backed by a
+  CNS decision. The bump also brings the kernel's rule that a root stated as
+  FACT must cite evidence, not just a source; this repository registers only
+  observation, assumption and inference roots, so that rule does not touch it.
+
 - **The conservation boundary is now enforced at the ledger.** The check
   (`verify_governed_decision`) used to run only inside
   `governance_harness._write_decision`, so a caller that went straight to
