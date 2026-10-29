@@ -113,7 +113,7 @@ import os
 import signal
 import threading
 import uuid
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from cassettes.mortgage_cassette import MortgageCassette
 from episode import (
@@ -123,6 +123,7 @@ from episode import (
     outcome_mismatches,
     validate_episode,
 )
+from event_v1 import EventIntegrityError, EventV1, assemble_episode, make_event
 from governance_harness import GovernanceHarness
 from operational_resilience import setup_logging
 
@@ -209,6 +210,40 @@ def _regulatory_deck_from_env(ledger):
 # and branches on the shape of what comes back.
 # ---------------------------------------------------------------------------
 
+def _payload_events(cassette: MortgageCassette, payload: Dict) -> Optional[List[EventV1]]:
+    """The events a job payload carries, or None when it carries none.
+
+    'events' is optional. When present it must be a non-empty list of dicts,
+    each the keyword arguments of event_v1.make_event; every event must be in
+    the cassette's domain; and the payload must not also carry 'actual' or
+    'actor_report', because with events those two come from the events and a
+    payload stating both would be ambiguous about which one is true. Anything
+    else raises ValueError/TypeError, which process_call reports as a parse
+    failure. An event's own integrity (stamps, episode id) is checked by
+    assemble_episode and by the ledger, not here.
+    """
+    raw = payload.get("events")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("job payload 'events' must be a non-empty list of event dicts when present")
+    for name in ("actual", "actor_report"):
+        if name in payload:
+            raise ValueError(
+                f"job payload carries both 'events' and '{name}'; with events, '{name}' comes from "
+                f"the events and must be omitted")
+    domain = cassette.get_config().domain
+    events = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError(f"job payload 'events' items must be dicts, got {type(item).__name__}")
+        event = make_event(**item)
+        if event.domain != domain:
+            raise ValueError(f"event {event.event_id!r} is in domain {event.domain!r}, not {domain!r}")
+        events.append(event)
+    return events
+
+
 def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> Tuple[Episode, int]:
     """Turn one queued job payload into (Episode, issue_count) for
     GovernanceHarness.process() -- mortgage-domain-shaped, matching
@@ -224,6 +259,16 @@ def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> T
       outcome_reasons -- optional list of str, defaults to [].
       attributes      -- optional dict, defaults to {} (e.g. carries
                          mortgage_cassette.PROPERTY_ADDRESS_FIELD).
+      events          -- optional non-empty list of EventV1 field dicts (see
+                         _payload_events). When present the episode is
+                         ASSEMBLED from them (event_v1.assemble_episode) and
+                         the payload must NOT carry 'actual' or 'actor_report':
+                         those come from the events. process_call then hands
+                         the same events to the harness, so the ledger records
+                         them and the conservation boundary registers the
+                         episode's root only because they reproduce it.
+                         Without 'events' the episode is built from 'actual'
+                         as before and nothing independent attests it.
 
     issue_count follows mortgage_cassette.py's OWN governance_trigger
     parameter description verbatim, not a rule invented here: "Episodes
@@ -246,21 +291,28 @@ def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> T
     if not episode_id or not isinstance(episode_id, str):
         raise ValueError("job payload missing required non-empty string 'episode_id'")
     requested = payload.get("requested")
-    actual = payload.get("actual")
     if not isinstance(requested, dict):
         raise ValueError(f"job payload 'requested' must be a dict, got {type(requested).__name__}")
-    if not isinstance(actual, dict):
-        raise ValueError(f"job payload 'actual' must be a dict, got {type(actual).__name__}")
-
-    episode = make_episode(
-        episode_id=episode_id,
-        domain=cassette.get_config().domain,
-        requested=requested,
-        actual=actual,
-        actor_report=payload.get("actor_report"),
-        outcome_reasons=payload.get("outcome_reasons") or (),
-        attributes=payload.get("attributes"),
-    )
+    events = _payload_events(cassette, payload)
+    if events is None:
+        actual = payload.get("actual")
+        if not isinstance(actual, dict):
+            raise ValueError(f"job payload 'actual' must be a dict, got {type(actual).__name__}")
+        episode = make_episode(
+            episode_id=episode_id,
+            domain=cassette.get_config().domain,
+            requested=requested,
+            actual=actual,
+            actor_report=payload.get("actor_report"),
+            outcome_reasons=payload.get("outcome_reasons") or (),
+            attributes=payload.get("attributes"),
+        )
+    else:
+        episode = assemble_episode(
+            episode_id, cassette.get_config().domain, requested, events,
+            outcome_reasons=payload.get("outcome_reasons") or (),
+            attributes=payload.get("attributes"),
+        ).episode
     validate_episode(episode)  # raises EpisodeIntegrityError on a real kernel violation
 
     mismatch_count = len(outcome_mismatches(episode))
@@ -305,7 +357,8 @@ class GovernanceHarnessJobAdapter:
     def process_call(self, payload: Dict) -> Dict:
         try:
             episode, issue_count = _payload_to_mortgage_episode(self.harness.cassette, payload)
-        except (ValueError, TypeError, EpisodeIntegrityError) as exc:
+            events = _payload_events(self.harness.cassette, payload)
+        except (ValueError, TypeError, EpisodeIntegrityError, EventIntegrityError) as exc:
             return {"error": f"Failed to parse job: {exc}"}
 
         if (self.harness.ledger is not None
@@ -317,7 +370,10 @@ class GovernanceHarnessJobAdapter:
             }
 
         try:
-            result = self.harness.process(episode, issue_count)
+            if events:
+                result = self.harness.process(episode, issue_count, observed_events=events)
+            else:
+                result = self.harness.process(episode, issue_count)
         except Exception:
             # GovernanceHarness.process() does not catch a ledger-write
             # failure the way IcebergProductionHarness's process_call
