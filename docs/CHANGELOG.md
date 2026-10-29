@@ -5,6 +5,19 @@ full detail; this is the skim version.
 
 ## 2026-10-29
 
+- **A source root can now be vouched for by the observed events.** New
+  `conservation/episode_guard.py`: `EpisodeRootGuard` is the kernel's `root_guard`. It is
+  closed until `attest(episode, events)` rebuilds the Episode from the events with
+  `assemble_episode` and finds it equal; then it says yes once, to the one root that
+  Episode produces. `verify_governed_decision(episode, record, observed_events=None)`
+  uses it when events are given, with no `allow_unguarded_roots`, and refuses an Episode
+  its events do not support as `ROOT_NOT_ATTESTED`. `PostgreSQLLedger.append_decision`
+  passes its `observed_events` through. Without events nothing independent can vouch for
+  the Episode, so that path is unchanged and still uses the gateway's explicit
+  `allow_unguarded_roots=True` default: that gap is named, not closed. The events come
+  from the same caller as the Episode and their stamps are claims, so this catches an
+  Episode that says more than its events support, not events that lie. No existing test
+  was edited.
 - **Conservation-kernel pin moved to the commit on the kernel's main.** `c4a121a`, the
   head of kernel PR #20, is off main now that the PR was squash-merged; `7b08c79` is the
   merged commit. The two trees are identical (empty diff), so no behaviour changes.
