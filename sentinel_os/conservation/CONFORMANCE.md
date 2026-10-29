@@ -1,8 +1,14 @@
 # Conservation boundary — conformance status
 
-`governance_harness._write_decision` calls `conservation.boundary.verify_governed_decision(episode, record)`
-before persisting to the ledger and fail-closes on anything other than a clean
-acceptance ("no durable state without conservation verification").
+`PostgreSQLLedger.append_decision` calls `conservation.boundary.verify_governed_decision(episode, record)`
+before it writes a row and fail-closes on anything other than a clean
+acceptance ("no durable state without conservation verification"). The check
+lives at the ledger because the ledger is the point of durability: a decision
+with no episode is refused, and `governance_harness._write_decision` hands the
+ledger its episode (it also verifies first, so the check runs twice on that
+path). The one exception is the dev-only
+`ICEBERG_LEDGER_CONSERVATION_DEV_OVERRIDE`, which permits a missing episode and
+never waives a supplied one. Tests: `Tests/test_ledger_conservation_boundary.py`.
 
 ## Conformant (2026-09-03)
 
@@ -57,7 +63,7 @@ human sign-off — the exact false attribution the kernel exists to reject.
 
 Nor is there a code path that could exercise such a mapping today.
 `verify_governed_decision` is reached only from
-`governance_harness._write_decision`, which builds its
+`PostgreSQLLedger.append_decision` and `governance_harness._write_decision`, and the harness builds its
 `GovernanceDecisionRecord` with `authorized_by=None`. The other writers that
 do set `authorized_by` (`regulatory_deck.py`, `contract_egress.py`) produce
 different record kinds that never enter the conservation boundary.
