@@ -389,7 +389,7 @@ class GovernanceHarness:
             ) from exc
 
         # Only if the conservation boundary accepted: persist to ledger
-        self.ledger.append_decision(record, governance_params=params)
+        self.ledger.append_decision(record, governance_params=params, episode=episode)
 
     # ---- housekeeping ----
 
