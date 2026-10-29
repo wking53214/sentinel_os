@@ -13,11 +13,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from conservation_kernel import EvidenceRegistry
+from conservation_kernel import ConservationKernel, EvidenceRegistry
 
+from conservation.episode_guard import EpisodeNotAttested, EpisodeRootGuard
 from conservation.episode_source import build_episode_source
 from conservation.judgment import GovernanceJudgmentTransformer
 from conservation.transport import ConservationGateway
+from conservation.transport.contracts import ConservationDecision, DecisionStatus, Rejection
 from episode import Episode
 
 
@@ -35,14 +37,33 @@ class ConservationBoundaryRejected(RuntimeError):
         )
 
 
-def verify_governed_decision(episode: Episode, record: Any) -> Any:
+def verify_governed_decision(episode: Episode, record: Any, observed_events: Any = None) -> Any:
     """Verify episode -> judgment as a conservation transformation.
 
     Returns the accepted TransformationResult. Raises ConservationBoundaryRejected
     on any non-acceptance.
+
+    With `observed_events` the kernel is built with a root guard
+    (conservation.episode_guard) that registers the source root only if those
+    events reproduce the Episode; an Episode they do not support is refused with
+    ROOT_NOT_ATTESTED. Without them nothing independent can vouch for the
+    Episode, and the root is registered by the gateway's explicit
+    `allow_unguarded_roots=True` default, exactly as before.
     """
     registry = EvidenceRegistry()
-    gateway = ConservationGateway(registry=registry)
+    if observed_events:
+        guard = EpisodeRootGuard()
+        try:
+            guard.attest(episode, observed_events)
+        except EpisodeNotAttested as exc:
+            raise ConservationBoundaryRejected(
+                getattr(episode, "episode_id", "?"),
+                ConservationDecision(DecisionStatus.REJECTED, None,
+                                     (Rejection("ROOT_NOT_ATTESTED", str(exc), subject_id=episode.episode_id),)),
+            ) from exc
+        gateway = ConservationGateway(kernel=ConservationKernel(registry=registry, root_guard=guard))
+    else:
+        gateway = ConservationGateway(registry=registry)
 
     source = build_episode_source(episode, registry)
     gateway.ingest_source(source)

@@ -1090,7 +1090,10 @@ class PostgreSQLLedger:
                 ConservationBoundaryRejected,
             )
             try:
-                verify_governed_decision(episode, record)
+                if event_bodies:
+                    verify_governed_decision(episode, record, observed_events=events_list)
+                else:
+                    verify_governed_decision(episode, record)
             except ConservationBoundaryRejected:
                 raise
             except Exception as exc:
