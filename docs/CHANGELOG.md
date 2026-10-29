@@ -5,6 +5,9 @@ full detail; this is the skim version.
 
 ## 2026-10-29
 
+- **Conservation-kernel pin moved to the commit on the kernel's main.** `c4a121a`, the
+  head of kernel PR #20, is off main now that the PR was squash-merged; `7b08c79` is the
+  merged commit. The two trees are identical (empty diff), so no behaviour changes.
 - **Conservation-kernel pin bumped** `25145aa` to the head of kernel PR #20,
   which makes an unguarded kernel an error. `ConservationGateway`'s default
   kernel (`conservation/transport/transport.py`) is built with
