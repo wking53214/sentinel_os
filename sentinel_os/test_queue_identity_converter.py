@@ -113,7 +113,11 @@ def _run_pair_and_submit(ingress_env: dict, worker_env: dict, port: int,
             # round trip.
             r = c.post(f"http://127.0.0.1:{port}/submit-mortgage-decision",
                       json={"episode_id": episode_id, "requested": {"amount": 300000.0},
-                            "actual": {"amount": 250000.0},
+                            "events": [{"event_id": f"{episode_id}:decision", "episode_id": episode_id,
+                                        "domain": "mortgage", "kind": "decision_observed",
+                                        "occurred_at": 1000.0, "observed_at": 1001.0,
+                                        "source": "loan_system", "provenance": "verified",
+                                        "fields": {"amount": 250000.0}}],
                             "outcome_reasons": ["reduced based on updated appraisal value on file"]})
             assert r.status_code == 202, f"submit failed: {r.status_code} {r.text}"
 

@@ -351,13 +351,22 @@ class GovernanceHarnessJobAdapter:
     needs; it did not exist before this change.
     """
 
-    def __init__(self, harness: GovernanceHarness):
+    def __init__(self, harness: GovernanceHarness, require_events: bool = False):
+        # require_events: refuse a job whose payload carries no 'events', so an
+        # episode nothing independent can attest never reaches the ledger. Off
+        # by default (library and test use); main() turns it on, like
+        # require_cassette_binding, with no env switch to forget.
         self.harness = harness
+        self.require_events = require_events
 
     def process_call(self, payload: Dict) -> Dict:
         try:
             episode, issue_count = _payload_to_mortgage_episode(self.harness.cassette, payload)
             events = _payload_events(self.harness.cassette, payload)
+            if self.require_events and events is None:
+                raise ValueError(
+                    "job payload carries no 'events'; this worker records only episodes "
+                    "its observed events reproduce")
         except (ValueError, TypeError, EpisodeIntegrityError, EventIntegrityError) as exc:
             return {"error": f"Failed to parse job: {exc}"}
 
@@ -688,7 +697,9 @@ def main() -> None:
     if governance_harness.ledger is not None:
         governance_harness.regulatory_deck = _regulatory_deck_from_env(
             governance_harness.ledger)
-    harness = GovernanceHarnessJobAdapter(governance_harness)
+    # require_events=True, hardcoded like require_cassette_binding above: a job without
+    # observed events is refused, not recorded as an unattested episode.
+    harness = GovernanceHarnessJobAdapter(governance_harness, require_events=True)
     queue = TransmissionQueue(name=args.queue_name, redis_url=args.redis_url)
     worker = SentinelWorker(harness, queue, worker_id=args.worker_id)
 
