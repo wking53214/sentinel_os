@@ -181,12 +181,19 @@ class GovernanceHarness:
 
     # ---- the one unit of work ----
 
-    def process(self, episode: Episode, issue_count: int) -> Dict[str, Any]:
+    def process(self, episode: Episode, issue_count: int,
+                observed_events: Optional[Any] = None) -> Dict[str, Any]:
         """Judge one episode, decide whether it needs governing, consult
         the governor if so, write the ledger, return the result.
 
         `issue_count` is supplied by the caller -- see module docstring
         for why this harness does not compute it itself.
+
+        `observed_events` (optional, EventV1 items): the events the episode
+        was assembled from. They are handed to the conservation boundary and
+        the ledger, which then register the episode's root only if the events
+        reproduce it (conservation.episode_guard). Omitted, nothing independent
+        vouches for the episode and behaviour is exactly as before.
 
         Fail-closed contract: an unusable governor answer withholds the
         ACTION (governance_approved stays False, governance_blocked
@@ -300,7 +307,10 @@ class GovernanceHarness:
         result["ai_cost"] = decision.get("cost")
 
         if self.ledger is not None:
-            self._write_decision(episode, params, issue_count, decision)
+            if observed_events:
+                self._write_decision(episode, params, issue_count, decision, observed_events=observed_events)
+            else:
+                self._write_decision(episode, params, issue_count, decision)
             result["decision_recorded"] = True
         else:
             # Unbound by explicit opt-out (require_cassette_binding=False
@@ -348,7 +358,7 @@ class GovernanceHarness:
         return self.cassette.get_maturation_rule().declaration()
 
     def _write_decision(self, episode: Episode, params, issue_count: int,
-                        decision: Dict[str, Any]) -> None:
+                        decision: Dict[str, Any], observed_events: Optional[Any] = None) -> None:
         from governance.ledger_postgres import GovernanceDecisionRecord
         from epistemic.dit_gate import integrity_summary
         output = {"approved": bool(decision.get("safe"))}
@@ -380,7 +390,7 @@ class GovernanceHarness:
             ConservationBoundaryRejected,
         )
         try:
-            verify_governed_decision(episode, record)
+            verify_governed_decision(episode, record, observed_events=observed_events)
         except ConservationBoundaryRejected:
             raise
         except Exception as exc:
@@ -389,7 +399,8 @@ class GovernanceHarness:
             ) from exc
 
         # Only if the conservation boundary accepted: persist to ledger
-        self.ledger.append_decision(record, governance_params=params, episode=episode)
+        self.ledger.append_decision(record, governance_params=params, episode=episode,
+                                    observed_events=observed_events)
 
     # ---- housekeeping ----
 
