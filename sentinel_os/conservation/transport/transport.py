@@ -71,7 +71,7 @@ class ConservationGateway:
         if kernel is not None and registry is not None and kernel.registry is not registry:
             raise InvalidContract("provided kernel and registry must share the same registry")
         self.registry = registry or (kernel.registry if kernel is not None else EvidenceRegistry())
-        self.kernel = kernel or ConservationKernel(registry=self.registry)
+        self.kernel = kernel or ConservationKernel(registry=self.registry, allow_unguarded_roots=True)
         self.gem_registry = gem_registry or GemRegistry()
         self.ledger = ledger or TransformationLedger()
         self._accepted: dict[str, Artifact] = {}
