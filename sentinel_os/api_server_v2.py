@@ -77,7 +77,7 @@ from typing import Any, Dict, List, Optional
 import redis  # exception types only — queue state goes through TransmissionQueue
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator, model_validator
 
 from backpressure import backpressure_delay_seconds
 from queue_schema import TransmissionQueue
@@ -321,6 +321,19 @@ class MortgageDecisionSubmission(BaseModel):
 
     episode_id: StrictStr = Field(min_length=1, max_length=256,
                                   description="Episode identity; becomes the job_id.")
+    # The production worker records only episodes its observed events reproduce
+    # (sentinel_worker.py, require_events), so a submission without events would be
+    # accepted here and dead-lettered later. Cheap shape check only; the worker still
+    # owns real event and episode validation.
+    events: List[Dict[str, Any]] = Field(min_length=1,
+        description="Observed events (EventV1 field dicts) the episode is assembled from.")
+
+    @model_validator(mode="after")
+    def _events_replace_actual_and_actor_report(self) -> "MortgageDecisionSubmission":
+        stated = [name for name in ("actual", "actor_report") if name in (self.model_extra or {})]
+        if stated:
+            raise ValueError(f"with events, {' and '.join(stated)} come from the events and must be omitted")
+        return self
 
     @field_validator("episode_id")
     @classmethod
