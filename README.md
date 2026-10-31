@@ -94,7 +94,7 @@ observe-perceive  ✗ does not import sentinel_os
 GSA-815           → vendor/sentinel_os submodule
 Conservation_Kernel @7b08c79  ← mandatory boundary
 DIT               ← epistemic gate on governor text
-CNS @v1.9.0       ← gate contract (ledger) and graph types (sage_k)
+CNS @v2.3.0       ← gate contract (ledger) and graph types (sage_k)
 δ (interconnected_delta)  ← in-process extract of outcome_v1 + fairness
 ICEBURG/ICEBERG   ← lineage; not imported (ICEBERG_* env var names are fossils)
 ```
