@@ -65,7 +65,7 @@ Measured 2026-10-10 from clone `419642d` on a clean install, run from `sentinel_
 |---|---|
 | Root package metadata | Kernel `requirements.txt` exists under `sentinel_os/sentinel_os/`. Repo root does not install as a product. |
 | Required services | Postgres, Redis. Twin and live paths need `cryptography`, keys. |
-| `CNS` pin | `cns @ git+…/CNS.git@v1.9.0` (release tag). Public as of 2026-10-10: a clean install resolves it with no token. The ledger imports `cns.gate` and sage_k imports `cns.graph`. |
+| `CNS` pin | `cns @ git+…/CNS.git@v2.3.0` (release tag). Public as of 2026-10-10: a clean install resolves it with no token. The ledger imports `cns.gate` and sage_k imports `cns.graph`. |
 | DIT pin | `dit @ git+…/DIT.git@V0.1.0` (release tag, DIT main `a690dc3`). Pinned to a tag so a squash merge cannot make it unreachable. |
 | Anthropic | Governor path. `httpx<0.28` pin required for anthropic 0.116.0. |
 | No Cassette SDK | Cassettes are in-tree modules, not a versioned SDK. |
