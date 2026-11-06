@@ -16,3 +16,7 @@ env/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Local runtime audit log and local agent instruction files
+fortress_audit.log
+LocalModelPrePrompts/
