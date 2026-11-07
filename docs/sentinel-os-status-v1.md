@@ -21,7 +21,7 @@ A domain-agnostic AI-governance platform — a hash-chained, tamper-evident ledg
 | **Formal decision supersession** | ✅ Merged. A decision can be formally superseded by a later one without altering the original — the original stays immutable and provable. |
 | **Authorizing identity recorded per decision** | ✅ Merged. Every decision records which service/role authorized it (never raw PII). |
 | **Independent witness replica ("the twin")** | ✅ Live. A customer-controlled, encrypted replica that detects primary-ledger tampering (row rewrites, wipes) even if the primary's own credential is compromised. |
-| **Full regression suite passing on real CI** | ✅ Confirmed on GitHub Actions — 270 tests passing against real Postgres + Redis, not mocked. |
+| **Full regression suite passing on real CI** | ✅ CI runs the full suite against real Postgres + Redis, not mocked. Test count is not stated here because it changes with each commit. A local run on 2026-11-06 collected 923 tests; it was not a CI run and had 16 failures from missing sibling packages and harness dependencies. |
 
 ## What's honestly still open
 

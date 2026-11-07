@@ -6,6 +6,9 @@
 
 # Sentinel OS — Quick Reference
 
+> **Status: historical snapshot.** This document describes an older layout of the sentinel_os tree. Several file and folder names it cites (for example `Engines/`, `Sim/`, `api_server_resilient.py`) are not in the current repository, so treat its file-level claims as unverified. For the current layout, see `README.md` and `STACK.md` in the repository root.
+
+
 **Current State:** Commit `68cadfb` (July 29, 2026)  
 **Test Suite:** 670+ passed / 6 skipped, fully green  
 **Status:** Production repository, active development  

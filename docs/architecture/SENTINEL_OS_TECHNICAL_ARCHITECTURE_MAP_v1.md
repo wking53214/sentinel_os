@@ -6,6 +6,9 @@
 
 # Sentinel OS — Technical Architecture Map
 
+> **Status: historical snapshot.** This document describes an older layout of the sentinel_os tree. Several file and folder names it cites (for example `Engines/`, `Sim/`, `api_server_resilient.py`) are not in the current repository, so treat its file-level claims as unverified. For the current layout, see `README.md` and `STACK.md` in the repository root.
+
+
 **Source material:** `SENTINEL_OS_REPOSITORY_INVENTORY.md`, `SENTINEL_OS_DIRECTORY_MAP.md`, `SENTINEL_OS_QUICK_REFERENCE.md`
 **Method:** Every statement below is traced to one of the three source documents. No claim is drawn from outside them.
 
