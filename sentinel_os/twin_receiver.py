@@ -265,6 +265,26 @@ def build_app(dsn: str, site: str) -> FastAPI:
                      bool(body.get("is_primary_evidence", False)),
                      body["ship_token"], body.get("read_token") or None))
                 created = cur.rowcount == 1
+                if not created:
+                    # Already registered: repeating the same registration is
+                    # idempotent, but a different set of credentials is a
+                    # conflict the caller must see, not a silent success.
+                    cur.execute(
+                        "SELECT ship_token, read_token FROM replica_meta WHERE replica_id=%s",
+                        (replica_id,))
+                    stored_ship, stored_read = cur.fetchone()
+                    supplied_read = body.get("read_token") or None
+                    ship_same = hmac.compare_digest(
+                        str(stored_ship).encode(), str(body["ship_token"]).encode())
+                    if stored_read is None or supplied_read is None:
+                        read_same = stored_read is None and supplied_read is None
+                    else:
+                        read_same = hmac.compare_digest(
+                            str(stored_read).encode(), str(supplied_read).encode())
+                    if not (ship_same and read_same):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="replica already registered with different credentials")
         return {"replica_id": replica_id, "site": site, "created": created}
 
     @app.get("/replica/{replica_id}/meta")
