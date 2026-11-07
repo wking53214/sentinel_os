@@ -211,3 +211,58 @@ def test_replica_registered_without_read_token_refuses_every_read(twin):
         url = f"/replica/{rid}/{path}"
         assert client.get(url, headers=twin.good).status_code == 401, path
         assert client.get(url, headers=twin.read_good).status_code == 401, path
+
+
+# ---------------- registration: idempotent for the same credentials -------------
+#
+# The register route keeps the first record it stores. Repeating the same
+# registration is a harmless no-op. A registration that presents different
+# credentials for an existing replica must be refused with a conflict, not
+# reported as a silent success. Each replica is pinned to a customer key and
+# every body is signed by it, so the request reaches the conflict check.
+
+def _pinned_client(rid):
+    from twin_receiver import build_app
+
+    priv, pub = _tc.generate_signing_keypair()
+    client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: pub}))
+    return client, priv, pub
+
+
+def test_repeating_the_same_registration_is_idempotent():
+    rid = f"idem-{uuid.uuid4().hex[:10]}"
+    client, priv, pub = _pinned_client(rid)
+    body = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token="read-tok")
+    first = client.post(f"/replica/{rid}/register", json=body)
+    again = client.post(f"/replica/{rid}/register", json=body)
+    assert first.status_code == 200 and first.json()["created"] is True
+    assert again.status_code == 200 and again.json()["created"] is False
+
+
+def test_a_different_ship_token_for_a_registered_replica_is_a_conflict():
+    rid = f"ship-{uuid.uuid4().hex[:10]}"
+    client, priv, pub = _pinned_client(rid)
+    ok = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token="read-tok")
+    assert client.post(f"/replica/{rid}/register", json=ok).status_code == 200
+    other = _tc.make_registration(rid, priv, pub, ship_token="someone-else",
+                                  read_token="read-tok")
+    assert client.post(f"/replica/{rid}/register", json=other).status_code == 409
+
+
+def test_a_different_read_token_for_a_registered_replica_is_a_conflict():
+    rid = f"read-{uuid.uuid4().hex[:10]}"
+    client, priv, pub = _pinned_client(rid)
+    ok = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token="read-tok")
+    assert client.post(f"/replica/{rid}/register", json=ok).status_code == 200
+    other = _tc.make_registration(rid, priv, pub, ship_token="tok",
+                                  read_token="someone-elses-read")
+    assert client.post(f"/replica/{rid}/register", json=other).status_code == 409
+
+
+def test_adding_a_read_token_to_a_replica_registered_without_one_is_a_conflict():
+    rid = f"noread-{uuid.uuid4().hex[:10]}"
+    client, priv, pub = _pinned_client(rid)
+    ok = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token=None)
+    assert client.post(f"/replica/{rid}/register", json=ok).status_code == 200
+    other = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token="now-set")
+    assert client.post(f"/replica/{rid}/register", json=other).status_code == 409

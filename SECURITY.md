@@ -46,6 +46,24 @@ what `verify_chain()` proves and does not. In short:
   is: *internally consistent and operator-attestable today; independently
   verifiable once the twin is accepted as a control.*
 
+### Twin receiver: who can do what
+
+- **Where it listens.** The reference receiver binds to `127.0.0.1` only. The
+  code has no setting to listen on another address.
+- **Writes** (entries, custody events, obligation derivation and transition)
+  require the replica's ship token. **Reads** (meta, head, entries,
+  custody-log) require the customer's read token. A replica registered without
+  a read token refuses every read.
+- **Registration takes no credential.** The trust boundary is the local machine
+  and the database login. Production deployments must put the customer's own
+  authentication in front of registration (see `twin_attestation_spec_v1.md`,
+  section 4.6).
+- **Registration is first-come.** Whoever registers an unused replica id first
+  holds its ship token. Registering again with the same credentials is a no-op.
+  Registering with different credentials returns a conflict (409), so a
+  customer whose id was claimed sees the conflict rather than a silent success.
+  That makes a claim visible; it does not prevent one.
+
 Other disclosed limitations are in the root README's **Brutally Honest Current
 Status & Gaps** section (section 4) and in the Known Limitations section of
 `sentinel_os/COMPLIANCE.md`. A documented limitation is
