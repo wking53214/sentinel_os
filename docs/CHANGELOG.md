@@ -1,6 +1,6 @@
 # Changelog
 
-> **Status: historical snapshot.** This document describes an older layout of the sentinel_os tree. Several file and folder names it cites (for example `Engines/`, `Sim/`, `api_server_resilient.py`) are not in the current repository, so treat its file-level claims as unverified. For the current layout, see `README.md` and `STACK.md` in the repository root.
+> **Status: historical record.** Each entry describes the tree as it was on its date, and where a later change superseded an entry, that entry says so. On 2026-11-06 the file and folder additions and removals named in the 2026-07 to 2026-10 entries were spot-checked against the repository and matched (for example, `Engines/`, `Sim/` and `api_server_resilient.py` are gone). Run counts, test totals and claims about the GSA-815 and Conservation_Kernel repositories were not re-run. For the current layout, see `README.md` and `STACK.md` in the repository root.
 
 
 Dated, human-readable summary of notable changes. Git history has the
@@ -102,9 +102,9 @@ full detail; this is the skim version.
   security-scan framing ("17 medium + 1 high, `-ll`, Tests/ excluded" → whole
   tree, every severity, `bandit.yaml`); the CI gate set ("test/lint/security" →
   4 hard gates across 3 jobs); and the mortgage-cassette-"not in CI yet"
-  contradiction the audit itself flagged (resolved — it runs, 37 tests). The
+  contradiction the audit itself flagged (resolved: it runs, 37 tests). The
   shared banner on all 9 docs now points at the addendum. The ~324 baseline
-  `FACT` lines are explicitly *not* re-verified — the addendum says so.
+  `FACT` lines are explicitly *not* re-verified. The addendum says so.
 
 - **Conservation boundary: `authorized_by` deferral reframed as a deliberate
   boundary.** `conservation/CONFORMANCE.md` no longer lists "thread the keyed
@@ -112,22 +112,22 @@ full detail; this is the skim version.
   work. It is not planned work: the kernel's `HUMAN_AUTHORIZED` asserts an
   authorization *event* (needs an `AuthorityReference`); the `authorized_by`
   attestation proves writer *integrity* (a key-holder wrote a string,
-  unchanged since) — a weaker, different claim, and mapping one onto the other
+  unchanged since), a weaker, different claim, and mapping one onto the other
   would let key-holder integrity masquerade as a human sign-off. There is also
   no path that could exercise it: `verify_governed_decision` is reached only
   from `_write_decision`, which sets `authorized_by=None`. `judgment.py`'s
   docstring and `test_authorized_by_string_cannot_raise_kernel_authority`
   updated to state the invariant (judgment stays `MACHINE_ORIGINATED` /
-  `PROPOSED` for every spoofed value — the test now asserts origin too).
+  `PROPOSED` for every spoofed value; the test now asserts origin too).
 - **Conservation-kernel pin bumped** `feaf6609` → `e377093` (current
   `Conservation_Kernel` main). The one commit between them adds a
-  `.ghost_baseline.json` and touches no Python or packaging — verified by
+  `.ghost_baseline.json` and touches no Python or packaging; verified by
   diff; the conservation boundary tests pass unchanged on the new SHA.
 - **Cruft sweep.** Removed `sentinel_os/Deploy/` (5 k8s/argocd files DEPLOYMENT.md
-  itself flagged as dead — wrong image/port, deployed `Engines/` workers that no
+  itself flagged as dead: wrong image/port, deployed `Engines/` workers that no
   longer exist); `DEPLOYMENT.md`'s Kubernetes section rewritten to match.
   `tools/wiring_verify/` (the static "code exists but nothing calls it"
-  detector) had rotted since the IVR extraction — its entry-point list and
+  detector) had rotted since the IVR extraction. Its entry-point list and
   acceptance tests still expected `production_harness.py` /
   `api_server_resilient.py` / an `iceberg` compose service, all in GSA-815 now,
   and hardcoded a `~/sentinel_os` path; fixed to current reality (6 passed, was
@@ -138,26 +138,25 @@ full detail; this is the skim version.
   covers backups (encrypt at rest, key custody separate from the DBA), a
   restore-and-verify drill, a ledger-integrity incident procedure, and a note
   on append-only growth. New `scripts/verify_ledger.py` (a CLI over
-  `PostgreSQLLedger.verify_chain()` — the check an auditor runs) and
+  `PostgreSQLLedger.verify_chain()`, the check an auditor runs) and
   `scripts/ledger_backup_verify.sh` (`pg_dump` → restore into a throwaway DB →
   `verify_ledger.py` → drop it); both tested against the live ledger. Also
-  fixed two phantom references DEPLOYMENT.md already carried — a `verify_ledger`
+  fixed two phantom references DEPLOYMENT.md already carried: a `verify_ledger`
   tool and a `/verify` endpoint, neither of which existed; `verify_ledger.py`
   now makes the first one real and the endpoint reference is dropped.
 - **Real `SECURITY.md` + a secret-scanning gate.** `SECURITY.md` was still the
   GitHub template (placeholder version table, "tell people how to report..."
   boilerplate); it now carries a real disclosure path, states that `main` is
-  the only supported line, and — the substantive part — points at
+  the only supported line, and (the substantive part) points at
   `AUDIT_PLAYBOOK.md` and states the operator-trust boundary and the
   twin-not-yet-accepted caveat up front, so a security reviewer sees the honest
-  claim without having to go looking. The root README gets a matching Security
-  section. New `secrets` CI job runs `gitleaks` (pinned 8.30.1) over the
+  claim without having to go looking. The root README got a matching Security section (the 2026-09-28 architectural rewrite later removed it). New `secrets` CI job runs `gitleaks` (pinned 8.30.1) over the
   working tree as a hard gate; `.gitleaks.toml` carries one justified allowlist
   entry (a fixed fake key in `api_server_v2`'s auth tests). This closes the gap
   #38 opened when it skipped bandit's B105/B106 name heuristic.
 - **Dependency CVE audit in CI.** New `deps` job in `tests.yml` runs
   `pip-audit -r requirements.txt` (pinned `2.10.1`) as a hard gate, parallel to
-  the suite. Clean today with one justified ignore — `PYSEC-2026-1845` (pytest
+  the suite. Clean today with one justified ignore: `PYSEC-2026-1845` (pytest
   7.4.0's predictable `/tmp/pytest-of-{user}` path: a local-user attack not
   reachable on ephemeral single-user CI; the fix is a pytest 7→9 major bump
   tracked separately). `conservation-kernel` auto-skips (git URL, not PyPI).
@@ -182,7 +181,7 @@ full detail; this is the skim version.
   the dataset.
 - **Widened the bandit security gate to the whole tree.** Was
   `bandit -r . -x ./Tests -ll` (Medium+ only, `Tests/` unscanned); now
-  `bandit -r . -c bandit.yaml` — every file, every severity. The new
+  `bandit -r . -c bandit.yaml`: every file, every severity. The new
   `sentinel_os/bandit.yaml` holds the skip list: each entry was checked to have
   zero findings outside test code (B101 stays live for non-test code via
   `assert_used.skips`), with a one-line rationale. The four checks that still
@@ -195,7 +194,7 @@ full detail; this is the skim version.
   Now that the transport boundary is the governed path (see the entry below),
   the six pre-transport modules (`conservation/{gateway,artifact_factory,
   transformation_factory,artifact_store,types,receipt}.py`) and their two
-  isolated test files are deleted — nothing imported them off the hot path.
+  isolated test files are deleted; nothing imported them off the hot path.
   Their coverage map is in `conservation/CONFORMANCE.md`; the two DB tests in
   `test_conservation_gateway_security.py` were broken (queried
   `information_schema.triggers`, which omits `TRUNCATE` triggers, and swallowed
@@ -203,8 +202,8 @@ full detail; this is the skim version.
   two stray test imports, `ruff check .` (the CI gate) is at **zero** for the
   first time since it became a hard gate.
 - **The conservation boundary is now kernel-conformant.** A governance decision
-  is modelled as the transformation it is — `episode (observed record) ->
-  judgment` — and verified as such. New `conservation/transport/` (an enforced
+  is modelled as the transformation it is: `episode (observed record) ->
+  judgment`, and verified as such. New `conservation/transport/` (an enforced
   `ConservationGateway`, vendored from `GEMS/transport/`), `episode_source.py`
   (`Episode` -> root source `Artifact`), `judgment.py` (the judgment as one
   rooted `DECISION`/`PROPOSED` proposition), and `boundary.py` (the fail-closed
@@ -218,11 +217,9 @@ full detail; this is the skim version.
   `Training/` `observe/` support tree behind, orphaned once
   `iceberg_complete_simulator.py` itself was gone. All of it (verified
   identical to, or older than, GSA-815's copies) and its three tests
-  (`test_rl_learning`, `test_rl_governance_integration`, `test_graph_integrity`
-  — the RL ones already in GSA-815), a dead manual runner
+  (`test_rl_learning`, `test_rl_governance_integration`, `test_graph_integrity`, the RL ones already in GSA-815), a dead manual runner
   (`test_all_suites.py`), a stale `structure.txt`, and the `Domain.*` import
-  shim in `Tests/conftest.py` are removed. `cassettes/ivr_cassette.py` stays
-  — it is the kernel's full-capability example and the negative fixture for
+  shim in `Tests/conftest.py` are removed. `cassettes/ivr_cassette.py` stays; it is the kernel's full-capability example and the negative fixture for
   the capability gate. Test collection 706 → 698.
 - Docs: reframed `sentinel_os/README.md` (was "Iceberg: Self-Healing IVR
   Platform") to point at the root README as canonical; added
@@ -230,22 +227,22 @@ full detail; this is the skim version.
   docs under `docs/`.
 - **Pruned three orphans** (follow-up to the island removal):
   `governance/perceive_integration.py` (a Sentinel→PERCEIVE bridge that did
-  not import — `governance_orchestrator` is in a sibling repo — and had zero
+  not import (`governance_orchestrator` is in a sibling repo) and had zero
   importers); `otlp/sentinel-os-pipeline-core.py` + `otlp/telemetry-processor-complete.py`
   (single-line flattened pastes, not valid Python, non-importable filenames,
   ~106 of the repo's ruff findings); and `telemetry_pipeline.py` +
   `Tests/test_telemetry_pipeline.py` (an in-memory call-telemetry collector,
-  Iceberg/telephony-shaped, orphaned here — moved to GSA-815, PR #5).
+  Iceberg/telephony-shaped, orphaned here, moved to GSA-815, PR #5).
   Collection 698 → 694; ghost_buster baseline 401 → 395.
-- **Conservation boundary — three prerequisites, still not conformant.**
-  `conservation_kernel` added to `requirements.txt` (git-pin; not on PyPI) —
+- **Conservation boundary: three prerequisites, still not conformant.**
+  `conservation_kernel` added to `requirements.txt` (git-pin; not on PyPI);
   it was undeclared, so the two `test_conservation_*` files could not be
   collected and CI never ran the suite. `governance_harness` now passes
   `epistemic_status` as `.value`, not `str(enum)` (the Kernel rejected
   `"EpistemicStatus.ESTIMATED"`). `_map_authority_status` maps recognised
   channels to `PROPOSED`, not an unbacked `HUMAN_AUTHORIZED`/`CANONICAL` (the
   Kernel requires `authorization_refs` for those, which Sentinel does not
-  carry down). The gateway is still not Kernel-conformant — it submits
+  carry down). The gateway is still not Kernel-conformant: it submits
   governed decisions as input-less transformations; `~6 @requires_pg` tests
   fail-close on the verifier. See `sentinel_os/conservation/CONFORMANCE.md`.
 
@@ -266,33 +263,33 @@ full detail; this is the skim version.
 ## 2026-08-27
 
 - **Keyed HMAC attestation for the ledger `authorized_by` claim** (PR #28),
-  with key rotation — previous/retired key sets, per-signature key
+  with key rotation: previous/retired key sets, per-signature key
   fingerprint, `ICEBERG_LEDGER_ATTESTATION_KEY[_FILE]` and
   `..._KEYS_PREVIOUS`/`..._RETIRED` env vars, `ICEBERG_LEDGER_REQUIRE_ATTESTATION`
   enforcement mode.
 
 ## 2026-07-24
 
-- **C2 dimension 4: statistical outcome-equity** — the fourth C2
+- **C2 dimension 4: statistical outcome-equity**: the fourth C2
   bias-identification dimension, unbuilt until now, is real: a
   COHORT-level four-fifths-rule disparate-impact checker
   (`regulatory_checks.check_statistical_outcome_equity`), a sealed
   channel for protected-characteristic data completely walled off from
-  the live judgment path (`sealed_demographic_channel.py` — new table,
+  the live judgment path (`sealed_demographic_channel.py`: new table,
   new role, no grant to `ledger_reader`, ever), and a real BISG
   estimator (`bisg_estimator.py`) reproducing CFPB's own published
   methodology over live Census geocoding/ACS data plus the actual 2010
-  Census surname list — never a fabricated estimate; any unreachable
+  Census surname list, never a fabricated estimate; any unreachable
   data source makes the whole estimate INDETERMINATE. `RegulationCheckProfile`
   gains `consent_model` (`opt_in_required` default, or
   `opt_out_permitted`). `CFPBRegBLens.c2_rollup()` can now genuinely
   reach `PASS`, not just `FLAG`/`INDETERMINATE`, when a caller supplies
-  an already-computed dimension-4 result for a cohort — automatic
+  an already-computed dimension-4 result for a cohort. Automatic
   cohort assembly is not built this session.
 
 ## 2026-07-23
 
-- **Cassette kernel/capability split** — the cassette contract is no
+- **Cassette kernel/capability split**: the cassette contract is no
   longer IVR-shaped. A minimal domain-blind KERNEL (identity, typed
   parameter declarations, `judge(episode)` / `explain(episode)`) plus
   four opt-in CAPABILITY modules (`telephony_ingest`,
@@ -300,60 +297,60 @@ full detail; this is the skim version.
   parameters and methods. A cassette declares a `CAPABILITIES`
   manifest; load-time validation checks kernel + the union of enabled
   capabilities, and **rejects any parameter owned by a disabled
-  capability** — the anti-placeholder rule. Schema `2.0.0`; snapshots
+  capability**: the anti-placeholder rule. Schema `2.0.0`; snapshots
   now record the manifest.
-- **Episode ground-truth record** (`episode.py`) — kernel-level record
+- **Episode ground-truth record** (`episode.py`): kernel-level record
   of requested vs. actual outcome with two enforced invariants: a
   reason is owed on ANY outcome mismatch (paid-but-reduced counts,
   not just formal denials), and the actor's self-report is always
   cross-checked against the observed record (twin posture), with
   divergences surfaced ahead of the cassette's own factors in every
   explanation. No judgment path admits an unvalidated episode.
-- **Banking cassette is honest now** — declares
+- **Banking cassette is honest now**: declares
   routing + rl + self_healing only; the three flagged placeholder
   `twilio_*` thresholds are gone (validation would now refuse them),
   and its judgment moved to the kernel surface with arithmetic
   unchanged. Consequence: banking is refused by the telephony
   pipelines at the door (legible capability error at construction)
   instead of pretending Twilio-readiness it never had.
-- **IVR is the reference implementation** — enables all four
+- **IVR is the reference implementation**: enables all four
   capabilities; kernel `judge` proven arithmetically identical to the
   legacy `score_outcome_quality` by an equivalence sweep. Version
   `2.0.0` (identity, not behavior: the code hash changed, and binding
   enforcement correctly refuses a changed hash under an old version).
-- **Engines guard their doors** — `SentinelCore`, `CassetteHarness`,
+- **Engines guard their doors**: `SentinelCore`, `CassetteHarness`,
   `IcebergProductionHarness` (construction and swap), and Twilio
   ingest each refuse a cassette missing the capabilities they read,
   at construction rather than mid-call.
-- **Pre-existing defect fixed** — `serialize_cassette_for_ledger`
+- **Pre-existing defect fixed**: `serialize_cassette_for_ledger`
   duplicated the snapshot serialization and had silently drifted from
   `GovernanceParameters.snapshot()`; it now delegates to the single
   source of truth.
 - Full suite: 307 passed (279 baseline + 28 new proof tests, including
   a kernel-only cassette with zero telephony surface that loads,
-  validates, and judges — the shape a hiring cassette starts from).
+  validates, and judges: the shape a hiring cassette starts from).
 
 ## 2026-07-22
 
-- **Phase 2 merged** — closed 6 of 7 Known Limitations: cassette
+- **Phase 2 merged**; closed 6 of 7 Known Limitations: cassette
   version binding, code-hash coverage, structural injection defense,
   model identity per decision, decision supersession, authorizing
   identity. See `COMPLIANCE.md` and `PHASE2_MIGRATION_NOTES.md`.
-- **ICEBERG_LEDGER_RUNTIME_USER made fail-closed** — the app no longer
+- **ICEBERG_LEDGER_RUNTIME_USER made fail-closed**: the app no longer
   boots with a privileged database credential, even by accident. See
   `governance/README.md`.
-- **docker-compose fixed end-to-end** — the runtime-user fix above
+- **docker-compose fixed end-to-end**: the runtime-user fix above
   would have broken `docker-compose up` (no fallback credential to
   silently use); fixed via self-provisioning instead of just patching
   the compose file. Also fixed a separate, pre-existing startup race
   (`iceberg-main` could start before Postgres was actually ready to
   accept connections).
-- **CI corrected** — `tests.yml` previously only ran the `Tests/`
+- **CI corrected**: `tests.yml` previously only ran the `Tests/`
   subdirectory (27 of 37 test files) and had no Redis service at all.
   Now runs the full suite; `test_twin_live.py` is explicitly excluded
-  (needs infrastructure — 3 OS identities, real TLS PKI between them —
-  not yet reconstructed in CI) rather than silently skipped.
-- **Full stack verified live** — real Postgres ledger, real fail-closed
+  (needs infrastructure: 3 OS identities, real TLS PKI between them,
+  not yet reconstructed in CI) rather than silently skipped. Superseded: CI now runs the full repo with no exclusions, including the twin live suite (see `.github/workflows/tests.yml`).
+- **Full stack verified live**: real Postgres ledger, real fail-closed
   credential behavior, a governed call correctly blocked with no
   governor configured, and an independently-verified 25-entry hash
   chain, all confirmed running end-to-end.
