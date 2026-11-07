@@ -14,7 +14,7 @@ Admission → Observe → Interlock → Policy → Decision → Conservation
     → CUSTODY (this repo): Episode + EventV1 + OutcomeV1 + Postgres ledger + twin
 ```
 
-Extracted in-process cousin: [`interconnected_delta`](https://github.com/wking53214/interconnected_delta) (no Postgres, no twin, consumes `beta.Decision`). IVR consumer: [`GSA-815`](https://github.com/wking53214/GSA-815) (submodule of this kernel).
+Extracted in-process cousin: [`interconnected_delta`](https://github.com/wking53214/interconnected_delta) (no Postgres, no twin, consumes `beta.Decision`). IVR consumer: [`GSA-815`](https://github.com/wking53214/GSA-815), which vendors this kernel as a submodule.
 
 ## 2. Full System Scope & Architectural Depth
 
@@ -36,7 +36,7 @@ Thesis: decouple governance from the systems being governed so both can evolve w
 | `conservation/` | Boundary, episode source, judgment |
 | `epistemic/dit_gate.py` | Free-text governor reasoning must qualify as evidence before entering the canonical hash (DIT git pin) |
 | `regulatory_checks.py` | Four-fifths and related screens (source of δ.fairness) |
-| `bisg_estimator.py` | Proxy race/ethnicity estimates — **proxy, not ground truth** |
+| `bisg_estimator.py` | Proxy race/ethnicity estimates: **proxy, not ground truth** |
 | `twin_*` / sealed demographic channel | Independent replica + crypto envelopes (`cryptography`: ECIES, Ed25519/X25519, AES-GCM, HKDF) |
 | `queue_schema.py` + `lua/*.lua` | Redis claim/ack/reap (not ζ lock consensus) |
 | `sage_k/` | Graph/drift/realignment experiment inside the kernel |
@@ -46,7 +46,7 @@ Cassette contract: domain packs declare capabilities; unknown/unevaluated casset
 
 ### Conservation seam
 
-Every governed decision is submitted to [`Conservation_Kernel`](https://github.com/wking53214/Conservation_Kernel) `@7b08c79`. Ledger write does not proceed on REJECT/UNVERIFIABLE.
+Every governed decision is submitted to [`Conservation_Kernel`](https://github.com/wking53214/Conservation_Kernel) `@7b08c79`. Ledger write does not proceed on any status other than ACCEPTED (REJECTED, REQUIRES_AUTHORIZATION, or REQUIRES_VERIFICATION).
 
 ## 3. What It Does NOT Do / Non-Goals
 
@@ -59,18 +59,18 @@ Every governed decision is submitted to [`Conservation_Kernel`](https://github.c
 
 ## 4. Brutally Honest Current Status & Gaps
 
-Measured 2026-10-10 from clone `419642d` on a clean install, run from `sentinel_os/` over `.` and `../tools`: with Postgres and Redis running, 1072 pass, 22 skip, 0 fail, 18 error. All 18 errors are the twin live suite, which needs the OS accounts that `scripts/twin_ensure_services.sh` creates. Without Postgres, the `sentinel_os/` suite alone gives 755 pass, 242 skip, 46 fail, 48 error; every failure there passes once Postgres is running, apart from the twin live errors above. Earlier measurement (2026-09-09, `5341e3d`, without Postgres): 658 pass, 228 skip, 39 fail, 38 error.
+Measured 2026-10-10 from clone `419642d` on a clean install (not re-run for the 2026-11-06 check, and commits `419642d` and `5341e3d` are not in the shallow clone used for it), run from `sentinel_os/` over `.` and `../tools`: with Postgres and Redis running, 1072 pass, 22 skip, 0 fail, 18 error. All 18 errors are the twin live suite, which needs the OS accounts that `sentinel_os/scripts/twin_ensure_services.sh` creates. Without Postgres, the `sentinel_os/` suite alone gives 755 pass, 242 skip, 46 fail, 48 error; every failure there passes once Postgres is running, apart from the twin live errors above. Earlier measurement (2026-09-09, `5341e3d`, without Postgres): 658 pass, 228 skip, 39 fail, 38 error.
 
 | Gap | Detail |
 |---|---|
-| Root package metadata | Kernel `requirements.txt` exists under `sentinel_os/sentinel_os/`. Repo root does not install as a product. |
+| Root package metadata | Kernel `requirements.txt` exists under `sentinel_os/` (the package directory). Repo root does not install as a product. |
 | Required services | Postgres, Redis. Twin and live paths need `cryptography`, keys. |
 | `CNS` pin | `cns @ git+…/CNS.git@v2.3.0` (release tag). Public as of 2026-10-10: a clean install resolves it with no token. The ledger imports `cns.gate` and sage_k imports `cns.graph`. |
 | DIT pin | `dit @ git+…/DIT.git@V0.1.0` (release tag, DIT main `a690dc3`). Pinned to a tag so a squash merge cannot make it unreachable. |
 | Anthropic | Governor path. `httpx<0.28` pin required for anthropic 0.116.0. |
 | No Cassette SDK | Cassettes are in-tree modules, not a versioned SDK. |
 | OTLP | Optional if `OTEL_EXPORTER_OTLP_ENDPOINT` set; not a product telemetry plane. |
-| 93 TODOs | Across kernel/tests. |
+| Open TODO markers | None in the code as of 2026-11-06 (commit 3db93f0). |
 | Commercial | Product *candidate* in regulated industries; **least evidenced**. Freeze lifted 2026-09-11; findings not superseded. |
 | Nested copies | OBSERVE vendors a stale tree of this kernel. Do not edit the wrong copy. |
 
@@ -101,4 +101,4 @@ ICEBURG/ICEBERG   ← lineage; not imported (ICEBERG_* env var names are fossils
 
 Cassettes: IVR, banking, mortgage + CFPB Reg B overlay. New domains belong here as modules, not as forks of the kernel.
 
-Apache-2.0. See `docs/pass3/` for the v3 architecture briefs (investor/auditor/ops) — treat them as briefs, not as "deployable today".
+Apache-2.0. See `docs/pass3/` for the v3 architecture briefs (investor/auditor/ops): treat them as briefs, not as "deployable today".
