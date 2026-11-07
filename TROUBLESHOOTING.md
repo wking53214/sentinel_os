@@ -3,8 +3,8 @@
 Common problems getting the Sentinel OS kernel and its test suite running, and
 how to fix them.
 
-> The authoritative, always-current setup is [`.github/workflows/tests.yml`](.github/workflows/tests.yml)
-> — it installs PostgreSQL and Redis, provisions the `iceberg` role/database and
+> The authoritative, always-current setup is [`.github/workflows/tests.yml`](.github/workflows/tests.yml):
+> it installs PostgreSQL and Redis, provisions the `iceberg` role/database and
 > the twin OS identities, generates a TLS cert, and runs the suite. If a recipe
 > here disagrees with that file, that file is right.
 >
@@ -83,7 +83,7 @@ inside the compose network.
 ### "No module named 'cassettes'" / "No module named 'episode'"
 
 You are running from the wrong directory. The kernel modules are imported
-flat — run from **inside `sentinel_os/`**:
+flat. Run from **inside `sentinel_os/`**:
 
 ```bash
 cd sentinel_os
@@ -100,7 +100,7 @@ pip install -r sentinel_os/requirements.txt
 
 Subprocess-spawning tests (`test_sentinel_worker.py`,
 `test_queue_identity_converter.py`) need it importable by a fresh interpreter,
-not just on your shell's `PYTHONPATH` — a real `pip install` into the active
+not just on your shell's `PYTHONPATH`. A real `pip install` into the active
 environment is required, a `--target` directory is not enough.
 
 ### "pip install fails" / dependency version mismatch
@@ -164,7 +164,7 @@ certificate and point `CERT_FILE` / `KEY_FILE` at it (see `sentinel_os/DEPLOYMEN
 
 ### Tests that `skip` with "requires PostgreSQL" / "requires Redis"
 
-Expected when the infrastructure isn't reachable — the suite skips with a
+Expected when the infrastructure isn't reachable. The suite skips with a
 reason rather than passing silently. Start PostgreSQL and Redis (see above), and
 they run.
 
@@ -191,7 +191,7 @@ python3 -m pytest Tests/test_file.py::test_name -vvs --tb=long
 
 One wall-clock latency assertion is known to be timing-sensitive and passes in
 isolation. Suites that use persistent PostgreSQL/Redis can also fail if the
-daemon is reaped mid-run — restart both and re-run.
+daemon is reaped mid-run. Restart both and re-run.
 
 ---
 
@@ -199,8 +199,8 @@ daemon is reaped mid-run — restart both and re-run.
 
 ### "authorized_by attestation is enforced by default ... Refusing to start"
 
-Since TACK Layer 5 the ledger signs every accountable claim and refuses to
-start without a signing key. Set one (a distinct key per environment, never
+Since TACK Layer 5 the ledger tags every accountable claim with an HMAC under
+the attestation key, and refuses to start without that key. Set one (a distinct key per environment, never
 committed):
 
 ```bash
@@ -224,7 +224,7 @@ the override above is the only opt-out.
 The head anchor is sealed after every append and its location is checked at
 boot. Point the variable at a file in a directory the ledger process can
 write, outside the database, and make sure the attestation key is set (the
-anchor is signed with it). In the compose profile this is the worker's
+anchor is authenticated with it). In the compose profile this is the worker's
 `ledger_anchor` volume.
 
 ### The test suite and the key
@@ -252,12 +252,12 @@ python3 tools/verify_receipts.py --export ledger-export.json \
 ## Docker issues
 
 The governed lane is `docker compose up -d` from `sentinel_os/`. It starts four
-services — `ledger` (PostgreSQL), `redis`, `ingress` (`api_server_v2.py`, port
+services: `ledger` (PostgreSQL), `redis`, `ingress` (`api_server_v2.py`, port
 **8000**), and `worker`.
 
 ### "ICEBERG_API_KEYS ... before starting the governed lane"
 
-The `ingress` service publishes port 8000 to the host, so it requires API keys —
+The `ingress` service publishes port 8000 to the host, so it requires API keys :
 `docker compose up` stops before starting anything if they're unset:
 
 ```bash
@@ -316,13 +316,15 @@ curl -fs http://localhost:8000/health
 
 ## Claude API key problems
 
-The Claude governor client lives in the [GSA-815](https://github.com/wking53214/GSA-815)
-repo, not this kernel — `CLAUDE_API_KEY` is not read here directly. If you are
-running the IVR application layer and its governor calls fail:
+The Claude governor class is imported from `claude_governance_api`, which is not
+in this repo (it lives in the [GSA-815](https://github.com/wking53214/GSA-815)
+repo). This kernel does read `CLAUDE_API_KEY`: the sentinel worker and the
+recommendation-impact runner pass it to that class. If you are running the IVR
+application layer and its governor calls fail:
 
-- A missing or invalid key makes the governor **fail closed** — it returns
-  `approved=false`, `risk_level=critical`. That is working as designed, not a
-  bug to route around.
+- A missing or invalid key makes the governor **fail closed**: it returns
+  `approved=false`, `risk_level=critical`. That is the designed behaviour
+  (documented in GSA-815; not verified in this repo), not a bug to route around.
 - Check the key format (`sk-ant-...`) and that outbound HTTPS to
   `api.anthropic.com` works.
 
