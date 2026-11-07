@@ -22,6 +22,7 @@
 | `ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE` | unset | Dev-only. When truthy, attestation is not enforced: the ledger starts without a key, accountable claims are written unsigned, no `attestation_policy` marker is appended, and a loud warning is printed at startup. Never set it in a production profile. |
 | `ICEBERG_LEDGER_REQUIRE_ATTESTATION` | (on) | Kept for compatibility. Enforcement is on by default: an unsigned `authorized_by` claim is refused, the ledger refuses to start without a signing key, a `retired_key` row is a `verify_chain` violation. A falsy value is ignored (with a warning); only the override above switches enforcement off. |
 | `ICEBERG_LEDGER_ANCHOR_PATH` | unset | Where the ledger seals its head hash and row count after every append (TACK Layer 5). Outside the database, on a path the ledger service cannot reach; the compose profile mounts it on the worker only. Verified writable at boot when set. |
+| `TWIN_CUSTOMER_KEYS_FILE` | unset | Path to a JSON object that maps each twin replica id to its customer's Ed25519 public key (base64). Only ids listed here can register with the twin receiver. Unset, missing, unreadable or malformed means every registration is refused. Reread on every registration, so adding a customer needs no restart. |
 | `PORT` | `9090` | API server port |
 | `CERT_FILE` / `KEY_FILE` | `./certs/cert.pem` / `./certs/key.pem` | TLS cert/key paths |
 

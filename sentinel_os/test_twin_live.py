@@ -338,12 +338,28 @@ def receiver(dbname: str, site: str = "site-a"):
     with spawn_as("twincustomer", [PY, "twin_receiver.py"],
                   {"TWIN_RECEIVER_DSN": f"dbname={dbname}",
                    "TWIN_RECEIVER_PORT": str(port),
-                   "TWIN_RECEIVER_SITE": site},
+                   "TWIN_RECEIVER_SITE": site,
+                   "TWIN_CUSTOMER_KEYS_FILE": PINNED_KEYS_PATH},
                   f"http://127.0.0.1:{port}/health"):
         yield f"http://127.0.0.1:{port}", dbname, port
 
 
 READ_TOKENS: Dict[str, str] = {}  # replica_id -> read token, set at registration
+
+# Operator-side pinned customer keys read by the receivers this test starts.
+PINNED_KEYS_PATH = "/tmp/twin_live_pinned_customer_keys.json"  # nosec B108 -- test-only, per run
+
+
+def _pin_customer_key(replica_id: str, customer_sign_pub: str) -> None:
+    try:
+        with open(PINNED_KEYS_PATH) as fh:
+            pins = json.load(fh)
+    except (OSError, ValueError):
+        pins = {}
+    pins[replica_id] = customer_sign_pub
+    with open(PINNED_KEYS_PATH, "w") as fh:
+        json.dump(pins, fh)
+    os.chmod(PINNED_KEYS_PATH, 0o644)  # the receiver runs as another OS user
 
 
 def read_auth(replica_id: str) -> Dict[str, str]:
@@ -364,6 +380,8 @@ def register_replica(url: str, replica_id: str, keys: Dict[str, str],  # nosec B
             "customer_sign_pub": keys["spub"], "ship_token": ship_token,
             "read_token": read_token,
             "max_lag_seconds": max_lag, "is_primary_evidence": primary_evidence}
+    _pin_customer_key(replica_id, keys["spub"])
+    body["registration_signature"] = tc.sign_registration(replica_id, body, keys["spriv"])
     r = httpx.post(f"{url}/replica/{replica_id}/register", json=body, timeout=10)
     r.raise_for_status()
     return r.json()
@@ -654,7 +672,8 @@ def test_offline_replica_backs_up_then_recovers(customer_keys, tmp_path):
     # Register while UP, then take it down for the first sync.
     with spawn_as("twincustomer", [PY, "twin_receiver.py"],
                   {"TWIN_RECEIVER_DSN": "dbname=twin_live_off",
-                   "TWIN_RECEIVER_PORT": str(port), "TWIN_RECEIVER_SITE": "site-a"},
+                   "TWIN_RECEIVER_PORT": str(port), "TWIN_RECEIVER_SITE": "site-a",
+                   "TWIN_CUSTOMER_KEYS_FILE": PINNED_KEYS_PATH},
                   f"http://127.0.0.1:{port}/health"):
         register_replica(f"http://127.0.0.1:{port}", r, customer_keys, ship_token="tok-off")
     ship(tp)  # enqueues 2 while receiver is DOWN
@@ -666,7 +685,8 @@ def test_offline_replica_backs_up_then_recovers(customer_keys, tmp_path):
     # bring the receiver back and let backoff elapse (base 1s + jitter<=250ms)
     with spawn_as("twincustomer", [PY, "twin_receiver.py"],
                   {"TWIN_RECEIVER_DSN": "dbname=twin_live_off",
-                   "TWIN_RECEIVER_PORT": str(port), "TWIN_RECEIVER_SITE": "site-a"},
+                   "TWIN_RECEIVER_PORT": str(port), "TWIN_RECEIVER_SITE": "site-a",
+                   "TWIN_CUSTOMER_KEYS_FILE": PINNED_KEYS_PATH},
                   f"http://127.0.0.1:{port}/health"):
         time.sleep(1.6)
         sync()

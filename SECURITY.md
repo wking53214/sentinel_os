@@ -54,15 +54,16 @@ what `verify_chain()` proves and does not. In short:
   require the replica's ship token. **Reads** (meta, head, entries,
   custody-log) require the customer's read token. A replica registered without
   a read token refuses every read.
-- **Registration takes no credential.** The trust boundary is the local machine
-  and the database login. Production deployments must put the customer's own
-  authentication in front of registration (see `twin_attestation_spec_v1.md`,
-  section 4.6).
-- **Registration is first-come.** Whoever registers an unused replica id first
-  holds its ship token. Registering again with the same credentials is a no-op.
-  Registering with different credentials returns a conflict (409), so a
-  customer whose id was claimed sees the conflict rather than a silent success.
-  That makes a claim visible; it does not prevent one.
+- **Registration needs an operator-pinned customer key.** Only replica ids the
+  operator has pinned can register. The pins come from the file named by
+  `TWIN_CUSTOMER_KEYS_FILE`, reread on every request; a missing or unreadable
+  file pins nothing, so registration fails closed. Each registration must be
+  signed by the pinned customer key over its fields, including the ship and
+  read tokens. Repeating the same registration is a no-op; a different one for
+  an existing id returns a conflict (409). The trust boundary is the operator's
+  pin file, the customer's private key, and the local machine and database
+  login. Production deployments must still restrict who can reach the receiver
+  (see `twin_attestation_spec_v1.md`, section 4.6).
 
 Other disclosed limitations are in the root README's **Brutally Honest Current
 Status & Gaps** section (section 4) and in the Known Limitations section of

@@ -111,7 +111,7 @@ The receiver runs under the customer's credentials against a database the operat
 
 | Method + path | Auth | Behavior |
 |---|---|---|
-| `POST /register` | none¹ | Create replica metadata (custody model, recipient pub + fp, customer signing pub, ship token, read token, SLA `max_lag_seconds`, `retention_days`, `is_primary_evidence`). Idempotent. A replica registered without a read token refuses every read. |
+| `POST /register` | pinned customer key + signature¹ | Create replica metadata (custody model, recipient pub + fp, customer signing pub, ship token, read token, SLA `max_lag_seconds`, `retention_days`, `is_primary_evidence`). Idempotent. A replica registered without a read token refuses every read. |
 | `GET  /meta` | `Bearer <read_token>` | Metadata minus both tokens. |
 | `POST /entries` | `Bearer <ship_token>` | Store one sealed entry. **Append-only + idempotent** — see §4.1. |
 | `GET  /head` | `Bearer <read_token>` | `{max_primary_id, count}`. |
@@ -119,7 +119,7 @@ The receiver runs under the customer's credentials against a database the operat
 | `POST /custody-event` | `Bearer <ship_token>` | Append a customer-signed custody event to the hash-chained custody log — see §5. |
 | `GET  /custody-log` | `Bearer <read_token>` | The full custody log for regulator verification. |
 
-¹ Registration is unauthenticated in the reference implementation, which binds `127.0.0.1`; the database credential is the trust boundary. A production deployment fronts it with the customer's own authentication (§4.6). The ship token guards the write routes, and the ship-token check on `POST /entries` is always enforced because it is what stops an unauthorized party writing history into the replica. The read token is held by the customer, so a detector or regulator can read without the ship token. The obligation and cohort-review routes, which also take the ship token, are not listed in this table.
+¹ Registration requires an operator-pinned customer key and a signature from it (`TWIN_CUSTOMER_KEYS_FILE`). The reference implementation binds `127.0.0.1`, and the database credential is the remaining trust boundary. A production deployment still fronts the receiver with the customer's own authentication (§4.6). The ship token guards the write routes, and the ship-token check on `POST /entries` is always enforced because it is what stops an unauthorized party writing history into the replica. The read token is held by the customer, so a detector or regulator can read without the ship token. The obligation and cohort-review routes, which also take the ship token, are not listed in this table.
 
 ### 4.1 Append-only and idempotency
 
