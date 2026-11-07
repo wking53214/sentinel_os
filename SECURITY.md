@@ -54,6 +54,9 @@ what `verify_chain()` proves and does not. In short:
   require the replica's ship token. **Reads** (meta, head, entries,
   custody-log) require the customer's read token. A replica registered without
   a read token refuses every read.
+- **Registration needs an operator secret.** `POST /replica/{id}/register` requires
+  the Bearer token in `TWIN_RECEIVER_REGISTRATION_SECRET`. Unset, it refuses every
+  registration (503); a wrong token is refused (401).
 - **Registration needs an operator-pinned customer key.** Only replica ids the
   operator has pinned can register. The pins come from the file named by
   `TWIN_CUSTOMER_KEYS_FILE`, reread on every request; a missing or unreadable

@@ -272,7 +272,18 @@ def build_app(dsn: str, site: str,
         return {"ok": True, "site": site}
 
     @app.post("/replica/{replica_id}/register")
-    def register(replica_id: str, body: Dict[str, Any]):
+    def register(replica_id: str, body: Dict[str, Any],
+                 authorization: Optional[str] = Header(default=None)):
+        # Registration is operator-only. The operator's secret comes from the
+        # environment. If it is unset, registration is refused entirely
+        # (fail closed) rather than falling back to a default.
+        operator_secret = os.environ.get("TWIN_RECEIVER_REGISTRATION_SECRET", "")
+        if not operator_secret:
+            raise HTTPException(status_code=503,
+                                detail="registration disabled: operator secret not configured")
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        if not token or not hmac.compare_digest(token, operator_secret):
+            raise HTTPException(status_code=401, detail="bad operator token")
         required = ("custody_model", "recipient_pub", "recipient_fp",
                     "customer_sign_pub", "ship_token")
         missing = [f for f in required if not body.get(f)]

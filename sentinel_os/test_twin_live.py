@@ -37,11 +37,15 @@ import psycopg2
 import psycopg2.extras
 import pytest
 import redis
+import secrets
 
 import twin_custody as tc
 from twin_detector import OptionADecryptor, OptionDDecryptor, run_detection
 from twin_sync_worker import SYNC_QUEUE_NAME
 from queue_schema import TransmissionQueue
+
+# Per-run operator secret for the register route (fresh on every run; never a fixed value).
+os.environ.setdefault("TWIN_RECEIVER_REGISTRATION_SECRET", secrets.token_hex(32))
 
 REPO = os.path.dirname(os.path.abspath(__file__))
 PY = "python3"
@@ -339,7 +343,8 @@ def receiver(dbname: str, site: str = "site-a"):
                   {"TWIN_RECEIVER_DSN": f"dbname={dbname}",
                    "TWIN_RECEIVER_PORT": str(port),
                    "TWIN_RECEIVER_SITE": site,
-                   "TWIN_CUSTOMER_KEYS_FILE": PINNED_KEYS_PATH},
+                   "TWIN_CUSTOMER_KEYS_FILE": PINNED_KEYS_PATH,
+                   "TWIN_RECEIVER_REGISTRATION_SECRET": os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]},
                   f"http://127.0.0.1:{port}/health"):
         yield f"http://127.0.0.1:{port}", dbname, port
 
@@ -382,7 +387,9 @@ def register_replica(url: str, replica_id: str, keys: Dict[str, str],  # nosec B
             "max_lag_seconds": max_lag, "is_primary_evidence": primary_evidence}
     _pin_customer_key(replica_id, keys["spub"])
     body["registration_signature"] = tc.sign_registration(replica_id, body, keys["spriv"])
-    r = httpx.post(f"{url}/replica/{replica_id}/register", json=body, timeout=10)
+    r = httpx.post(f"{url}/replica/{replica_id}/register",
+                       headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]},
+                       json=body, timeout=10)
     r.raise_for_status()
     return r.json()
 
@@ -673,7 +680,8 @@ def test_offline_replica_backs_up_then_recovers(customer_keys, tmp_path):
     with spawn_as("twincustomer", [PY, "twin_receiver.py"],
                   {"TWIN_RECEIVER_DSN": "dbname=twin_live_off",
                    "TWIN_RECEIVER_PORT": str(port), "TWIN_RECEIVER_SITE": "site-a",
-                   "TWIN_CUSTOMER_KEYS_FILE": PINNED_KEYS_PATH},
+                   "TWIN_CUSTOMER_KEYS_FILE": PINNED_KEYS_PATH,
+                   "TWIN_RECEIVER_REGISTRATION_SECRET": os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]},
                   f"http://127.0.0.1:{port}/health"):
         register_replica(f"http://127.0.0.1:{port}", r, customer_keys, ship_token="tok-off")
     ship(tp)  # enqueues 2 while receiver is DOWN
@@ -686,7 +694,8 @@ def test_offline_replica_backs_up_then_recovers(customer_keys, tmp_path):
     with spawn_as("twincustomer", [PY, "twin_receiver.py"],
                   {"TWIN_RECEIVER_DSN": "dbname=twin_live_off",
                    "TWIN_RECEIVER_PORT": str(port), "TWIN_RECEIVER_SITE": "site-a",
-                   "TWIN_CUSTOMER_KEYS_FILE": PINNED_KEYS_PATH},
+                   "TWIN_CUSTOMER_KEYS_FILE": PINNED_KEYS_PATH,
+                   "TWIN_RECEIVER_REGISTRATION_SECRET": os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]},
                   f"http://127.0.0.1:{port}/health"):
         time.sleep(1.6)
         sync()

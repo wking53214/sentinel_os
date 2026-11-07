@@ -1169,7 +1169,7 @@ def cohort_twin():
     rid = f"c2wire-{uuid.uuid4().hex[:10]}"
     _priv, _pub = _tc.generate_signing_keypair()
     client = TestClient(build_app(_TWIN_DSN, site="test", pinned_customer_keys={rid: _pub}))
-    resp = client.post(f"/replica/{rid}/register", json=_tc.make_registration(rid, _priv, _pub))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_tc.make_registration(rid, _priv, _pub))
     assert resp.status_code == 200, resp.text
     client.replica_id = rid
     client.headers.update({"Authorization": "Bearer tok"})
@@ -1329,7 +1329,7 @@ def test_escalation_fails_open_when_twin_call_is_unauthorized():
     rid = f"c2wire-{uuid.uuid4().hex[:10]}"
     _priv, _pub = _tc.generate_signing_keypair()
     client = TestClient(build_app(_TWIN_DSN, site="test", pinned_customer_keys={rid: _pub}))
-    resp = client.post(f"/replica/{rid}/register", json=_tc.make_registration(rid, _priv, _pub))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_tc.make_registration(rid, _priv, _pub))
     assert resp.status_code == 200, resp.text
     # Deliberately NOT setting the Authorization header -- proves the
     # fail-open path, not just a happy path with a valid token.

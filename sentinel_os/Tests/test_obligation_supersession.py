@@ -10,6 +10,7 @@ are tested against a real ledger and a real twin instance -- same posture
 as test_obligation_sweep.py: no mocked governance code.
 """
 
+import os
 import uuid
 
 import twin_custody as _tc
@@ -154,7 +155,7 @@ def twin():
     rid = f"supersession-{uuid.uuid4().hex[:10]}"
     _priv, _pub = _tc.generate_signing_keypair()
     client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: _pub}))
-    resp = client.post(f"/replica/{rid}/register", json=_tc.make_registration(rid, _priv, _pub))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_tc.make_registration(rid, _priv, _pub))
     assert resp.status_code == 200, resp.text
     client.replica_id = rid
     client.ship = {"Authorization": "Bearer tok"}

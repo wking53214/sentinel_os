@@ -1,5 +1,6 @@
 """Registration is accepted only for operator pre-approved replicas, only with
 the pinned customer key, and only with a valid signature from that key."""
+import os
 import uuid
 
 import psycopg2
@@ -40,7 +41,7 @@ def test_unpinned_replica_is_refused():
     priv, pub = generate_signing_keypair()
     rid = f"pin-{uuid.uuid4().hex[:8]}"
     client = TestClient(build_app(DSN, site="test", pinned_customer_keys={}))
-    assert client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub)).status_code == 403
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_signed(priv, rid, pub)).status_code == 403
 
 
 def test_no_pinned_file_refuses_everything():
@@ -48,7 +49,7 @@ def test_no_pinned_file_refuses_everything():
     priv, pub = generate_signing_keypair()
     rid = f"pin-{uuid.uuid4().hex[:8]}"
     client = TestClient(build_app(DSN, site="test", pinned_customer_keys=None))
-    assert client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub)).status_code == 403
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_signed(priv, rid, pub)).status_code == 403
 
 
 def test_key_in_body_must_match_pinned_key():
@@ -57,7 +58,7 @@ def test_key_in_body_must_match_pinned_key():
     _, other_pub = generate_signing_keypair()
     rid = f"pin-{uuid.uuid4().hex[:8]}"
     client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: pub}))
-    resp = client.post(f"/replica/{rid}/register", json=_signed(priv, rid, other_pub))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_signed(priv, rid, other_pub))
     assert resp.status_code == 403
 
 
@@ -66,10 +67,10 @@ def test_missing_or_wrong_signature_is_refused():
     priv, pub = generate_signing_keypair()
     rid = f"pin-{uuid.uuid4().hex[:8]}"
     client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: pub}))
-    assert client.post(f"/replica/{rid}/register", json=_body(pub)).status_code == 401
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_body(pub)).status_code == 401
     tampered = _signed(priv, rid, pub)
     tampered["ship_token"] = "swapped"
-    assert client.post(f"/replica/{rid}/register", json=tampered).status_code == 401
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=tampered).status_code == 401
 
 
 def test_correctly_signed_registration_is_accepted():
@@ -77,7 +78,7 @@ def test_correctly_signed_registration_is_accepted():
     priv, pub = generate_signing_keypair()
     rid = f"pin-{uuid.uuid4().hex[:8]}"
     client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: pub}))
-    resp = client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_signed(priv, rid, pub))
     assert resp.status_code == 200, resp.text
     assert resp.json()["created"] is True
 
@@ -94,9 +95,9 @@ def test_operator_file_is_reread_without_restart(tmp_path, monkeypatch):
     priv, pub = generate_signing_keypair()
     rid = f"pin-{uuid.uuid4().hex[:8]}"
     client = TestClient(build_app(DSN, site="test"))
-    assert client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub)).status_code == 403
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_signed(priv, rid, pub)).status_code == 403
     pins.write_text(json.dumps({rid: pub}))
-    resp = client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_signed(priv, rid, pub))
     assert resp.status_code == 200, resp.text
 
 
@@ -107,4 +108,4 @@ def test_unreadable_pinned_file_fails_closed(tmp_path, monkeypatch):
     priv, pub = generate_signing_keypair()
     rid = f"pin-{uuid.uuid4().hex[:8]}"
     client = TestClient(build_app(DSN, site="test"))
-    assert client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub)).status_code == 403
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_signed(priv, rid, pub)).status_code == 403

@@ -14,6 +14,7 @@ optional and verified by whoever reads the chain") shared with custody_log,
 not part of AC-13, and not touched by this fix.
 """
 
+import os
 import uuid
 
 import twin_custody as _tc
@@ -57,7 +58,7 @@ def twin():
     rid = f"auth-{uuid.uuid4().hex[:10]}"
     priv, pub = _tc.generate_signing_keypair()
     client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: pub}))
-    resp = client.post(f"/replica/{rid}/register", json=_tc.make_registration(
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_tc.make_registration(
         rid, priv, pub, read_token="read-tok"))
     assert resp.status_code == 200, resp.text
     client.replica_id = rid
@@ -205,7 +206,7 @@ def test_replica_registered_without_read_token_refuses_every_read(twin):
     rid = f"noread-{uuid.uuid4().hex[:10]}"
     priv, pub = _tc.generate_signing_keypair()
     client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: pub}))
-    resp = client.post(f"/replica/{rid}/register", json=_tc.make_registration(rid, priv, pub))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_tc.make_registration(rid, priv, pub))
     assert resp.status_code == 200, resp.text
     for path in READ_ROUTES:
         url = f"/replica/{rid}/{path}"
@@ -233,8 +234,8 @@ def test_repeating_the_same_registration_is_idempotent():
     rid = f"idem-{uuid.uuid4().hex[:10]}"
     client, priv, pub = _pinned_client(rid)
     body = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token="read-tok")
-    first = client.post(f"/replica/{rid}/register", json=body)
-    again = client.post(f"/replica/{rid}/register", json=body)
+    first = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=body)
+    again = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=body)
     assert first.status_code == 200 and first.json()["created"] is True
     assert again.status_code == 200 and again.json()["created"] is False
 
@@ -243,26 +244,26 @@ def test_a_different_ship_token_for_a_registered_replica_is_a_conflict():
     rid = f"ship-{uuid.uuid4().hex[:10]}"
     client, priv, pub = _pinned_client(rid)
     ok = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token="read-tok")
-    assert client.post(f"/replica/{rid}/register", json=ok).status_code == 200
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=ok).status_code == 200
     other = _tc.make_registration(rid, priv, pub, ship_token="someone-else",
                                   read_token="read-tok")
-    assert client.post(f"/replica/{rid}/register", json=other).status_code == 409
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=other).status_code == 409
 
 
 def test_a_different_read_token_for_a_registered_replica_is_a_conflict():
     rid = f"read-{uuid.uuid4().hex[:10]}"
     client, priv, pub = _pinned_client(rid)
     ok = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token="read-tok")
-    assert client.post(f"/replica/{rid}/register", json=ok).status_code == 200
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=ok).status_code == 200
     other = _tc.make_registration(rid, priv, pub, ship_token="tok",
                                   read_token="someone-elses-read")
-    assert client.post(f"/replica/{rid}/register", json=other).status_code == 409
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=other).status_code == 409
 
 
 def test_adding_a_read_token_to_a_replica_registered_without_one_is_a_conflict():
     rid = f"noread-{uuid.uuid4().hex[:10]}"
     client, priv, pub = _pinned_client(rid)
     ok = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token=None)
-    assert client.post(f"/replica/{rid}/register", json=ok).status_code == 200
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=ok).status_code == 200
     other = _tc.make_registration(rid, priv, pub, ship_token="tok", read_token="now-set")
-    assert client.post(f"/replica/{rid}/register", json=other).status_code == 409
+    assert client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=other).status_code == 409
