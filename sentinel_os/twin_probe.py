@@ -32,12 +32,13 @@ import httpx
 
 from twin_custodian import verify_audit_log
 from twin_custody import canonical_json, verify_signature
-from twin_detector import OptionADecryptor, OptionDDecryptor, detect
+from twin_detector import OptionADecryptor, OptionDDecryptor, detect, read_headers
 
 
-def verify_custody_log(receiver_url: str, replica_id: str) -> Dict[str, Any]:
+def verify_custody_log(receiver_url: str, replica_id: str,
+                       read_token: Optional[str] = None) -> Dict[str, Any]:
     r = httpx.get(f"{receiver_url.rstrip('/')}/replica/{replica_id}/custody-log",
-                  timeout=10.0)
+                  headers=read_headers(read_token), timeout=10.0)
     r.raise_for_status()
     events = r.json()["events"]
     prev = "genesis"
@@ -78,7 +79,8 @@ def custodian_attestation(custodian_url: str, replica_id: str) -> Dict[str, Any]
 def run_probe(receiver_url: str, replica_id: str, feed_dsn: str,
               submission_record: Optional[str], sla_seconds: Optional[int],
               key_file: Optional[str], custodian_url: Optional[str],
-              sign_key_file: Optional[str], requester: str) -> Dict[str, Any]:
+              sign_key_file: Optional[str], requester: str,
+              read_token: Optional[str] = None) -> Dict[str, Any]:
     decryptor = None
     if key_file:
         decryptor = OptionADecryptor(open(key_file).read().strip())
@@ -86,8 +88,8 @@ def run_probe(receiver_url: str, replica_id: str, feed_dsn: str,
         decryptor = OptionDDecryptor(custodian_url, replica_id,
                                      open(sign_key_file).read().strip(), requester)
     detection = detect(receiver_url, replica_id, feed_dsn, submission_record,
-                       sla_seconds, decryptor)
-    custody_log = verify_custody_log(receiver_url, replica_id)
+                       sla_seconds, decryptor, read_token=read_token)
+    custody_log = verify_custody_log(receiver_url, replica_id, read_token)
     custodian = (custodian_attestation(custodian_url, replica_id)
                  if custodian_url else None)
     ok = (detection["verdict"] == "CLEAN" and custody_log.get("ok")
@@ -108,10 +110,13 @@ def main() -> None:
     ap.add_argument("--custodian-url", default=None)
     ap.add_argument("--sign-key-file", default=None)
     ap.add_argument("--requester", default="regulator-probe")
+    ap.add_argument("--read-token", default=None,
+                    help="customer-held read-only token for the receiver's read routes")
     args = ap.parse_args()
     report = run_probe(args.receiver_url, args.replica_id, args.feed_dsn,
                        args.submission_record, args.sla_seconds, args.key_file,
-                       args.custodian_url, args.sign_key_file, args.requester)
+                       args.custodian_url, args.sign_key_file, args.requester,
+                       read_token=args.read_token)
     print(json.dumps(report, indent=2, default=str))
     sys.exit(0 if report["conformant"] else 2)
 
