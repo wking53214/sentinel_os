@@ -1,5 +1,6 @@
 import sys
 import os
+import secrets
 
 import pytest
 
@@ -20,6 +21,10 @@ def ensure_test_cwd():
 # Add parent directory to path so tests can import modules
 parent = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, parent)
+
+# Operator secret for the twin register route (fail-closed when unset).
+# Generated per run, so no key is hard-coded in the suite.
+os.environ.setdefault("TWIN_RECEIVER_REGISTRATION_SECRET", secrets.token_hex(32))
 
 
 def pytest_pyfunc_call(pyfuncitem):
