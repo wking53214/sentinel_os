@@ -111,15 +111,15 @@ The receiver runs under the customer's credentials against a database the operat
 
 | Method + path | Auth | Behavior |
 |---|---|---|
-| `POST /register` | none¹ | Create replica metadata (custody model, recipient pub + fp, customer signing pub, ship token, SLA `max_lag_seconds`, `retention_days`, `is_primary_evidence`). Idempotent. |
-| `GET  /meta` | none | Metadata minus the ship token. |
+| `POST /register` | none¹ | Create replica metadata (custody model, recipient pub + fp, customer signing pub, ship token, read token, SLA `max_lag_seconds`, `retention_days`, `is_primary_evidence`). Idempotent. A replica registered without a read token refuses every read. |
+| `GET  /meta` | `Bearer <read_token>` | Metadata minus both tokens. |
 | `POST /entries` | `Bearer <ship_token>` | Store one sealed entry. **Append-only + idempotent** — see §4.1. |
-| `GET  /head` | none | `{max_primary_id, count}`. |
-| `GET  /entries?after_id=&limit=` | none | Entries ordered by `primary_id`. |
-| `POST /custody-event` | none¹ | Append a customer-signed custody event to the hash-chained custody log — see §5. |
-| `GET  /custody-log` | none | The full custody log for regulator verification. |
+| `GET  /head` | `Bearer <read_token>` | `{max_primary_id, count}`. |
+| `GET  /entries?after_id=&limit=` | `Bearer <read_token>` | Entries ordered by `primary_id`. |
+| `POST /custody-event` | `Bearer <ship_token>` | Append a customer-signed custody event to the hash-chained custody log — see §5. |
+| `GET  /custody-log` | `Bearer <read_token>` | The full custody log for regulator verification. |
 
-¹ Registration, custody-event, and the read routes are unauthenticated in the reference implementation, which binds `127.0.0.1`; the database credential is the trust boundary. A production deployment fronts these with the customer's own authentication (§4.6). The `/entries` ship-token check is always enforced because it is what stops an unauthorized party writing history into the replica.
+¹ Registration is unauthenticated in the reference implementation, which binds `127.0.0.1`; the database credential is the trust boundary. A production deployment fronts it with the customer's own authentication (§4.6). The ship token guards the write routes, and the ship-token check on `POST /entries` is always enforced because it is what stops an unauthorized party writing history into the replica. The read token is held by the customer, so a detector or regulator can read without the ship token. The obligation and cohort-review routes, which also take the ship token, are not listed in this table.
 
 ### 4.1 Append-only and idempotency
 
@@ -247,7 +247,7 @@ The probe is the regulator's one-command red button, run on customer-side inputs
 ```
 twin_probe.py --receiver-url URL --replica-id ID --feed-dsn DSN \
   [--submission-record FILE] [--sla-seconds N] \
-  [--key-file KEY | --custodian-url URL --sign-key-file KEY]
+  [--read-token TOKEN] [--key-file KEY | --custodian-url URL --sign-key-file KEY]
 ```
 
 It emits a single JSON object and exits `0` iff conformant, `2` otherwise:
