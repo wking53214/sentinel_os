@@ -78,7 +78,7 @@ Required by D1 alongside the claims below. Full detail and runnable verification
 **Requirement:** High-risk AI systems must have mitigation strategies and fail-safe defaults.
 
 **Sentinel's Compliance:**
-- ✅ **Fail-closed on all errors:** verified live, 11/11 adversarial governor error paths, no API client, JSON parse failure, timeout, or type-validation failure ever produces an approval.
+- ✅ **Fail-closed on all errors:** enforced by `Tests/test_governance_harness_stress.py` (hostile responses, transport errors, and a decider returning None), and checked against the ledger with the `AUDIT_PLAYBOOK.md` §7.1 query. No API client, JSON parse failure, timeout, or type-validation failure should produce an approval. The earlier "11/11" count was a one-time live check and is not reproducible from the repository.
 - ✅ **Human review with formal supersession:** decisions are human-readable at any time, and a reviewer with authority can record a formal `decision_supersession` within Sentinel, referencing the original by hash, recording authority/reason/corrected outcome, leaving the original row immutable. Disagreement is now captured *inside* the record, not outside it.
 - ✅ **Human concur/override/escalate is now captured too, separately from supersession:** `record_human_selection` (F2) records a reviewer's response to the governor's own verdict, narrower than a formal supersession (no corrected outcome, no authority claim), for the lighter-weight case of "a human looked at this and agreed/disagreed/routed it elsewhere." It is now reachable through two authenticated routes on `api_server_v2.py`: the reviewer's name comes from the API key's configured principal, never from the request body, and the write is refused unless the stored decision's cassette integrity verified. The routes are tested end to end over HTTP against a real PostgreSQL ledger (`Tests/test_human_review_endpoints_e2e.py`), and against a stand-in ledger in `test_api_server_v2.py`; the stand-in accepts any string, which is how the uppercase-versus-lowercase defect fixed on October 21 went unseen. There is no review UI, and nothing in this repo calls the routes.
 - ✅ **Real-time monitoring:** Prometheus metrics track decision rate, approval rate, error rate, rejection rate.
@@ -174,7 +174,7 @@ Sentinel ships a customer-held-key witness replica ("the twin") that turns the p
 | Policy transparency (decision logic) | ✅ | `cassette_code_hash` covers decision code + declared governance imports (source-hash ceiling) | Known Limitations |
 | Explainability | ✅ | Intent + friction + reasoning in record | `AUDIT_PLAYBOOK.md` §7.2 |
 | Auditability | ✅ | Reconstruction queries provided | `AUDIT_PLAYBOOK.md` |
-| Fail-safe defaults | ✅ | 11/11 error paths verified live → `approved=false` | `AUDIT_PLAYBOOK.md` §7.1 |
+| Fail-safe defaults | ✅ | Error paths tested in `test_governance_harness_stress.py`; ledger check → `approved=false` | `AUDIT_PLAYBOOK.md` §7.1 |
 | Error handling | ✅ | No silent failures; all logged | `AUDIT_PLAYBOOK.md` §7.4 |
 | Human override (formal supersession) | ✅ | `decision_supersession` chain entry, links original by hash, original immutable | Known Limitations |
 | Human selection capture (concur/override/escalate) | ✅ built, ⚠️ API only | `record_human_selection` (F2), reachable through `POST /governance/decisions/{decision_id}/human-selection` on `api_server_v2.py`; no review UI; tested end to end over HTTP on a real ledger | Recordkeeping & Audit Trail |
