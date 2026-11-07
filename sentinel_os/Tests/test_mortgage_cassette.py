@@ -182,7 +182,7 @@ def test_resolution_types_are_exactly_the_two_locked_paths():
 # ---------------------------------------------------------------------------
 
 def _reason_scenario(candidate_reason, options=("specific", "generic"), zone=None):
-    from interpretation.scenarios import Scenario
+    from scenario_model import Scenario
     return Scenario(
         regulation_id="cfpb-ecoa-reg-b",
         zone=zone if zone is not None else ZONE_ADVERSE_ACTION_REASON_SPECIFICITY,
@@ -223,7 +223,7 @@ def test_resolve_scenario_declines_a_different_options_shape():
 
 
 def test_resolve_scenario_declines_a_missing_candidate_reason():
-    from interpretation.scenarios import Scenario
+    from scenario_model import Scenario
     scenario = Scenario(
         regulation_id="cfpb-ecoa-reg-b",
         zone=ZONE_ADVERSE_ACTION_REASON_SPECIFICITY,

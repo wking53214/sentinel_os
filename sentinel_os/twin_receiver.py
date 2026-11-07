@@ -44,7 +44,7 @@ import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from twin_custody import canonical_json
+from twin_custody import canonical_json, verify_registration
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS replica_meta (
@@ -198,7 +198,36 @@ def _structurally_valid_envelope(env: Any) -> Optional[str]:
     return None
 
 
-def build_app(dsn: str, site: str) -> FastAPI:
+def _load_pinned_customer_keys(path: Optional[str]) -> Dict[str, str]:
+    """Operator-written map of replica id -> customer public key (base64).
+
+    Empty when no file is configured, which makes every registration refused
+    (fail closed). Nothing here is a default key.
+    """
+    if not path:
+        return {}
+    with open(path) as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and v for k, v in data.items()):
+        raise ValueError("pinned customer keys file must map replica ids to public keys")
+    return dict(data)
+
+
+def build_app(dsn: str, site: str,
+              pinned_customer_keys: Optional[Dict[str, str]] = None) -> FastAPI:
+    # An explicit map is used as given (tests). Otherwise the operator's file is
+    # reread on every registration, so a new customer is added by editing one
+    # file, with no restart. A file that is missing or unreadable pins nothing,
+    # so registration fails closed.
+    def current_pins() -> Dict[str, str]:
+        if pinned_customer_keys is not None:
+            return pinned_customer_keys
+        try:
+            return _load_pinned_customer_keys(os.environ.get("TWIN_CUSTOMER_KEYS_FILE"))
+        except (OSError, ValueError):
+            return {}
+
     pool = psycopg2.pool.ThreadedConnectionPool(1, 8, dsn)
 
     @contextmanager
@@ -260,6 +289,20 @@ def build_app(dsn: str, site: str) -> FastAPI:
         missing = [f for f in required if not body.get(f)]
         if missing:
             raise HTTPException(status_code=422, detail=f"missing: {missing}")
+        # Only operator pre-approved replicas may register, and only with the
+        # customer's pinned key and a valid signature from that key.
+        pinned_key = current_pins().get(replica_id)
+        if not pinned_key:
+            raise HTTPException(status_code=403, detail="replica not pre-approved by operator")
+        if body.get("customer_sign_pub") != pinned_key:
+            raise HTTPException(status_code=403, detail="customer key does not match pinned key")
+        try:
+            signed_ok = verify_registration(replica_id, body,
+                                            body.get("registration_signature") or "", pinned_key)
+        except Exception:
+            signed_ok = False
+        if not signed_ok:
+            raise HTTPException(status_code=401, detail="bad registration signature")
         with db() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -276,6 +319,26 @@ def build_app(dsn: str, site: str) -> FastAPI:
                      bool(body.get("is_primary_evidence", False)),
                      body["ship_token"], body.get("read_token") or None))
                 created = cur.rowcount == 1
+                if not created:
+                    # Already registered: repeating the same registration is
+                    # idempotent, but a different set of credentials is a
+                    # conflict the caller must see, not a silent success.
+                    cur.execute(
+                        "SELECT ship_token, read_token FROM replica_meta WHERE replica_id=%s",
+                        (replica_id,))
+                    stored_ship, stored_read = cur.fetchone()
+                    supplied_read = body.get("read_token") or None
+                    ship_same = hmac.compare_digest(
+                        str(stored_ship).encode(), str(body["ship_token"]).encode())
+                    if stored_read is None or supplied_read is None:
+                        read_same = stored_read is None and supplied_read is None
+                    else:
+                        read_same = hmac.compare_digest(
+                            str(stored_read).encode(), str(supplied_read).encode())
+                    if not (ship_same and read_same):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="replica already registered with different credentials")
         return {"replica_id": replica_id, "site": site, "created": created}
 
     @app.get("/replica/{replica_id}/meta")

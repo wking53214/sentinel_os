@@ -46,6 +46,28 @@ what `verify_chain()` proves and does not. In short:
   is: *internally consistent and operator-attestable today; independently
   verifiable once the twin is accepted as a control.*
 
+### Twin receiver: who can do what
+
+- **Where it listens.** The reference receiver binds to `127.0.0.1` only. The
+  code has no setting to listen on another address.
+- **Writes** (entries, custody events, obligation derivation and transition)
+  require the replica's ship token. **Reads** (meta, head, entries,
+  custody-log) require the customer's read token. A replica registered without
+  a read token refuses every read.
+- **Registration needs an operator secret.** `POST /replica/{id}/register` requires
+  the Bearer token in `TWIN_RECEIVER_REGISTRATION_SECRET`. Unset, it refuses every
+  registration (503); a wrong token is refused (401).
+- **Registration needs an operator-pinned customer key.** Only replica ids the
+  operator has pinned can register. The pins come from the file named by
+  `TWIN_CUSTOMER_KEYS_FILE`, reread on every request; a missing or unreadable
+  file pins nothing, so registration fails closed. Each registration must be
+  signed by the pinned customer key over its fields, including the ship and
+  read tokens. Repeating the same registration is a no-op; a different one for
+  an existing id returns a conflict (409). The trust boundary is the operator's
+  pin file, the customer's private key, and the local machine and database
+  login. Production deployments must still restrict who can reach the receiver
+  (see `twin_attestation_spec_v1.md`, section 4.6).
+
 Other disclosed limitations are in the root README's **Brutally Honest Current
 Status & Gaps** section (section 4) and in the Known Limitations section of
 `sentinel_os/COMPLIANCE.md`. A documented limitation is

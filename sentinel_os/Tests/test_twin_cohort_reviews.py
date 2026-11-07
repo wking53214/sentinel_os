@@ -8,6 +8,8 @@ posture as every other record kind here.
 import os
 import uuid
 
+import twin_custody as _tc
+
 import psycopg2
 import pytest
 from fastapi.testclient import TestClient
@@ -32,11 +34,10 @@ pytestmark = pytest.mark.skipif(
 def twin():
     from twin_receiver import build_app
 
-    client = TestClient(build_app(DSN, site="test"))
     rid = f"review-{uuid.uuid4().hex[:10]}"
-    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json={
-        "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
-        "customer_sign_pub": "y", "ship_token": "tok"})
+    _priv, _pub = _tc.generate_signing_keypair()
+    client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: _pub}))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_tc.make_registration(rid, _priv, _pub))
     assert resp.status_code == 200, resp.text
     client.replica_id = rid
     client.ship = {"Authorization": "Bearer tok"}

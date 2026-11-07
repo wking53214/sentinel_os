@@ -33,6 +33,8 @@ import os
 import sys
 import uuid
 
+import twin_custody as _tc
+
 import psycopg2
 import pytest
 from fastapi.testclient import TestClient
@@ -1164,11 +1166,10 @@ def _mortgage_episode(episode_id=None):
 @pytest.fixture
 def cohort_twin():
     from twin_receiver import build_app
-    client = TestClient(build_app(_TWIN_DSN, site="test"))
     rid = f"c2wire-{uuid.uuid4().hex[:10]}"
-    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json={
-        "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
-        "customer_sign_pub": "y", "ship_token": "tok"})
+    _priv, _pub = _tc.generate_signing_keypair()
+    client = TestClient(build_app(_TWIN_DSN, site="test", pinned_customer_keys={rid: _pub}))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_tc.make_registration(rid, _priv, _pub))
     assert resp.status_code == 200, resp.text
     client.replica_id = rid
     client.headers.update({"Authorization": "Bearer tok"})
@@ -1325,11 +1326,10 @@ def test_escalation_fails_open_when_twin_call_is_unauthorized():
     must swallow that and let judgment proceed exactly as if no twin
     were configured, not take live judgment down with it."""
     from twin_receiver import build_app
-    client = TestClient(build_app(_TWIN_DSN, site="test"))
     rid = f"c2wire-{uuid.uuid4().hex[:10]}"
-    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json={
-        "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
-        "customer_sign_pub": "y", "ship_token": "tok"})
+    _priv, _pub = _tc.generate_signing_keypair()
+    client = TestClient(build_app(_TWIN_DSN, site="test", pinned_customer_keys={rid: _pub}))
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json=_tc.make_registration(rid, _priv, _pub))
     assert resp.status_code == 200, resp.text
     # Deliberately NOT setting the Authorization header -- proves the
     # fail-open path, not just a happy path with a valid token.
