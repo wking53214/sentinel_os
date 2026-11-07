@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS replica_entries (
 CREATE INDEX IF NOT EXISTS idx_replica_entries_sid ON replica_entries (replica_id, call_sid);
 ALTER TABLE replica_entries ADD COLUMN IF NOT EXISTS outcome_obligation TEXT;
 ALTER TABLE replica_entries ADD COLUMN IF NOT EXISTS decided_at DOUBLE PRECISION;
+ALTER TABLE replica_meta ADD COLUMN IF NOT EXISTS read_token TEXT;
 -- Cohort assembly needs to group obligations by domain, not just by
 -- obligation_kind (two unrelated cassettes could legitimately pick the same
 -- obligation_kind string). Shipped in the clear, same posture as
@@ -241,15 +242,17 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 cur.execute(
                     """INSERT INTO replica_meta (replica_id, site, custody_model,
                          recipient_pub, recipient_fp, customer_sign_pub,
-                         max_lag_seconds, retention_days, is_primary_evidence, ship_token)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         max_lag_seconds, retention_days, is_primary_evidence, ship_token,
+                         read_token)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (replica_id) DO NOTHING""",
                     (replica_id, site, body["custody_model"], body["recipient_pub"],
                      body["recipient_fp"], body["customer_sign_pub"],
                      int(body.get("max_lag_seconds", 30)),
                      int(body.get("retention_days", 2557)),
                      bool(body.get("is_primary_evidence", False)),
-                     body["ship_token"]))
+                     body["ship_token"],
+                     body.get("read_token")))
                 created = cur.rowcount == 1
         return {"replica_id": replica_id, "site": site, "created": created}
 
