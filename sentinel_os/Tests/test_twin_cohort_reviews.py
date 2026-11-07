@@ -5,6 +5,7 @@ only receives and chain-links what the primary already computed, same
 posture as every other record kind here.
 """
 
+import os
 import uuid
 
 import psycopg2
@@ -33,7 +34,7 @@ def twin():
 
     client = TestClient(build_app(DSN, site="test"))
     rid = f"review-{uuid.uuid4().hex[:10]}"
-    resp = client.post(f"/replica/{rid}/register", json={
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json={
         "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
         "customer_sign_pub": "y", "ship_token": "tok"})
     assert resp.status_code == 200, resp.text

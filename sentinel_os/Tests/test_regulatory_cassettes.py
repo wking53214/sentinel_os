@@ -1166,7 +1166,7 @@ def cohort_twin():
     from twin_receiver import build_app
     client = TestClient(build_app(_TWIN_DSN, site="test"))
     rid = f"c2wire-{uuid.uuid4().hex[:10]}"
-    resp = client.post(f"/replica/{rid}/register", json={
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json={
         "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
         "customer_sign_pub": "y", "ship_token": "tok"})
     assert resp.status_code == 200, resp.text
@@ -1327,7 +1327,7 @@ def test_escalation_fails_open_when_twin_call_is_unauthorized():
     from twin_receiver import build_app
     client = TestClient(build_app(_TWIN_DSN, site="test"))
     rid = f"c2wire-{uuid.uuid4().hex[:10]}"
-    resp = client.post(f"/replica/{rid}/register", json={
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json={
         "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
         "customer_sign_pub": "y", "ship_token": "tok"})
     assert resp.status_code == 200, resp.text

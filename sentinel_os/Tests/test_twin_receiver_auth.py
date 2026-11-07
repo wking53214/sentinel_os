@@ -14,6 +14,7 @@ optional and verified by whoever reads the chain") shared with custody_log,
 not part of AC-13, and not touched by this fix.
 """
 
+import os
 import uuid
 
 import psycopg2
@@ -54,7 +55,7 @@ def twin():
 
     client = TestClient(build_app(DSN, site="test"))
     rid = f"auth-{uuid.uuid4().hex[:10]}"
-    resp = client.post(f"/replica/{rid}/register", json={
+    resp = client.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json={
         "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
         "customer_sign_pub": "y", "ship_token": "tok", "read_token": "read-tok"})
     assert resp.status_code == 200, resp.text
@@ -199,7 +200,7 @@ def test_meta_does_not_return_either_token(twin):
 
 def test_replica_registered_without_read_token_refuses_every_read(twin):
     rid = f"noread-{uuid.uuid4().hex[:10]}"
-    resp = twin.post(f"/replica/{rid}/register", json={
+    resp = twin.post(f"/replica/{rid}/register", headers={"Authorization": "Bearer " + os.environ["TWIN_RECEIVER_REGISTRATION_SECRET"]}, json={
         "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
         "customer_sign_pub": "y", "ship_token": "tok"})
     assert resp.status_code == 200, resp.text
