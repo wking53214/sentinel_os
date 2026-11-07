@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 from contextlib import contextmanager
@@ -73,6 +74,7 @@ CREATE TABLE IF NOT EXISTS replica_entries (
 CREATE INDEX IF NOT EXISTS idx_replica_entries_sid ON replica_entries (replica_id, call_sid);
 ALTER TABLE replica_entries ADD COLUMN IF NOT EXISTS outcome_obligation TEXT;
 ALTER TABLE replica_entries ADD COLUMN IF NOT EXISTS decided_at DOUBLE PRECISION;
+ALTER TABLE replica_meta ADD COLUMN IF NOT EXISTS read_token TEXT;
 -- Cohort assembly needs to group obligations by domain, not just by
 -- obligation_kind (two unrelated cassettes could legitimately pick the same
 -- obligation_kind string). Shipped in the clear, same posture as
@@ -225,6 +227,17 @@ def build_app(dsn: str, site: str) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"replica '{replica_id}' not registered")
         return dict(row)
 
+    def _require_read_token(conn, replica_id: str,
+                            authorization: Optional[str]) -> Dict[str, Any]:
+        """Gate for the read routes: the customer-held read token only. The
+        write (ship) token is deliberately not accepted here."""
+        m = _meta(conn, replica_id)
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        stored = m.get("read_token")
+        if not stored or not token or not hmac.compare_digest(token, stored):
+            raise HTTPException(status_code=401, detail="bad read token")
+        return m
+
     @app.get("/health")
     def health():
         return {"ok": True, "site": site}
@@ -241,23 +254,25 @@ def build_app(dsn: str, site: str) -> FastAPI:
                 cur.execute(
                     """INSERT INTO replica_meta (replica_id, site, custody_model,
                          recipient_pub, recipient_fp, customer_sign_pub,
-                         max_lag_seconds, retention_days, is_primary_evidence, ship_token)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         max_lag_seconds, retention_days, is_primary_evidence, ship_token,
+                         read_token)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (replica_id) DO NOTHING""",
                     (replica_id, site, body["custody_model"], body["recipient_pub"],
                      body["recipient_fp"], body["customer_sign_pub"],
                      int(body.get("max_lag_seconds", 30)),
                      int(body.get("retention_days", 2557)),
                      bool(body.get("is_primary_evidence", False)),
-                     body["ship_token"]))
+                     body["ship_token"], body.get("read_token") or None))
                 created = cur.rowcount == 1
         return {"replica_id": replica_id, "site": site, "created": created}
 
     @app.get("/replica/{replica_id}/meta")
-    def meta(replica_id: str):
+    def meta(replica_id: str, authorization: Optional[str] = Header(default=None)):
         with db() as conn:
-            m = _meta(conn, replica_id)
+            m = _require_read_token(conn, replica_id, authorization)
         m.pop("ship_token", None)
+        m.pop("read_token", None)
         m["created_at"] = str(m["created_at"])
         return m
 
@@ -313,9 +328,9 @@ def build_app(dsn: str, site: str) -> FastAPI:
         return {"status": "stored", "primary_id": int(body["primary_id"])}
 
     @app.get("/replica/{replica_id}/head")
-    def head(replica_id: str):
+    def head(replica_id: str, authorization: Optional[str] = Header(default=None)):
         with db() as conn:
-            _meta(conn, replica_id)
+            _require_read_token(conn, replica_id, authorization)
             with conn.cursor() as cur:
                 cur.execute(
                     """SELECT COALESCE(MAX(primary_id),0), COUNT(*)
@@ -324,9 +339,10 @@ def build_app(dsn: str, site: str) -> FastAPI:
         return {"replica_id": replica_id, "max_primary_id": int(max_id), "count": int(count)}
 
     @app.get("/replica/{replica_id}/entries")
-    def list_entries(replica_id: str, after_id: int = 0, limit: int = 500):
+    def list_entries(replica_id: str, after_id: int = 0, limit: int = 500,
+                     authorization: Optional[str] = Header(default=None)):
         with db() as conn:
-            _meta(conn, replica_id)
+            _require_read_token(conn, replica_id, authorization)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
                     """SELECT primary_id, call_sid, previous_hash, current_hash,
@@ -385,9 +401,9 @@ def build_app(dsn: str, site: str) -> FastAPI:
         return {"status": "logged", "seq": seq, "curr_hash": curr_hash}
 
     @app.get("/replica/{replica_id}/custody-log")
-    def custody_log(replica_id: str):
+    def custody_log(replica_id: str, authorization: Optional[str] = Header(default=None)):
         with db() as conn:
-            _meta(conn, replica_id)
+            _require_read_token(conn, replica_id, authorization)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
                     """SELECT seq, event, detail, actor, prev_hash, curr_hash,

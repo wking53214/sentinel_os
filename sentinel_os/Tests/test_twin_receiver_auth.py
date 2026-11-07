@@ -56,11 +56,12 @@ def twin():
     rid = f"auth-{uuid.uuid4().hex[:10]}"
     resp = client.post(f"/replica/{rid}/register", json={
         "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
-        "customer_sign_pub": "y", "ship_token": "tok"})
+        "customer_sign_pub": "y", "ship_token": "tok", "read_token": "read-tok"})
     assert resp.status_code == 200, resp.text
     client.replica_id = rid
     client.good = {"Authorization": "Bearer tok"}
     client.bad = {"Authorization": "Bearer wrong-token"}
+    client.read_good = {"Authorization": "Bearer read-tok"}
     return client
 
 
@@ -164,3 +165,45 @@ def test_entries_still_enforces_token_unchanged(twin):
     assert twin.post(url, json=body).status_code == 401
     resp = twin.post(url, json=body, headers=twin.good)
     assert resp.status_code == 200, resp.text
+
+
+READ_ROUTES = ("meta", "head", "entries", "custody-log")
+
+
+def test_read_routes_refuse_missing_and_wrong_read_token(twin):
+    for path in READ_ROUTES:
+        url = f"/replica/{twin.replica_id}/{path}"
+        assert twin.get(url).status_code == 401, path
+        assert twin.get(url, headers={"Authorization": "Bearer nope"}).status_code == 401, path
+
+
+def test_read_routes_refuse_the_ship_token(twin):
+    """The write token must not open the read side: the read token is a
+    separate credential the customer holds."""
+    for path in READ_ROUTES:
+        url = f"/replica/{twin.replica_id}/{path}"
+        assert twin.get(url, headers=twin.good).status_code == 401, path
+
+
+def test_read_routes_accept_the_read_token(twin):
+    for path in READ_ROUTES:
+        url = f"/replica/{twin.replica_id}/{path}"
+        resp = twin.get(url, headers=twin.read_good)
+        assert resp.status_code == 200, (path, resp.text)
+
+
+def test_meta_does_not_return_either_token(twin):
+    body = twin.get(f"/replica/{twin.replica_id}/meta", headers=twin.read_good).json()
+    assert "ship_token" not in body and "read_token" not in body
+
+
+def test_replica_registered_without_read_token_refuses_every_read(twin):
+    rid = f"noread-{uuid.uuid4().hex[:10]}"
+    resp = twin.post(f"/replica/{rid}/register", json={
+        "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
+        "customer_sign_pub": "y", "ship_token": "tok"})
+    assert resp.status_code == 200, resp.text
+    for path in READ_ROUTES:
+        url = f"/replica/{rid}/{path}"
+        assert twin.get(url, headers=twin.good).status_code == 401, path
+        assert twin.get(url, headers=twin.read_good).status_code == 401, path
