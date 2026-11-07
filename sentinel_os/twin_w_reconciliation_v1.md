@@ -1,5 +1,8 @@
 # Twin ↔ W-item Reconciliation v1
 
+> **Note:** This reconciliation cites two external documents, `global-ai-governance-requirements-v1.md` and `sentinel-v12-compliance-grading-v2.md`. Neither is in this repository, so the quoted requirements and grades are not checkable here.
+
+
 **Date:** July 18, 2026
 **Purpose:** state honestly which of the outstanding governance goals the twin actually covers, which it does not, and correct two wording errors in `sentinel-v12-compliance-grading-v2.md` that the twin's existence brings into focus. No W-item was *built* this session — this is a written reconciliation of scope, plus grade adjustments that are earned by the live tests in `twin_verification_report_v1.md` and nothing beyond them.
 
