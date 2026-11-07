@@ -216,9 +216,18 @@ def _load_pinned_customer_keys(path: Optional[str]) -> Dict[str, str]:
 
 def build_app(dsn: str, site: str,
               pinned_customer_keys: Optional[Dict[str, str]] = None) -> FastAPI:
-    if pinned_customer_keys is None:
-        pinned_customer_keys = _load_pinned_customer_keys(
-            os.environ.get("TWIN_CUSTOMER_KEYS_FILE"))
+    # An explicit map is used as given (tests). Otherwise the operator's file is
+    # reread on every registration, so a new customer is added by editing one
+    # file, with no restart. A file that is missing or unreadable pins nothing,
+    # so registration fails closed.
+    def current_pins() -> Dict[str, str]:
+        if pinned_customer_keys is not None:
+            return pinned_customer_keys
+        try:
+            return _load_pinned_customer_keys(os.environ.get("TWIN_CUSTOMER_KEYS_FILE"))
+        except (OSError, ValueError):
+            return {}
+
     pool = psycopg2.pool.ThreadedConnectionPool(1, 8, dsn)
 
     @contextmanager
@@ -271,7 +280,7 @@ def build_app(dsn: str, site: str,
             raise HTTPException(status_code=422, detail=f"missing: {missing}")
         # Only operator pre-approved replicas may register, and only with the
         # customer's pinned key and a valid signature from that key.
-        pinned_key = pinned_customer_keys.get(replica_id)
+        pinned_key = current_pins().get(replica_id)
         if not pinned_key:
             raise HTTPException(status_code=403, detail="replica not pre-approved by operator")
         if body.get("customer_sign_pub") != pinned_key:

@@ -80,3 +80,31 @@ def test_correctly_signed_registration_is_accepted():
     resp = client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub))
     assert resp.status_code == 200, resp.text
     assert resp.json()["created"] is True
+
+
+def test_operator_file_is_reread_without_restart(tmp_path, monkeypatch):
+    """Adding a customer to the operator's file takes effect on the next request."""
+    import json
+
+    from twin_receiver import build_app
+
+    pins = tmp_path / "pins.json"
+    pins.write_text("{}")
+    monkeypatch.setenv("TWIN_CUSTOMER_KEYS_FILE", str(pins))
+    priv, pub = generate_signing_keypair()
+    rid = f"pin-{uuid.uuid4().hex[:8]}"
+    client = TestClient(build_app(DSN, site="test"))
+    assert client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub)).status_code == 403
+    pins.write_text(json.dumps({rid: pub}))
+    resp = client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub))
+    assert resp.status_code == 200, resp.text
+
+
+def test_unreadable_pinned_file_fails_closed(tmp_path, monkeypatch):
+    from twin_receiver import build_app
+
+    monkeypatch.setenv("TWIN_CUSTOMER_KEYS_FILE", str(tmp_path / "missing.json"))
+    priv, pub = generate_signing_keypair()
+    rid = f"pin-{uuid.uuid4().hex[:8]}"
+    client = TestClient(build_app(DSN, site="test"))
+    assert client.post(f"/replica/{rid}/register", json=_signed(priv, rid, pub)).status_code == 403
