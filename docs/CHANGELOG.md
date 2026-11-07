@@ -1,5 +1,8 @@
 # Changelog
 
+> **Status: historical snapshot.** This document describes an older layout of the sentinel_os tree. Several file and folder names it cites (for example `Engines/`, `Sim/`, `api_server_resilient.py`) are not in the current repository, so treat its file-level claims as unverified. For the current layout, see `README.md` and `STACK.md` in the repository root.
+
+
 Dated, human-readable summary of notable changes. Git history has the
 full detail; this is the skim version.
 

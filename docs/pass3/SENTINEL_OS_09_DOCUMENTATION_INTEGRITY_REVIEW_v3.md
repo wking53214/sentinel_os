@@ -4,6 +4,9 @@
 
 # DOCUMENTATION INTEGRITY REVIEW
 
+> **Status: historical snapshot.** This document describes an older layout of the sentinel_os tree. Several file and folder names it cites (for example `Engines/`, `Sim/`, `api_server_resilient.py`) are not in the current repository, so treat its file-level claims as unverified. For the current layout, see `README.md` and `STACK.md` in the repository root.
+
+
 **Subject:** The eight-document Sentinel OS documentation package, Pass 3, Round 2
 **Documents reviewed:** `SENTINEL_OS_01` through `SENTINEL_OS_08` — originally `_v2`; corrected to `_v3` per this review's own findings and the subsequent verification pass
 **Baseline they describe:** `origin/main` at commit `68cadfb`, July 29, 2026
