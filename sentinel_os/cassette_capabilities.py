@@ -29,8 +29,8 @@ cassette explicitly enables in its manifest (Cassette.CAPABILITIES):
       the fake declaration the anti-placeholder rule below exists to
       stop.
   interpretation_testable -- this domain's decisions can be probed by
-      the monthly interpretation drift-check (interpretation/
-      harness.py): given an approved Scenario, resolve_scenario
+      an interpretation drift-check (the harness was retired; the
+      contract stays): given an approved Scenario, resolve_scenario
       answers with this domain's own reading (one of the scenario's
       options, or None to decline). Opt-in by default, same posture as
       every other capability -- most domains have no regulation-reading
@@ -226,13 +226,15 @@ class OutcomeObligations(ABC):
 
 
 class InterpretationTestable(ABC):
-    """Contract for domains whose decisions can be probed by the
-    monthly interpretation drift-check (interpretation/harness.py).
+    """Contract for domains whose decisions can be probed by an
+    interpretation drift-check. The original harness (interpretation/)
+    was retired; the contract and its Scenario type (scenario_model.py)
+    remain.
 
     resolve_scenario follows the kernel's judge()/explain() pattern:
-    given a typed input (here, interpretation.scenarios.Scenario) it
+    given a typed input (here, scenario_model.Scenario) it
     returns a typed answer the caller grades against a locked expected
-    value. The answer shape matches interpretation.harness.Resolver
+    value. The answer shape is the same one the retired harness used
     exactly -- one of the scenario's own options, or None to decline --
     so a cassette's bound method is a drop-in resolver for
     TestHarness.run with no adapter needed.
@@ -254,9 +256,8 @@ class InterpretationTestable(ABC):
         """Answer one interpretation scenario with this domain's own
         reading of it.
 
-        scenario is an interpretation.scenarios.Scenario (typed as Any
-        here so this kernel-adjacent module does not import the
-        higher-level interpretation package). Returns the chosen
+        scenario is a scenario_model.Scenario (typed as Any here so
+        this kernel-adjacent module does not import the scenario model). Returns the chosen
         option (a string that must appear in scenario.options) or None
         to decline -- declining is a first-class answer, not a
         failure, the same posture classify_outcome takes on a

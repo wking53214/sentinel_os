@@ -21,7 +21,7 @@ provide.
 | Cassette framework | `cassette_schema.py`, `cassette_capabilities.py`, `cassette_loader.py`, `cassette_interface.py`, `cassettes/` (reference: `mortgage_cassette.py`, `banking_cassette.py`; `ivr_cassette.py` is the full-capability example the harness deliberately refuses) |
 | Regulatory / contract lenses | `regulatory_*.py` + `regulatory_cassettes/` (CFPB Reg B), `contract_*.py` + `contract_cassettes/` (DPA attestation), `bisg_estimator.py`, `sealed_demographic_channel.py` |
 | Transmission queue | `queue_schema.py`, `rate_limiter_v2.py`, `lua/`, `sentinel_worker.py`, `api_server_v2.py` (Dockerfile default) |
-| SAGE-K interpretation | `interpretation/`, `sage_k/` |
+| SAGE-K interpretation | `sage_k/` (the former `interpretation/` harness was retired; `scenario_model.py` keeps the scenario type the mortgage cassette uses) |
 | Conservation-kernel boundary | `conservation/` (fail-closed: no durable state without conservation verification) |
 
 ## The IVR / Iceberg application is not here
