@@ -13,13 +13,11 @@ Components:
     AST-based call-graph extractor, plus ExtractorGsaAdapterModule which
     wraps it for use behind GsaUniversalAdapter.
 
-This package intentionally excludes the interpretation-framework files
-(drift/generator/harness/realignment/report/scenarios) that were also
-present in SAGE-K's sage_k/ directory: those are an earlier, unused
-snapshot of the same regulatory drift-monitoring design that sentinel_os
-already implements natively in sentinel_os.interpretation, with its own
-integrated history and test suite. Only the kernel/adapter/extractor
-trio was novel and under test here.
+This package now contains only the kernel, adapter and extractor. The
+interpretation-framework files that were once here (drift, generator,
+harness, realignment, report, scenarios) were retired. The regulatory
+drift-monitoring design they came from lives in its own code path, and
+the scenario type the mortgage cassette uses is in scenario_model.py.
 """
 
 from .kernel import Fortress
