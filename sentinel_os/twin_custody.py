@@ -211,6 +211,34 @@ def sign(payload: Dict[str, Any], signing_priv_b64: str) -> str:
     return _b64e(priv.sign(canonical_json(payload)))
 
 
+# Fields a customer signs when registering a replica. The receiver rebuilds
+# this exact payload from the request, so the signer and the verifier can never
+# disagree about what was covered. The ship token is deliberately included so
+# a registration cannot be replayed with a different token.
+REGISTRATION_SIGNED_FIELDS = (
+    "custody_model", "recipient_pub", "recipient_fp", "customer_sign_pub",
+    "max_lag_seconds", "retention_days", "is_primary_evidence", "ship_token",
+    "read_token",
+)
+
+
+def registration_payload(replica_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"replica_id": replica_id}
+    for f in REGISTRATION_SIGNED_FIELDS:
+        payload[f] = body.get(f)
+    return payload
+
+
+def sign_registration(replica_id: str, body: Dict[str, Any], signing_priv_b64: str) -> str:
+    return sign(registration_payload(replica_id, body), signing_priv_b64)
+
+
+def verify_registration(replica_id: str, body: Dict[str, Any], signature_b64: str,
+                        signer_pub_b64: str) -> bool:
+    return verify_signature(registration_payload(replica_id, body), signature_b64,
+                            signer_pub_b64)
+
+
 def verify_signature(payload: Dict[str, Any], signature_b64: str, signer_pub_b64: str) -> bool:
     pub = Ed25519PublicKey.from_public_bytes(_b64d(signer_pub_b64))
     try:
