@@ -343,15 +343,26 @@ def receiver(dbname: str, site: str = "site-a"):
         yield f"http://127.0.0.1:{port}", dbname, port
 
 
+READ_TOKENS: Dict[str, str] = {}  # replica_id -> read token, set at registration
+
+
+def read_auth(replica_id: str) -> Dict[str, str]:
+    """Bearer header for the receiver's read routes, using the replica's read token."""
+    return {"Authorization": f"Bearer {READ_TOKENS[replica_id]}"}
+
+
 def register_replica(url: str, replica_id: str, keys: Dict[str, str],  # nosec B107
                      custody_model: str = "A", ship_token: str = "tok",
                      max_lag: int = 5, primary_evidence: bool = False,
                      recipient_pub: Optional[str] = None,
                      custodian_pub: Optional[str] = None):
+    read_token = f"read-{ship_token}"
+    READ_TOKENS[replica_id] = read_token
     body = {"custody_model": custody_model,
             "recipient_pub": recipient_pub or keys["pub"],
             "recipient_fp": tc.fingerprint(recipient_pub or keys["pub"]),
             "customer_sign_pub": keys["spub"], "ship_token": ship_token,
+            "read_token": read_token,
             "max_lag_seconds": max_lag, "is_primary_evidence": primary_evidence}
     r = httpx.post(f"{url}/replica/{replica_id}/register", json=body, timeout=10)
     r.raise_for_status()
@@ -432,7 +443,8 @@ def scratch(name: str) -> str:
 
 
 def get_entries(url: str, replica_id: str) -> List[Dict[str, Any]]:
-    r = httpx.get(f"{url}/replica/{replica_id}/entries", timeout=10)
+    r = httpx.get(f"{url}/replica/{replica_id}/entries", headers=read_auth(replica_id),
+                  timeout=10)
     r.raise_for_status()
     return r.json()["entries"]
 
@@ -658,7 +670,8 @@ def test_offline_replica_backs_up_then_recovers(customer_keys, tmp_path):
                   f"http://127.0.0.1:{port}/health"):
         time.sleep(1.6)
         sync()
-        head = httpx.get(f"http://127.0.0.1:{port}/replica/{r}/head", timeout=10).json()
+        head = httpx.get(f"http://127.0.0.1:{port}/replica/{r}/head",
+                         headers=read_auth(r), timeout=10).json()
         assert head["count"] == 2, f"expected recovery of 2, got {head}"
 
 
@@ -734,7 +747,7 @@ def test_duplicate_delivery_is_idempotent(customer_keys, tmp_path):
         r2 = httpx.post(f"{url}/replica/{r}/entries",
                         json={**body, "current_hash": "f" * 64}, headers=hdrs, timeout=10)
         assert r2.status_code == 409, r2.text
-        head = httpx.get(f"{url}/replica/{r}/head", timeout=10).json()
+        head = httpx.get(f"{url}/replica/{r}/head", headers=read_auth(r), timeout=10).json()
         assert head["count"] == 1
 
 
@@ -860,7 +873,8 @@ def test_custody_migration_A_to_D(customer_keys, tmp_path):
                 ok, detail = tc.deep_verify_row(row)
                 assert ok, detail
             # signed migration event present
-            log = httpx.get(f"{url}/replica/{r}/custody-log", timeout=10).json()["events"]
+            log = httpx.get(f"{url}/replica/{r}/custody-log", headers=read_auth(r),
+                            timeout=10).json()["events"]
             assert any(ev["event"] == "custody_migration" for ev in log), log
 
 
@@ -1028,7 +1042,8 @@ def test_restore_drill(customer_keys, tmp_path):
                          "signer_pub": customer_keys["spub"]},
                    headers={"Authorization": "Bearer tok-drill"},
                    timeout=10).raise_for_status()
-        before = httpx.get(f"{url}/replica/{r}/head", timeout=10).json()["count"]
+        before = httpx.get(f"{url}/replica/{r}/head", headers=read_auth(r),
+                           timeout=10).json()["count"]
         dump_path = scratch("replica.dump")
     # receiver is down now (context exited); do the dump/drop/restore as customer
     d = run_as("twincustomer", ["pg_dump", "-Fc", "-d", drill_db, "-f", dump_path], timeout=120)
@@ -1038,7 +1053,8 @@ def test_restore_drill(customer_keys, tmp_path):
     run_as("twincustomer", ["pg_restore", "-d", drill_db, dump_path], timeout=120)
     # pg_restore can warn (nonzero) on comments/owners; assert data instead
     with receiver(drill_db) as (url2, db2, port2):
-        after = httpx.get(f"{url2}/replica/{r}/head", timeout=10).json()["count"]
+        after = httpx.get(f"{url2}/replica/{r}/head", headers=read_auth(r),
+                          timeout=10).json()["count"]
         assert after == before == 2, (before, after)
         ents = [e for e in get_entries(url2, r) if e["primary_id"] in {x["id"] for x in seed}]
         dec = customer_decryptor(customer_keys)
@@ -1046,7 +1062,8 @@ def test_restore_drill(customer_keys, tmp_path):
             aad = {"replica_id": r, "primary_id": e["primary_id"], "current_hash": e["current_hash"]}
             ok, detail = tc.deep_verify_row(json.loads(dec.open(e["envelope"], aad)))
             assert ok, detail
-        log = httpx.get(f"{url2}/replica/{r}/custody-log", timeout=10).json()["events"]
+        log = httpx.get(f"{url2}/replica/{r}/custody-log", headers=read_auth(r),
+                        timeout=10).json()["events"]
         assert any(ev["event"] == "evidence_designation" for ev in log)
 
 
@@ -1090,7 +1107,8 @@ def test_probe_clean_and_seeded_findings(customer_keys, tmp_path):
         pr = run_as("twincustomer", [PY, "twin_probe.py", "--receiver-url", url,
                     "--replica-id", r, "--feed-dsn", _feed_dsn(),
                     "--submission-record", f"{kd}/subrec.jsonl", "--sla-seconds", "5",
-                    "--key-file", f"{kd}/probe.priv"], timeout=90)
+                    "--key-file", f"{kd}/probe.priv",
+                    "--read-token", READ_TOKENS[r]], timeout=90)
         assert pr.returncode == 2, pr.stdout[-1500:] + pr.stderr[-500:]
         report = json.loads(pr.stdout)
         assert report["conformant"] is False
@@ -1119,7 +1137,8 @@ def test_probe_clean_and_seeded_findings(customer_keys, tmp_path):
         pr2 = run_as("twincustomer", [PY, "twin_probe.py", "--receiver-url", url,
                      "--replica-id", r2, "--feed-dsn", _feed_dsn(),
                      "--submission-record", f"{kd}/subrec2.jsonl", "--sla-seconds", "5",
-                     "--key-file", f"{kd}/probe.priv"], timeout=90)
+                     "--key-file", f"{kd}/probe.priv",
+                     "--read-token", READ_TOKENS[r2]], timeout=90)
         assert pr2.returncode == 0, pr2.stdout[-1500:] + pr2.stderr[-500:]
         assert json.loads(pr2.stdout)["conformant"] is True
 
