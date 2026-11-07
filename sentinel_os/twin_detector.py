@@ -96,12 +96,18 @@ def fetch_primary_feed(feed_dsn: str) -> List[Dict[str, Any]]:
         conn.close()
 
 
-def fetch_replica_entries(receiver_url: str, replica_id: str) -> List[Dict[str, Any]]:
+def read_headers(read_token: Optional[str]) -> Dict[str, str]:
+    return {"Authorization": f"Bearer {read_token}"} if read_token else {}
+
+
+def fetch_replica_entries(receiver_url: str, replica_id: str,
+                          read_token: Optional[str] = None) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     after = 0
     while True:
         r = httpx.get(f"{receiver_url.rstrip('/')}/replica/{replica_id}/entries",
-                      params={"after_id": after, "limit": 1000}, timeout=10.0)
+                      params={"after_id": after, "limit": 1000},
+                      headers=read_headers(read_token), timeout=10.0)
         r.raise_for_status()
         batch = r.json()["entries"]
         if not batch:
@@ -110,8 +116,10 @@ def fetch_replica_entries(receiver_url: str, replica_id: str) -> List[Dict[str, 
         after = batch[-1]["primary_id"]
 
 
-def fetch_replica_meta(receiver_url: str, replica_id: str) -> Dict[str, Any]:
-    r = httpx.get(f"{receiver_url.rstrip('/')}/replica/{replica_id}/meta", timeout=10.0)
+def fetch_replica_meta(receiver_url: str, replica_id: str,
+                       read_token: Optional[str] = None) -> Dict[str, Any]:
+    r = httpx.get(f"{receiver_url.rstrip('/')}/replica/{replica_id}/meta",
+                  headers=read_headers(read_token), timeout=10.0)
     r.raise_for_status()
     return r.json()
 
@@ -302,11 +310,12 @@ def detect(receiver_url: str, replica_id: str, feed_dsn: str,
            submission_record_path: Optional[str] = None,
            sla_seconds: Optional[int] = None,
            decryptor: Optional[Any] = None,
-           primary_id_range: Optional[tuple] = None) -> Dict[str, Any]:
-    meta = fetch_replica_meta(receiver_url, replica_id)
+           primary_id_range: Optional[tuple] = None,
+           read_token: Optional[str] = None) -> Dict[str, Any]:
+    meta = fetch_replica_meta(receiver_url, replica_id, read_token)
     sla = sla_seconds if sla_seconds is not None else int(meta.get("max_lag_seconds", 30))
     report = run_detection(
-        replica_entries=fetch_replica_entries(receiver_url, replica_id),
+        replica_entries=fetch_replica_entries(receiver_url, replica_id, read_token),
         primary_feed=fetch_primary_feed(feed_dsn),
         submission_record=load_submission_record(submission_record_path),
         sla_seconds=sla, decryptor=decryptor, replica_id=replica_id,
@@ -329,6 +338,8 @@ def main() -> None:
     ap.add_argument("--custodian-url", default=None)
     ap.add_argument("--sign-key-file", default=None, help="customer signing key (custody D)")
     ap.add_argument("--requester", default="customer-audit")
+    ap.add_argument("--read-token", default=os.getenv("TWIN_READ_TOKEN"),
+                    help="replica read token (or set TWIN_READ_TOKEN)")
     args = ap.parse_args()
 
     decryptor = None
@@ -340,7 +351,8 @@ def main() -> None:
                                      args.requester)
 
     report = detect(args.receiver_url, args.replica_id, args.feed_dsn,
-                    args.submission_record, args.sla_seconds, decryptor)
+                    args.submission_record, args.sla_seconds, decryptor,
+                    read_token=args.read_token)
     print(json.dumps(report, indent=2, default=str))
     raise SystemExit(0 if report["verdict"] == "CLEAN" else 2)
 
