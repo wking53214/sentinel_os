@@ -44,7 +44,7 @@ import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from twin_custody import canonical_json
+from twin_custody import canonical_json, verify_registration
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS replica_meta (
@@ -198,7 +198,27 @@ def _structurally_valid_envelope(env: Any) -> Optional[str]:
     return None
 
 
-def build_app(dsn: str, site: str) -> FastAPI:
+def _load_pinned_customer_keys(path: Optional[str]) -> Dict[str, str]:
+    """Operator-written map of replica id -> customer public key (base64).
+
+    Empty when no file is configured, which makes every registration refused
+    (fail closed). Nothing here is a default key.
+    """
+    if not path:
+        return {}
+    with open(path) as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and v for k, v in data.items()):
+        raise ValueError("pinned customer keys file must map replica ids to public keys")
+    return dict(data)
+
+
+def build_app(dsn: str, site: str,
+              pinned_customer_keys: Optional[Dict[str, str]] = None) -> FastAPI:
+    if pinned_customer_keys is None:
+        pinned_customer_keys = _load_pinned_customer_keys(
+            os.environ.get("TWIN_CUSTOMER_KEYS_FILE"))
     pool = psycopg2.pool.ThreadedConnectionPool(1, 8, dsn)
 
     @contextmanager
@@ -249,6 +269,20 @@ def build_app(dsn: str, site: str) -> FastAPI:
         missing = [f for f in required if not body.get(f)]
         if missing:
             raise HTTPException(status_code=422, detail=f"missing: {missing}")
+        # Only operator pre-approved replicas may register, and only with the
+        # customer's pinned key and a valid signature from that key.
+        pinned_key = pinned_customer_keys.get(replica_id)
+        if not pinned_key:
+            raise HTTPException(status_code=403, detail="replica not pre-approved by operator")
+        if body.get("customer_sign_pub") != pinned_key:
+            raise HTTPException(status_code=403, detail="customer key does not match pinned key")
+        try:
+            signed_ok = verify_registration(replica_id, body,
+                                            body.get("registration_signature") or "", pinned_key)
+        except Exception:
+            signed_ok = False
+        if not signed_ok:
+            raise HTTPException(status_code=401, detail="bad registration signature")
         with db() as conn:
             with conn.cursor() as cur:
                 cur.execute(

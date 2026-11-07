@@ -16,6 +16,8 @@ not part of AC-13, and not touched by this fix.
 
 import uuid
 
+import twin_custody as _tc
+
 import psycopg2
 import pytest
 from fastapi.testclient import TestClient
@@ -52,11 +54,11 @@ def twin():
     fixture default the way the other twin test files now do it."""
     from twin_receiver import build_app
 
-    client = TestClient(build_app(DSN, site="test"))
     rid = f"auth-{uuid.uuid4().hex[:10]}"
-    resp = client.post(f"/replica/{rid}/register", json={
-        "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
-        "customer_sign_pub": "y", "ship_token": "tok", "read_token": "read-tok"})
+    priv, pub = _tc.generate_signing_keypair()
+    client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: pub}))
+    resp = client.post(f"/replica/{rid}/register", json=_tc.make_registration(
+        rid, priv, pub, read_token="read-tok"))
     assert resp.status_code == 200, resp.text
     client.replica_id = rid
     client.good = {"Authorization": "Bearer tok"}
@@ -198,12 +200,14 @@ def test_meta_does_not_return_either_token(twin):
 
 
 def test_replica_registered_without_read_token_refuses_every_read(twin):
+    from twin_receiver import build_app
+
     rid = f"noread-{uuid.uuid4().hex[:10]}"
-    resp = twin.post(f"/replica/{rid}/register", json={
-        "custody_model": "A", "recipient_pub": "x", "recipient_fp": "fp",
-        "customer_sign_pub": "y", "ship_token": "tok"})
+    priv, pub = _tc.generate_signing_keypair()
+    client = TestClient(build_app(DSN, site="test", pinned_customer_keys={rid: pub}))
+    resp = client.post(f"/replica/{rid}/register", json=_tc.make_registration(rid, priv, pub))
     assert resp.status_code == 200, resp.text
     for path in READ_ROUTES:
         url = f"/replica/{rid}/{path}"
-        assert twin.get(url, headers=twin.good).status_code == 401, path
-        assert twin.get(url, headers=twin.read_good).status_code == 401, path
+        assert client.get(url, headers=twin.good).status_code == 401, path
+        assert client.get(url, headers=twin.read_good).status_code == 401, path

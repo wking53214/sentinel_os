@@ -233,6 +233,16 @@ def sign_registration(replica_id: str, body: Dict[str, Any], signing_priv_b64: s
     return sign(registration_payload(replica_id, body), signing_priv_b64)
 
 
+def make_registration(replica_id: str, signing_priv_b64: str, customer_sign_pub: str,
+                      **fields: Any) -> Dict[str, Any]:
+    """Build a registration body and sign it with the customer's private key."""
+    body: Dict[str, Any] = {"custody_model": "A", "recipient_pub": "x",
+                            "recipient_fp": "fp", "customer_sign_pub": customer_sign_pub,
+                            "ship_token": "tok", **fields}
+    body["registration_signature"] = sign_registration(replica_id, body, signing_priv_b64)
+    return body
+
+
 def verify_registration(replica_id: str, body: Dict[str, Any], signature_b64: str,
                         signer_pub_b64: str) -> bool:
     return verify_signature(registration_payload(replica_id, body), signature_b64,
