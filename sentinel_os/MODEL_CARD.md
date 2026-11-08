@@ -1,5 +1,7 @@
 # Sentinel Intent Classifier: Model Card
 
+> **Historical document (2026-11-08):** The code this card describes is not in the current repository. The performance, accuracy, latency and deployment figures below were not re-verified against current code and should not be relied on. It is kept for the record only.
+
 > **Verification status:** The code this card describes (`sentinel_core.py`, class `SentinelCore`, method `infer_intent()`) and its test file (`test_intent_classification_audit.py`) are not in the sentinel_os repository, so the implementation, the test references and the performance and deployment figures below are carried forward and have not been verified against code here.
 
 **Model Name:** SentinelCore.infer_intent  

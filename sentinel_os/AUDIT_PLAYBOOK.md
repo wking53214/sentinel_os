@@ -5,6 +5,8 @@
 
 ## Executive Summary
 
+> **Status note (2026-11-08):** Parts of this playbook predate later work. `twin_custody.py` now contains head-anchor code and a customer-held-key twin, and the ledger refuses to start unless a non-privileged runtime database identity is configured. Where this playbook says Phase 2 is unbuilt, or that the runtime identity is optional, treat that as historical until it is revised against the current code. The adversarial analysis below still applies.
+
 This playbook describes what Sentinel OS's ledger can and cannot prove today, and how to check it. It is not a claim that the ledger is tamper-proof.
 
 Sentinel is currently Phase 1: the governance ledger is a self-contained PostgreSQL table, verified by code that runs inside the same trust boundary it's verifying. Every check in this document — including `verify_chain()` — is generated, stored, and evaluated by the same operator a regulator would be investigating. That's an architectural choice, not an oversight, and this playbook is the honest audit path given that choice, not the bulletproof one.
