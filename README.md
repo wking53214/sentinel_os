@@ -1,6 +1,6 @@
 # sentinel_os
 
-Domain-blind **custody runtime** with pluggable cassettes, Episode ground-truth tracking, independent twin replication, and a Postgres-backed hash-chained ledger. Second sellable unit after the governed action gate in [`observe-perceive`](https://github.com/wking53214/observe-perceive). **Not deployable from a clean public clone today.**
+Domain-blind **custody runtime** with pluggable cassettes, Episode observation and provenance tracking, independent twin replication, and a Postgres-backed hash-chained ledger. Second product candidate after the governed action gate in [`observe-perceive`](https://github.com/wking53214/observe-perceive). **Needs Postgres, Redis and operator-supplied configuration to run; see `sentinel_os/DEPLOYMENT.md`.**
 
 New to the vocabulary (cassette, twin, ζ, δ, TACK and so on)? See [`docs/GLOSSARY_v1.md`](docs/GLOSSARY_v1.md).
 
@@ -24,7 +24,7 @@ Thesis: decouple governance from the systems being governed so both can evolve w
 
 | Surface | Job |
 |---|---|
-| `episode.py` | Episode as ground-truth container |
+| `episode.py` | Episode as a structured observation and provenance record (not ground truth) |
 | `event_v1.py` | Stamped events |
 | `outcome_v1.py` | OPEN → RESOLVED/ABANDONED obligations (source of δ.obligation) |
 | `canonical_fields.py` | Recomputable hash surface. **Do not encrypt this.** Crypto-shredding, if added, must wrap payload bytes *beside* the canonical digest, never mutate the field set mid-chain. |
@@ -34,7 +34,7 @@ Thesis: decouple governance from the systems being governed so both can evolve w
 | `governance/ledger_postgres.py` | Durable ledger |
 | `governance_harness.py` | `_write_decision` → `conservation/boundary.py` → Conservation Kernel; fail-close on non-acceptance |
 | `conservation/` | Boundary, episode source, judgment |
-| `epistemic/dit_gate.py` | Free-text governor reasoning must qualify as evidence before entering the canonical hash (DIT git pin) |
+| `epistemic/dit_gate.py` | Evaluates free-text governor reasoning for evidentiary quality (DIT git pin). Default mode `record` logs findings without changing the decision. `terminal` and `strict` modes can refuse qualifying reasoning. An unavailable evaluation does not block. Mode is set by `SENTINEL_EPISTEMIC_MODE`. |
 | `regulatory_checks.py` | Four-fifths and related screens (source of δ.fairness) |
 | `bisg_estimator.py` | Proxy race/ethnicity estimates: **proxy, not ground truth** |
 | `twin_*` / sealed demographic channel | Independent replica + crypto envelopes (`cryptography`: ECIES, Ed25519/X25519, AES-GCM, HKDF) |
@@ -68,6 +68,7 @@ Measured 2026-10-10 from clone `419642d` on a clean install (not re-run for the 
 | `CNS` pin | `cns @ git+…/CNS.git@v2.3.0` (release tag). Public as of 2026-10-10: a clean install resolves it with no token. The ledger imports `cns.gate` and sage_k imports `cns.graph`. |
 | DIT pin | `dit @ git+…/DIT.git@V0.1.0` (release tag, DIT main `a690dc3`). Pinned to a tag so a squash merge cannot make it unreachable. |
 | Anthropic | Governor path. `httpx<0.28` pin required for anthropic 0.116.0. |
+| Conservation root attestation | Event-based root attestation applies only when `observed_events` are supplied. Without them, the boundary accepts an explicitly unguarded source root (`allow_unguarded_roots=True` default). Supplied events are caller claims, not independent proof of external reality. |
 | No Cassette SDK | Cassettes are in-tree modules, not a versioned SDK. |
 | OTLP | Optional if `OTEL_EXPORTER_OTLP_ENDPOINT` set; not a product telemetry plane. |
 | Open TODO markers | None in the code as of 2026-11-06 (commit 3db93f0). |
