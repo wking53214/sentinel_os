@@ -48,8 +48,9 @@ what `verify_chain()` proves and does not. In short:
 
 ### Twin receiver: who can do what
 
-- **Where it listens.** The reference receiver binds to `127.0.0.1` only. The
-  code has no setting to listen on another address.
+- **Where it listens.** The reference runner binds to `127.0.0.1` only, and it has
+  no setting to listen on another address. Anyone who serves the app another way
+  is responsible for how exposed it is.
 - **Writes** (entries, custody events, obligation derivation and transition)
   require the replica's ship token. **Reads** (meta, head, entries,
   custody-log) require the customer's read token. A replica registered without
