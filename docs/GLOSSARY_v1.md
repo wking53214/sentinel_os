@@ -2,7 +2,7 @@
 
 Plain-English meanings for the symbols, codenames and jargon used across this repo.
 
-**How to trust this page.** Written 2026-10-10 against `main` @ `419642d`. Each entry is drawn from this repo's own README, STACK.md, COMPLIANCE.md, module docstrings and tests. Where a term is defined in another repo and this repo does not explain it, the entry says so instead of guessing. If a definition here disagrees with the code, the code wins; please fix this page.
+**How to trust this page.** Written 2026-10-10 and re-checked against the code on 2026-11-10, `main` @ `72cf5b4`. Each entry is drawn from this repo's own README, STACK.md, COMPLIANCE.md, module docstrings and tests. Where a term is defined in another repo and this repo does not explain it, the entry says so instead of guessing. If a definition here disagrees with the code, the code wins; please fix this page.
 
 ## The core objects
 
@@ -24,18 +24,18 @@ Plain-English meanings for the symbols, codenames and jargon used across this re
 - **Hash chain.** Each entry stores a hash of its own content plus the previous entry's hash (`current_hash`). Editing an old row breaks every hash after it. This catches accidental damage and naive edits; COMPLIANCE.md explains why it is not proof against a determined database owner.
 - **Canonical fields.** The fixed list of fields that feed the hash. They can be recomputed from stored data, so the system recomputes instead of trusting stored strings. Do not encrypt these fields.
 - **Supersession.** A later entry that corrects or overrules a decision without changing the original. It points to the original by ID and by hash.
-- **Human selection (concur / override / escalate).** A recorded human response to a governor's verdict. The recording mechanism exists and is tested; nothing in the live path calls it yet (see COMPLIANCE.md, Known Limitations).
-- **Verdict receipt.** A governance decision bound to a digest of exactly what it judged, signed over its content, hash-chained, and anchored outside the database. An outside auditor can check it offline.
+- **Human selection (concur / override / escalate).** A recorded human response to a governor's verdict. It is recorded through `POST /governance/decisions/{decision_id}/human-selection` on the ingress API. Nothing in the automated decision path calls it, and there is no review screen (see COMPLIANCE.md, Known Limitations).
+- **Verdict receipt.** A governance decision bound to a digest of exactly what it judged, authenticated with an HMAC-SHA256 tag from a service key the environment supplies (not the agent), and hash-chained. It can also be anchored outside the database. An outside auditor can check an export offline, but needs the key material, because an HMAC cannot be checked without the key.
 - **`subject_digest`.** The CNS fingerprint of what a decision judged. It ties a verdict to its input.
-- **Head anchor.** A copy of the chain's latest position kept outside the database after every append, so an offline check can notice a chain that was cut short.
-- **Attestation policy marker.** A chain entry recording when signing became mandatory. From that point on, an unsigned accountable claim is reported as `UNATTESTED`.
+- **Head anchor.** A copy of the chain's latest position kept outside the database after each append, so an offline check can notice a chain that was cut short. It is written only when `ICEBERG_LEDGER_ANCHOR_PATH` is set.
+- **Attestation policy marker.** A chain entry recording when signing became mandatory. From that point on, an accountable claim with no valid attestation tag is reported as `UNATTESTED`.
 - **Offline verifier (`tools/verify_receipts.py`).** Reads an exported ledger and prints exactly one result:
   - `VERIFIED`: everything checks out.
   - `TAMPERED`: a row's content no longer matches its hash.
   - `TRANSPLANTED`: a row carries another row's subject digest.
   - `SEED_FORGED`: a seed the server would not have derived.
   - `TRUNCATED`: rows were removed from the end.
-  - `UNATTESTED`: no valid signature from a trusted key.
+  - `UNATTESTED`: no valid attestation tag from a trusted key.
 
 ## The witness twin
 
@@ -48,13 +48,13 @@ Plain-English meanings for the symbols, codenames and jargon used across this re
 
 ## Gates, guards and plumbing
 
-- **Conservation boundary / Conservation Kernel.** A separate, pinned repo that independently verifies each governed decision. If it returns REJECT or UNVERIFIABLE, the ledger write does not happen: no durable state without conservation verification.
+- **Conservation boundary / Conservation Kernel.** A separate, pinned repo that independently verifies each governed decision. If it returns anything other than ACCEPTED (REJECTED, REQUIRES_AUTHORIZATION or REQUIRES_VERIFICATION), the ledger write does not happen: no durable state without conservation verification.
 - **DIT gate (`epistemic/dit_gate.py`).** Checks whether the governor's free-text reasoning actually qualifies as evidence before it is sealed into the hash. Without it, a hedge like "this might be safe, I believe" would become permanent evidence of approval. DIT is a separate pinned repo.
 - **Loop guard.** Detects a governance decision repeating itself. A repeat is treated as a signal, not as proof.
 - **Backpressure.** A number that says how long a producer should wait as the queue fills. It computes the delay only; the caller decides what to do. Ingress uses it to slow submissions.
 - **Transmission queue and worker.** A Redis-backed queue where a worker claims a job, keeps a heartbeat while working, then acks it. A job whose ledger write failed is failed as retryable and never acked.
 - **Ingress.** The HTTP front door, `api_server_v2.py`.
-- **`wiring_verify`.** A static analysis tool in `tools/` that answers "can this entry point actually reach this feature?" from the code's call graph. It reports `REACHABLE`, or `UNVERIFIABLE_STATICALLY` when dynamic code means it cannot know.
+- **`wiring_verify`.** A static analysis tool in `tools/` that answers "can this entry point actually reach this feature?" from the code's call graph. It reports `REACHABLE`, `UNREACHABLE` (the symbol exists but no path leads to it), or `UNVERIFIABLE_STATICALLY` when dynamic code means it cannot know.
 
 ## Fair-lending checks
 
