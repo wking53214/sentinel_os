@@ -4,9 +4,11 @@ Domain-blind **custody runtime** with pluggable cassettes, Episode observation a
 
 New to the vocabulary (cassette, twin, ζ, δ, TACK and so on)? See [`docs/GLOSSARY_v1.md`](docs/GLOSSARY_v1.md).
 
-## 1. Where this fits in STACK
+## 1. Where this fits in ≡TACK
 
-STACK is a family of separate repositories that each do one governance job. This one does **custody**: it observes what a decision system did, judges the outcome afterward against rules fixed beforehand, and keeps a tamper-evident record that a party outside the system can check. It does not make or carry out the business decision. In STACK's layer vocabulary it supplies Layer 5, verdict receipts (see [`STACK.md`](STACK.md)).
+≡TACK is the whole family of separate repositories (the company's entire library), each doing one governance job. This one does **custody**: it observes what a decision system did, judges the outcome afterward against rules fixed beforehand, and keeps a tamper-evident record that a party outside the system can check. It does not make or carry out the business decision. In ≡TACK's layer vocabulary it supplies Layer 5, verdict receipts (see [`STACK.md`](STACK.md), this repo's one-page role statement).
+
+**What it receives and hands on.** It receives an episode and its events from the caller (GSA-815 for IVR), plus a verdict from Conservation_Kernel. It hands on ledger rows, encrypted twin copies and receipts that an outside party can check offline.
 
 The live path, in the order the sibling repos describe it:
 
@@ -16,16 +18,23 @@ Admission → Observe/Keys → Locks → PERCEIVE → Decision → Conservation
     → CUSTODY (this repo): Episode + EventV1 + OutcomeV1 + Postgres ledger + twin
 ```
 
-That is an order, not an import chain. The live decision path is [`observe-perceive`](https://github.com/wking53214/observe-perceive), which never imports this repo. This repo is also not one of the five repositories of the evidence spine (HERALD → TIE → Conservation_Kernel → Governance_Gateway → CCC), and the CNS spine run does not cover it. It meets that spine at one point: it calls Conservation_Kernel on every governed decision.
+That is an order, not an import chain. The live decision path is [`observe-perceive`](https://github.com/wking53214/observe-perceive), which never imports this repo. This repo is also not one of the five repositories of the evidence spine (the chain HERALD → TIE → Conservation_Kernel → Governance_Gateway → CCC), and the CNS run over that chain does not cover it. It meets that chain at one point: it calls Conservation_Kernel on every governed decision.
 
-| Repo | Its role in STACK | Relationship to this repo |
+| Repo | Its role in ≡TACK | Relationship to this repo |
 |---|---|---|
 | [`observe-perceive`](https://github.com/wking53214/observe-perceive) | Hub of the governed action stack; the live decision path and the first product | Never imports this repo. Custody comes after it in the conceptual order only. |
-| [`interconnected_alpha`](https://github.com/wking53214/interconnected_alpha) → [`zeta`](https://github.com/wking53214/interconnected_zeta) → [`beta`](https://github.com/wking53214/interconnected_beta) → [`delta`](https://github.com/wking53214/interconnected_delta) | Extracted decision spine: Keys, Locks, Decision, Custody | δ is the in-process cousin of this repo. It reimplements outcome obligations and the four-fifths screen without Postgres or a twin, and consumes β's `Decision`. It does not import this repo. |
+| [`interconnected_alpha`](https://github.com/wking53214/interconnected_alpha) → [`zeta`](https://github.com/wking53214/interconnected_zeta) → [`beta`](https://github.com/wking53214/interconnected_beta) → [`delta`](https://github.com/wking53214/interconnected_delta) | Four small repos extracted from the live path: Keys, Locks, Decision, Custody | δ is the in-process cousin of this repo. It reimplements outcome obligations and the four-fifths screen without Postgres or a twin, and consumes β's `Decision`. It does not import this repo. |
 | [`Conservation_Kernel`](https://github.com/wking53214/Conservation_Kernel) `@7b08c79` | Repo 3 of 5 in the evidence spine; checks that a transformation did not silently change protected distinctions | Hard dependency. Every governed decision goes through it, and nothing is written unless it returns ACCEPTED. |
 | [`CNS`](https://github.com/wking53214/CNS) `@v2.3.0` | Shared contracts that the repos plug into | Dependency: `cns.gate` (the types behind verdict receipts) and `cns.graph` (graph types used by `sage_k`). |
 | [`DIT`](https://github.com/wking53214/DIT) `@V0.1.0` | Output-integrity gate for generated text | Dependency: `epistemic/dit_gate.py` evaluates the governor's free-text reasoning. |
 | [`GSA-815`](https://github.com/wking53214/GSA-815) | IVR execution and learning application | Consumes this kernel and vendors it as the submodule `vendor/sentinel_os`. The IVR code was extracted out so this kernel stays domain-blind. |
+
+### CNS connection
+
+- **This repo's side:** `sentinel_os/governance/ledger_postgres.py` and `sentinel_os/twin_custody.py` import `cns.gate`. This is required: the ledger does not load without it. `sentinel_os/sage_k/graph_extractor.py` imports `cns.graph`, which is not on the custody path.
+- **CNS's side:** CNS's connection list (`contracts/cns-links.json`) carries this repo as **two-way**: `to_cns` is `sentinel_os/twin_custody.py` and `from_cns` is `cns_composition/consumers.py`, which pins the exact names this repo imports. The list names one of the three importing files.
+- **Built, tested, used:** built (the imports exist); tested (`Tests/test_verdict_receipts.py`, `Tests/test_dependency_provenance.py` and the full suite); used on the normal path (every ledger write goes through `cns.gate`).
+- **Checked** 2026-11-10 against CNS `03eca66` (v2.3.0 plus later commits). This repo pins v2.3.0.
 
 ## 2. Full System Scope & Architectural Depth
 
@@ -73,7 +82,7 @@ Every governed decision is submitted to [`Conservation_Kernel`](https://github.c
 
 ## 4. Brutally Honest Current Status & Gaps
 
-**Test status (measured 2026-11-10 on `main` @ `cd5b630`, `sentinel_os/` suite, with PostgreSQL 16 and Redis running locally):** 1169 passed, 12 failed, 22 skipped. All 12 failures are in `test_twin_live.py`, which passes when run alone (18 of 18) but fails when run after the rest of the suite. The same failures occur on a clean `main`, so this is a pre-existing test-ordering or environment problem and not a regression. It has not been root-caused. Without Postgres and Redis, many more tests fail or skip. CI (`.github/workflows/tests.yml`) is the executable spec; these numbers are a point-in-time snapshot and will go stale.
+**Test status (measured 2026-11-10 on `main` @ `8a8cd30`, run as root with PostgreSQL 16 and Redis running locally, using the CI command `python -m pytest . ../tools` from `sentinel_os/`):** 1181 passed, 0 failed, 22 skipped. **CI was red on `main` until the fix in PR #124 lands:** three tests in `test_issue_read_tokens.py` assumed a table that a fresh database does not have (found 2026-11-10). An earlier run the same day had 12 failures in `test_twin_live.py` (a twin service never reported healthy). Two later full runs and the file alone passed, so that failure did not reproduce and its cause is unknown. Treat `test_twin_live.py` as environment-sensitive: it starts services under three OS accounts and needs `sudo scripts/twin_ensure_services.sh`. Without Postgres and Redis, many more tests fail or skip. CI (`.github/workflows/tests.yml`) is the executable spec; these numbers are a snapshot and will go stale.
 
 | Gap | Detail |
 |---|---|
@@ -103,21 +112,10 @@ Every governed decision is submitted to [`Conservation_Kernel`](https://github.c
 
 ## 6. Inputs, Outputs & Type Contracts
 
-`Episode` / `EventV1` / `OutcomeV1` / cassette `judge()` / ledger rows with `current_hash` chained from previous. Canonical field lists in `canonical_fields.py` are the hash surface. Do not add encrypted blobs *into* those fields.
+**In:** an `Episode` (what was asked, what independent observation saw, what the acting system claims, and the timeline), `EventV1` events, and a cassette that supplies the domain rules. **Out:** ledger rows whose `current_hash` chains from the previous row, outcome obligations (`OutcomeV1`) that stay open until resolved, twin copies for the customer's own store, and receipts that `tools/verify_receipts.py` checks offline. Canonical field lists in `canonical_fields.py` are the hash surface. Do not add encrypted blobs *into* those fields.
 
 ## 7. Dependencies and Pins
 
-The relationships are in section 1. In short:
+Pins and relationships are in sections 1 and 4. ICEBURG and ICEBERG are lineage names and are not imported (`ICEBERG_*` environment variable names are fossils). New domains belong here as cassette modules, not as forks of the kernel.
 
-```text
-Conservation_Kernel @7b08c79   mandatory boundary (installed by commit)
-CNS @v2.3.0                    gate contract (ledger) and graph types (sage_k)
-DIT @V0.1.0                    epistemic gate on governor text
-GSA-815                        vendors this repo at vendor/sentinel_os
-observe-perceive, δ            do not import this repo
-ICEBURG/ICEBERG                lineage names; not imported (ICEBERG_* env var names are fossils)
-```
-
-Cassettes: IVR, banking, mortgage, plus the CFPB Reg B overlay and a contract-attestation lens. New domains belong here as modules, not as forks of the kernel.
-
-Apache-2.0. The documents are indexed in [`docs/README.md`](docs/README.md), which separates current documents from the dated `docs/pass3/` briefs. Those briefs describe the code as it was in July to September 2026 and are not a description of what runs today.
+Apache-2.0, copyright William N. King. The documents are indexed in [`docs/README.md`](docs/README.md), which separates current documents from the dated `docs/pass3/` briefs. Those briefs describe the code as it was in July to September 2026 and are not a description of what runs today.
