@@ -98,7 +98,7 @@ Required by D1 alongside the claims below. Full detail and runnable verification
 - ⚠️ **A six-dimension bias/fair-lending screening framework exists, built and tested. Its per-decision dimensions run in the mortgage worker in flag-only mode; its cohort-level dimensions need a configured twin and a scheduled sweep.** Declared-proxy and prohibited-basis variable screening, input-authorization-tier and narrative-legitimacy screening (both opt-in), and three cohort-level checks (statistical outcome equity, value-correlation-based proxy detection, geographic ZIP/county outcome equity), see `regulatory_checks.py` and `regulatory_cassettes/cfpb_reg_b.py`, and Known Limitations above for exactly what's disclosed as unscreened (string/categorical proxies) and what is not wired in yet (the cohort data feed).
 - 📄 **Bias audit framework:** See `MODEL_CARD.md` (not independently re-verified in this revision).
 
-**Regulatory Verification:** `AUDIT_PLAYBOOK.md` Section 7.5 ("No Hidden Branching").
+**Regulatory Verification:** `AUDIT_PLAYBOOK.md` Section 7.5 (approval-rate plausibility; it cannot show group-level bias, see that section).
 
 ### Recordkeeping & Audit Trail
 
@@ -172,7 +172,7 @@ Sentinel ships a customer-held-key witness replica ("the twin") that turns the p
 | Decision logging | ✅ | Ledger schema stores every decision | `AUDIT_PLAYBOOK.md` §7.2 |
 | Policy transparency (parameters) | ✅ | Cassette is config, not code | `cassettes/ivr_cassette.py` |
 | Policy transparency (decision logic) | ✅ | `cassette_code_hash` covers decision code + declared governance imports (source-hash ceiling) | Known Limitations |
-| Explainability | ✅ | Intent + friction + reasoning in record | `AUDIT_PLAYBOOK.md` §7.2 |
+| Explainability | ✅ | Episode id, issue count, trigger and governor reasoning in record | `AUDIT_PLAYBOOK.md` §7.2 |
 | Auditability | ✅ | Reconstruction queries provided | `AUDIT_PLAYBOOK.md` |
 | Fail-safe defaults | ✅ | Error paths tested in `test_governance_harness_stress.py`; ledger check → `approved=false` | `AUDIT_PLAYBOOK.md` §7.1 |
 | Error handling | ✅ | No silent failures; all logged | `AUDIT_PLAYBOOK.md` §7.4 |

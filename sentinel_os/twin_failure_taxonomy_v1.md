@@ -1,5 +1,7 @@
 # Twin Transport Failure Taxonomy v1
 
+> **Dated report (July 18, 2026), not maintained.** It describes the tree as it was on that date. Test counts, line counts and environment details are from that date and have not been re-measured. For current status see the [repository root README](../README.md).
+
 **Date:** July 18, 2026
 **Scope:** every transport/integrity failure mode the twin sync path can encounter, the existing `Reason` it maps to, its retry disposition, and the live test that forces it.
 **Principle:** this taxonomy lists only failure modes that are **actually forced and observed** in `test_twin_live.py`. No mode appears here on the strength of "it should happen"; each row cites the test that made it happen against real services. Modes that are excluded *by construction* are named in §3 with the reason they cannot occur, not left as silent gaps.

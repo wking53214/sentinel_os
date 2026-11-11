@@ -1,5 +1,7 @@
 # rate_limiter_v2.py + circuit_breaker.py — Verification Report v1
 
+> **Dated report (July 18, 2026), not maintained.** It describes the tree as it was on that date. Test counts, line counts and environment details are from that date and have not been re-measured. For current status see the [repository root README](../README.md).
+
 **Components:** Roadster phase-1, final two pieces — F-F (rate limiting) and F-A's application-layer piece (per-resource circuit breaking)
 **Date:** July 18, 2026
 **Environment:** Redis 7.0.15, Postgres 16.14, redis-py 8.0.1, psycopg2 2.9.x, Python 3.12.3, fastapi 0.139.0, anthropic 0.116.0; repo @ `328605c` + this session's diff (not yet committed at time of writing)

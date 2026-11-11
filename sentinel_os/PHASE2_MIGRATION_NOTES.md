@@ -5,7 +5,7 @@ Sentinel database with an already-populated `ledger_entries` table.
 
 **Bottom line:** deployable online, no downtime, no backfill, no chain break.
 `verify_chain()` continues to pass on all pre-existing rows. Verified live against
-real Postgres 16: full suite 161/161 at the time of the Phase 2 migration (historical snapshot; the suite collects 1,004 tests on main as of 2026-11-07), with an explicit test that a plain
+real Postgres 16: full suite 161/161 at the time of the Phase 2 migration (historical snapshot; the `sentinel_os/` suite collected 1,203 tests on main on 2026-11-10: 1,169 passed, 12 failed, 22 skipped, see the root README, section 4), with an explicit test that a plain
 pre-Phase-2-shaped decision row still recomputes byte-identical.
 
 ---

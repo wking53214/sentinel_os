@@ -1,4 +1,6 @@
 # Mortgage Regulatory Lens Framework
+
+> **Historical design record, superseded by v4.** Statements here such as "zero code written" were true on the date below and are not true now: the Reg B lens exists in `sentinel_os/regulatory_cassettes/cfpb_reg_b.py` with `regulatory_checks.py`. For current behaviour see the [repository root README](../../README.md) and the code.
 ## First-Pass Concept Design and Precedent Record
 
 **Version:** v1

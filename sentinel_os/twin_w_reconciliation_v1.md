@@ -1,5 +1,7 @@
 # Twin ↔ W-item Reconciliation v1
 
+> **Dated report (July 18, 2026), not maintained.** It describes the tree as it was on that date. Test counts, line counts and environment details are from that date and have not been re-measured. For current status see the [repository root README](../README.md).
+
 > **Note:** This reconciliation cites two external documents, `global-ai-governance-requirements-v1.md` and `sentinel-v12-compliance-grading-v2.md`. Neither is in this repository, so the quoted requirements and grades are not checkable here.
 
 

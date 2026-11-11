@@ -205,11 +205,11 @@ All inference data is stored in PostgreSQL ledger with:
 
 ## References
 
-- Code: `sentinel_core.py`, class `SentinelCore`, method `infer_intent()`
-- Tests: `sentinel_os/Tests/test_intent_classification_audit.py`
+- Code: `sentinel_core.py`, class `SentinelCore`, method `infer_intent()` (not in this repository)
+- Tests: `sentinel_os/Tests/test_intent_classification_audit.py` (not in this repository)
 - Audit: `AUDIT_PLAYBOOK.md`, section "Verify Intent Classification is Persisted"
 - Compliance: `COMPLIANCE.md`, section "Transparency & Explainability"
 
 ---
 
-**For regulators:** This model card is intended to provide enough detail for audit and compliance purposes. For code review, see `sentinel_core.py`. For production behavior, see `AUDIT_PLAYBOOK.md`.
+**For regulators:** This model card is intended to provide enough detail for audit and compliance purposes. The code that card describes (`sentinel_core.py`) is not in this repository, so there is nothing here to review for it. For production behavior, see `AUDIT_PLAYBOOK.md`.

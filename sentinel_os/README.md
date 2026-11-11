@@ -1,13 +1,14 @@
-# sentinel_os/ — the kernel package
+# sentinel_os/ (the kernel package)
 
 The canonical project README is at the [repository root](../README.md).
 This file is a short orientation for the package directory itself.
+For where this repo fits in STACK, see section 1 of the root README.
 
 `sentinel_os/` is the **domain-blind governance kernel**: it observes a
 decision, judges its outcome against rules fixed and hashed before the
 outcome was known, and records every step in a tamper-evident Postgres
 hash-chained ledger with an independent twin witness. It knows nothing about
-any particular application domain — a *cassette* supplies that, and the
+any particular application domain; a *cassette* supplies that, and the
 kernel refuses any cassette that asks for a capability the kernel does not
 provide.
 
@@ -31,7 +32,7 @@ The standalone contact-centre simulator and its `Domain/` `Sim/` `Engines/`
 client, the queue/staffing/Bayes layer, and the resilient API server all live
 in **[GSA-815](https://github.com/wking53214/GSA-815)**, which runs on this
 kernel via `PYTHONPATH`. IVR/contact-centre decisioning was the original
-proving ground for the architecture — see the root README — but the kernel
+proving ground for the architecture (see the root README), but the kernel
 carries none of it.
 
 ## Running it
@@ -72,4 +73,4 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for environment variables and TLS/DB setup.
 
 ## License
 
-Apache-2.0 — see [LICENSE](../LICENSE).
+Apache-2.0, see [LICENSE](../LICENSE).

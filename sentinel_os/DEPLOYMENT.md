@@ -9,27 +9,49 @@
 | `POSTGRES_DB` | `iceberg` | |
 | `POSTGRES_USER` | `iceberg` | |
 | `POSTGRES_PASSWORD` | none (required) | The worker, the operator scripts and docker-compose refuse to start without it |
-| `ICEBERG_LEDGER_RUNTIME_PASSWORD` | none (required) | Password of the restricted runtime role (`ICEBERG_LEDGER_RUNTIME_USER`, default `ledger_reader`). The ledger, `scripts/verify_ledger.py`, `scripts/ledger_backup_verify.sh` and docker-compose refuse to start without it |
-| `FORTRESS_AUDIT_KEY` | — | Secret that signs the `sage_k` audit log (`FORTRESS_AUDIT_LOG`). Unset → a random key held only by that process, with a warning, so the log cannot be verified after a restart. The literal `development-key` is a published value: warned about everywhere, refused in production. |
-| `FORTRESS_ENV` | — | Set to exactly `production` to make `sage_k` refuse to import without a unique `FORTRESS_AUDIT_KEY`. |
-| `CLAUDE_API_KEY` | — | Used by the IVR governor client, which now lives in the **GSA-815** repo (`claude_governance_api.py`). Not read by this kernel directly. |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY` / `TWILIO_API_SECRET` | — | Twilio call-log ingestion moved to the **GSA-815** repo. |
-| `ICEBERG_API_KEYS` | — | API keys for the resilient API server (`api_server_resilient.py`), now in the **GSA-815** repo. |
+| `ICEBERG_LEDGER_RUNTIME_PASSWORD` | none (required) | Password of the restricted runtime role. The role name comes from `ICEBERG_LEDGER_RUNTIME_USER`, which has no default in the ledger and is required (docker-compose sets `ledger_reader`; `scripts/verify_ledger.py` defaults to it). The ledger, `scripts/verify_ledger.py`, `scripts/ledger_backup_verify.sh` and docker-compose refuse to start without it |
+| `FORTRESS_AUDIT_KEY` | unset | Secret that signs the `sage_k` audit log (`FORTRESS_AUDIT_LOG`). Unset → a random key held only by that process, with a warning, so the log cannot be verified after a restart. The literal `development-key` is a published value: warned about everywhere, refused in production. |
+| `FORTRESS_ENV` | unset | Set to exactly `production` to make `sage_k` refuse to import without a unique `FORTRESS_AUDIT_KEY`. |
+| `CLAUDE_API_KEY` | unset | Used by the IVR governor client, which now lives in the **GSA-815** repo (`claude_governance_api.py`). Not read by this kernel directly. |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY` / `TWILIO_API_SECRET` | unset | Twilio call-log ingestion moved to the **GSA-815** repo. |
+| `ICEBERG_API_KEYS` | unset | Keys the ingress (`api_server_v2.py`) accepts, written `key:name,key:name`. Docker-compose refuses to start without it. Run bare with it unset, the ingress starts with authentication and rate limiting off and logs a warning, which is for development only. |
+| `ICEBERG_REQUIRE_API_KEYS` | unset | Set to `true` in production. The ingress then refuses to start without `ICEBERG_API_KEYS` instead of running open. |
 | `ICEBERG_LEDGER_ATTESTATION_KEY` | unset | Current signing key for the ledger `authorized_by` attestation and the head anchor. **Required**: attestation is enforced by default and the ledger refuses to start without it. See below. |
-| `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` | — | Path to a file holding the current key; used only when `ICEBERG_LEDGER_ATTESTATION_KEY` is unset. For file-projecting secret managers (Vault Agent, CSI driver, Docker secrets). |
-| `ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS` / `..._PREVIOUS_FILE` | — | Keys retired from signing but still fully trusted for verification (comma-separated, or one per line in the file). Where old keys live after a rotation. |
-| `ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED` / `..._RETIRED_FILE` | — | Keys the operator has deliberately stopped trusting (suspected compromise / policy sunset). Rows they signed verify as `retired_key` — a `verify_chain` violation only under enforcement. |
+| `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` | unset | Path to a file holding the current key; used only when `ICEBERG_LEDGER_ATTESTATION_KEY` is unset. For file-projecting secret managers (Vault Agent, CSI driver, Docker secrets). |
+| `ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS` / `..._PREVIOUS_FILE` | unset | Keys retired from signing but still fully trusted for verification (comma-separated, or one per line in the file). Where old keys live after a rotation. |
+| `ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED` / `..._RETIRED_FILE` | unset | Keys the operator has deliberately stopped trusting (suspected compromise / policy sunset). Rows they signed verify as `retired_key`, which is a `verify_chain` violation only under enforcement. |
 | `ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE` | unset | Dev-only. When truthy, attestation is not enforced: the ledger starts without a key, accountable claims are written unsigned, no `attestation_policy` marker is appended, and a loud warning is printed at startup. Never set it in a production profile. |
 | `ICEBERG_LEDGER_REQUIRE_ATTESTATION` | (on) | Kept for compatibility. Enforcement is on by default: an unsigned `authorized_by` claim is refused, the ledger refuses to start without a signing key, a `retired_key` row is a `verify_chain` violation. A falsy value is ignored (with a warning); only the override above switches enforcement off. |
 | `ICEBERG_LEDGER_ANCHOR_PATH` | unset | Where the ledger seals its head hash and row count after every append (TACK Layer 5). Outside the database, on a path the ledger service cannot reach; the compose profile mounts it on the worker only. Verified writable at boot when set. |
 | `TWIN_CUSTOMER_KEYS_FILE` | unset | Path to a JSON object that maps each twin replica id to its customer's Ed25519 public key (base64). Only ids listed here can register with the twin receiver. Unset, missing, unreadable or malformed means every registration is refused. Reread on every registration, so adding a customer needs no restart. |
 | `TWIN_RECEIVER_REGISTRATION_SECRET` | unset | Operator secret sent as a Bearer token on `POST /replica/{id}/register`. Unset refuses every registration with 503; a wrong token gets 401. Generate a long random value (for example `openssl rand -hex 32`) and keep it out of source control. |
-| `PORT` | `9090` | API server port |
-| `CERT_FILE` / `KEY_FILE` | `./certs/cert.pem` / `./certs/key.pem` | TLS cert/key paths |
+| `INGRESS_HOST` / `INGRESS_PORT` / `INGRESS_WORKERS` | `0.0.0.0` / `8000` / `1` | Where the ingress listens, and how many worker processes serve it. |
+| `INGRESS_MAX_BODY_BYTES` | `262144` | Largest request body the ingress accepts. |
+| `INGRESS_RETRY_AFTER_SECONDS` | `5` | The `Retry-After` value sent with a refusal that asks the caller to try again. |
+| `SSL_CERTFILE` / `SSL_KEYFILE` | unset | Paths to a certificate and key. Set both to serve the ingress over HTTPS; otherwise it serves plain HTTP. |
+| `ICEBERG_RATE_LIMIT_MAX` / `ICEBERG_RATE_LIMIT_WINDOW_SECONDS` | `60` / `60` | How many failed authentication attempts one connecting IP gets per window (`api_key_auth.py`). |
+| `RATE_LIMIT_REQUESTS_PER_MINUTE` / `RATE_LIMIT_BURST_CAPACITY` | `100` / `20` | Per-caller token bucket in `rate_limiter_v2.py`. Attached only when API keys are configured, because it buckets by the validated caller. |
+| `RATE_LIMIT_BUCKET_TTL_SECONDS` | `300` | How long an idle bucket is kept in Redis. |
+| `RATE_LIMIT_REDIS_URL` / `RATE_LIMIT_NAMESPACE` | `TRANSMISSION_REDIS_URL`, then `redis://localhost:6379/0` / `rl` | Where the rate-limit buckets live. |
+| `TRANSMISSION_REDIS_URL` | `redis://localhost:6379/0` | Redis for the transmission queue (ingress and worker). |
+| `TRANSMISSION_NAMESPACE` | `sq:<queue id>` | Key prefix for the queue. |
+| `SENTINEL_QUEUE_ID` | `v12` | Queue id. The worker also accepts `SENTINEL_QUEUE_NAME` as an explicit override. |
+| `SENTINEL_TRANSMISSION_QUEUE_CAPACITY` | `10000` | Queue size at which the ingress delay reaches its 2 second maximum. `0` turns the delay off. |
+| `TWIN_TARGETS_FILE` | `twin_targets.json` (in the shipper's working directory) | Routing table the twin shipper reads: one target per replica site. COMPLIANCE.md describes the twin as off by default. |
+| `SENTINEL_REDIS_URL` | `redis://localhost:6379/0` | Redis used by the twin shipper and sync worker. |
+| `TWIN_RECEIVER_DSN` / `TWIN_RECEIVER_PORT` / `TWIN_RECEIVER_SITE` | `dbname=twin_replica_a` / `8300` / `site-a` | Settings for `twin_receiver.py`, the customer-side replica. |
+| `TWIN_CUSTODIAN_HOME` / `TWIN_CUSTODIAN_PORT` | `~/custodian` / `8400` | Settings for `twin_custodian.py`. |
+| `TWIN_SYNC_TIMEOUT` | the sync worker's `--timeout` | Network timeout, in seconds, for the twin sync worker. |
+| `SENTINEL_TWIN_REPLICA_ID` / `SENTINEL_TWIN_RECEIVER_URL` / `SENTINEL_SHIP_TOKEN` | unset | When all three are set, the worker's regulatory deck reports to the twin receiver. `SENTINEL_SHIP_TOKEN` is also the default ship token for `obligation_sweep.py`. |
+| `TWIN_SHIPPER_ONEROW` / `TWIN_SHIPPER_SKIP_SIDS` | unset | Test hooks for the twin shipper. Do not set them in production. |
+| `SEALED_CHANNEL_RUNTIME_USER` / `SEALED_CHANNEL_RUNTIME_PASSWORD` | unset (user required) | Restricted role for the sealed demographic channel. It refuses to start without a user and has no privileged fallback. |
+| `SENTINEL_BISG_RESEARCH_MODE` | `false` | Set to `true` to turn on BISG race and ethnicity estimation in the cohort sweep. It is an estimate, not ground truth. |
+| `CENSUS_API_KEY` | unset | Census API key the BISG estimator needs for live race tables. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Collector URL for OpenTelemetry traces. Tracing stays off when unset. |
 
 ## TLS certificates
 
-`certs/` is gitignored on purpose — private keys should never be committed.
+`certs/` is gitignored on purpose: private keys should never be committed.
 Generate your own before running the TLS-dependent tests or serving HTTPS:
 
 ```
@@ -39,7 +61,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -days 365 -subj "/CN=your-domain"
 ```
 
-(CI generates an ephemeral cert automatically — see `.github/workflows/tests.yml`.)
+(CI generates an ephemeral cert automatically; see `.github/workflows/tests.yml`.)
 
 **Note on git history:** a self-signed dev cert/key pair (`certs/cert.pem`,
 `certs/key.pem`, generic `CN=localhost` subject) was committed in an early
@@ -57,15 +79,15 @@ attributed to. Without a key it is an unverified string. Configure
 `ICEBERG_LEDGER_ATTESTATION_KEY` and every writer signs the claim with
 HMAC-SHA256; a verifier with the same key then confirms the row was written by
 a key holder and that the claim is unchanged. It does **not** prove the named
-party authorized anything — one shared key, and a leaked key forges
+party authorized anything: it is one shared key, and a leaked key forges
 signatures. See `governance/authorized_by_attestation.py`.
 
 - **Generate:** `openssl rand -hex 32`. One system of record, never committed,
   a **distinct key per environment** (a leaked staging key must not forge
   production rows).
-- **Deliver it** either as `ICEBERG_LEDGER_ATTESTATION_KEY` directly, or — for
+- **Deliver it** either as `ICEBERG_LEDGER_ATTESTATION_KEY` directly, or, for
   Vault Agent / the Secrets Store CSI driver / Docker secrets, which project a
-  secret as a file — mount the file and set
+  secret as a file, mount the file and set
   `ICEBERG_LEDGER_ATTESTATION_KEY_FILE` to its path (env var wins if both are
   set; a set-but-unreadable file path is a hard error, never silently "no
   key"). The key is re-read on every write/verify, so rewriting the file
@@ -93,10 +115,10 @@ Three roles, each with an env var and a `_FILE` variant:
 
 | role | var | a matching row verifies as | `verify_chain` |
 |---|---|---|---|
-| **current** — signs new rows | `ICEBERG_LEDGER_ATTESTATION_KEY` | `ok` | — |
-| **previous** — retired from signing, still trusted | `ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS` | `ok` | — |
-| **retired** — deliberately distrusted, still recognised | `ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED` | `retired_key` | violation **only under enforcement** |
-| *(none of the above)* | — | `unknown_key` | violation **always, un-overridable** |
+| **current**: signs new rows | `ICEBERG_LEDGER_ATTESTATION_KEY` | `ok` | none |
+| **previous**: retired from signing, still trusted | `ICEBERG_LEDGER_ATTESTATION_KEYS_PREVIOUS` | `ok` | none |
+| **retired**: deliberately distrusted, still recognised | `ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED` | `retired_key` | violation **only under enforcement** |
+| *(none of the above)* | n/a | `unknown_key` | violation **always, un-overridable** |
 
 **Runbook:**
 
@@ -108,8 +130,8 @@ Three roles, each with an env var and a `_FILE` variant:
    > **Do step 2 before step 3, and let it propagate.** If B becomes the
    > signing key while A is not yet in `..._KEYS_PREVIOUS` anywhere,
    > verification stops recognising A: every pre-rotation row reports
-   > `unknown_key`. That is not fatal — `scripts/verify_ledger.py` runs in
-   > tolerant mode and *reports* violations rather than crashing — but it
+   > `unknown_key`. That is not fatal: `scripts/verify_ledger.py` runs in
+   > tolerant mode and *reports* violations rather than crashing, but it
    > lights up the entire back-catalogue until A is restored to the list. During a rolling deploy, instances that have B as
    > current and A in `..._KEYS_PREVIOUS` verify cleanly; the danger window is
    > only if step 3 lands before step 2.
@@ -125,13 +147,13 @@ Three roles, each with an env var and a `_FILE` variant:
    rotation is complete.
 5. **Leave A in `..._PREVIOUS` indefinitely.** Keys are tiny; retaining them
    keeps all of history verifiable. Only if A is believed *compromised*, move
-   it to `ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED` — its rows then light up as
+   it to `ICEBERG_LEDGER_ATTESTATION_KEYS_RETIRED`; its rows then light up as
    `retired_key`, flagging exactly the history a leaked key could have forged.
 
 **Retiring a key entirely** (removing it from both lists) makes the rows it
 signed `unknown_key`, which `verify_chain` fails unconditionally. That is a
 deliberate governance decision to stop being able to verify that slice of
-history — a conservative deployment never does it.
+history; a conservative deployment never does it.
 
 There is no per-row re-signing: the ledger is append-only and the immutability
 triggers forbid rewriting a row.
@@ -146,16 +168,16 @@ docker-compose up -d
 (Postgres) + `redis` + `ingress` (`api_server_v2.py`) + `worker`
 (`sentinel_worker.py` → `GovernanceHarness`).
 
-The IVR / Iceberg application — the standalone simulator, the resilient API
+The IVR / Iceberg application (the standalone simulator, the resilient API
 server (`api_server_resilient.py`), `docker-compose-prod.yml`, and the `k8s/`
-manifests — moved to the **GSA-815** repo. Deploy that lane from there; it
+manifests) moved to the **GSA-815** repo. Deploy that lane from there; it
 runs on this kernel.
 
 ## Kubernetes
 
 The `k8s/` manifests (a single `iceberg` Deployment running
 `api_server_resilient.py`) moved to the **GSA-815** repo with the rest of the
-IVR lane. This kernel has no k8s manifests of its own — the governed lane is
+IVR lane. This kernel has no k8s manifests of its own; the governed lane is
 `docker-compose.yml` only.
 
 A `Deploy/k8s/` + `Deploy/argocd/` tree was removed 2026-09-03: five files that
@@ -170,24 +192,24 @@ git history.
 
 The ledger expects a reachable PostgreSQL instance matching the `POSTGRES_*`
 variables above. CI installs PostgreSQL natively on the runner (so
-`test_twin_live.py` can use Unix-socket peer auth — see
+`test_twin_live.py` can use Unix-socket peer auth; see
 `.github/workflows/tests.yml`); that is a test setup, not a production one.
 
 For a non-local Postgres, set a real `POSTGRES_PASSWORD` and
 `ICEBERG_LEDGER_RUNTIME_PASSWORD` in your environment before bringing up
 `docker-compose.yml`. The app connects as a restricted
-runtime role (`ICEBERG_LEDGER_RUNTIME_USER`, see above) — the ledger refuses to
+runtime role (`ICEBERG_LEDGER_RUNTIME_USER`, see above); the ledger refuses to
 start if that role is a superuser or the table owner.
 
 ### Backups
 
 The ledger is the record. Back the database up on the schedule your retention
 obligations require, encrypted at rest, with the backup-encryption key held
-separately from whoever administers the database (an auditor will ask — see
+separately from whoever administers the database (an auditor will ask; see
 `AUDIT_PLAYBOOK.md` section 5).
 
 A backup you have not restored is not a backup, and for a hash-chained ledger
-"it restored" is not enough — the chain has to still verify. Run the drill:
+"it restored" is not enough: the chain has to still verify. Run the drill:
 
 ```
 scripts/ledger_backup_verify.sh  [OUTFILE]
@@ -202,7 +224,7 @@ backups offsite, so a bad backup fails loudly instead of sitting unnoticed
 until you need it.
 
 `scripts/verify_ledger.py` also runs standalone against any database
-(`--db NAME`, or `POSTGRES_*` env) — the same check an auditor runs.
+(`--db NAME`, or `POSTGRES_*` env); the same check an auditor runs.
 
 ### Ledger integrity incidents
 
@@ -212,14 +234,14 @@ If `verify_chain()` / `verify_ledger.py` reports a violation:
    `pg_dump`) so the current state is preserved for investigation.
 2. **Read the violation.** `Entry N: content hash mismatch (stored=…,
    recomputed=…)` means row N's stored `current_hash` no longer matches a
-   recomputation of its contents — an in-place edit, corruption, or a restore
+   recomputation of its contents: an in-place edit, corruption, or a restore
    from a tampered source. `Entry N: chain broken (prev_hash mismatch)` means
-   the chain link at N is broken — a row was inserted, deleted, or reordered.
+   the chain link at N is broken: a row was inserted, deleted, or reordered.
    `Entry N: authorized_by …` means the keyed attestation on that row's
    attribution string doesn't check out (see "Ledger `authorized_by`
    attestation" above).
 3. **Distinguish accident from action.** A single mismatch with a plausible
-   cause (disk error, a botched migration) is likely corruption — restore from
+   cause (disk error, a botched migration) is likely corruption, so restore from
    the last backup whose `ledger_backup_verify.sh` run passed. A *clean* full
    chain that simply disagrees with an external record is the harder case:
    `AUDIT_PLAYBOOK.md` (H3/H5) shows an operator with database superuser access
@@ -236,14 +258,14 @@ If `verify_chain()` / `verify_ledger.py` reports a violation:
 
 ### Growth
 
-The ledger is append-only and never shrinks — one row per governed decision,
+The ledger is append-only and never shrinks: one row per governed decision,
 plus one `cassette_binding` row per distinct cassette version. There is no
 automatic partitioning or archival of old entries yet; for high-volume
 deployments, plan table partitioning by time or `id` range before the table
 gets large enough that `verify_chain()` (a full-table recomputation) becomes
 slow.
 
-## Known gaps (see README "Tests" section for current numbers)
+## Known gaps (see section 4 of the root README for current test numbers)
 
 - Live Claude API round-trip (governed decision path with a real key) is not
   yet verified end-to-end outside of unit-level mocking.

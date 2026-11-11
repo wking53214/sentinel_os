@@ -1,5 +1,7 @@
 # The Twin (customer-DR witness replica) — Verification Report v1
 
+> **Dated report (July 18, 2026), not maintained.** It describes the tree as it was on that date. Test counts, line counts and environment details are from that date and have not been re-measured. For current status see the [repository root README](../README.md).
+
 **Components:** `twin_custody.py`, `twin_receiver.py`, `twin_shipper.py`, `twin_sync_worker.py`, `twin_detector.py`, `twin_custodian.py`, `twin_migrate.py`, `twin_probe.py` — the DAP v1 reference implementation (2,784 lines incl. tests).
 **Date:** July 18, 2026
 **Environment:** Redis 7.x, Postgres 16.14, Python 3.12.3, `cryptography` 46.0.6, psycopg2 2.9.x, fastapi + uvicorn, httpx. Repo @ `5e61d63` (clean tree == `origin/main`) **+ this session's new files only**. Zero modifications to any existing tracked file — confirmed by `git status` showing all ten twin files as untracked (`??`) and no tracked file modified.

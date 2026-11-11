@@ -20,6 +20,16 @@ its first real consumer.
 | `transport.py` | `gems_transport/transport.py` | `49f078364219460afaa19e5c8bc558dc` |
 | `builder.py` | `gems_transport/reference_gems/base.py` | `9c5fd432378f9430909c7f98cf96d312` |
 
+## Local changes since the copy
+
+The md5 column is of the upstream file at copy time. Checked 2026-11-10, three
+local files no longer match it: `registry.py` (edited in PR #59, owner-only
+custody audit log and transport ledger), `transport.py` (edited in PR #86,
+pinning the kernel that requires a guard) and `builder.py` (only the import
+edit described below, made when it was moved in). `contracts.py`, `artifact.py`
+and `errors.py` still match. The Re-sync step below would therefore overwrite
+the PR #59 and #86 fixes: diff against upstream first.
+
 ## Changes on the way in
 
 - `builder.py` (was `reference_gems/base.py`): `from ..artifact` / `from ..contracts`
