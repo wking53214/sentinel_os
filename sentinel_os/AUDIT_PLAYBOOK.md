@@ -199,75 +199,74 @@ The full engine audit (F-A through F-I) and the Phase 2 Witness roadmap referenc
 
 ## 7. Additional Verification Checks
 
-These check separate claims — not tamper-evidence, which Sections 1–3 cover in full. Each was independently verified against live execution before shipping; only the column names below needed correcting against the real schema.
+These check separate claims, not tamper-evidence, which Sections 1 to 3 cover in full. The queries in 7.1 to 7.6 were re-run on 2026-11-10 against rows written by a real `GovernanceHarness` (mortgage cassette, stub decider) on PostgreSQL 16. What a harness row holds: columns `record_kind`, `node` (the cassette's domain), `reason` (the governor's reasoning text), `cassette_version`, `cassette_hash`, and the JSON columns `input_data` (`episode_id`, `issue_count`, `governance_trigger`), `decision_output` (`approved`, the CNS `gate`, and `reasoning_integrity` when present) and `policy_parameters` (a `parameters` map). Earlier revisions of this section queried IVR-era fields (`intent_*`, `risk_level`, `parse_failed`, `long_wait_threshold`) that the current kernel does not write; those queries were removed.
 
-**7.1 Fail-Closed Governor** — every governor error resolves to `approved: false, risk_level: critical`.
+**7.1 Fail-Closed Governor**: an unusable governor answer resolves to `approved: false`.
 ```sql
-SELECT id, action_type, (decision_output->>'approved')::boolean AS approved,
-       decision_output->>'risk_level' AS risk_level,
-       decision_output->>'reasoning' AS reasoning, timestamp
+SELECT id, (decision_output->>'approved')::boolean AS approved, reason, timestamp
 FROM ledger_entries
-WHERE action_type = 'governance_decision'
-  AND ((decision_output->>'parse_failed')::boolean = true OR (decision_output->>'governed')::boolean = false)
+WHERE record_kind = 'governance_decision'
+  AND reason LIKE 'decider_error:%'
 ORDER BY id DESC LIMIT 100;
 ```
-Pass: every row `approved=false`, `risk_level=critical`.
+Pass: every row `approved=false`. This only finds the failures the harness itself labels `decider_error:`. The governor client fails closed on its own malformed answers too, and those carry its own reasoning text, so this query is a spot check and the tests in `Tests/test_governance_harness_stress.py` are the real evidence.
 
-**7.2 Intent Classification Persistence** — every decision carries intent fields.
+**7.2 Decision Inputs and Reasoning Persistence**: every decision records what triggered it and why.
 ```sql
-SELECT id, input_data->>'intent_classification' AS intent_classification,
-       (input_data->>'intent_confidence')::float AS intent_confidence,
-       input_data->>'intent_reasoning' AS intent_reasoning, timestamp
+SELECT id, input_data->>'episode_id' AS episode_id,
+       (input_data->>'issue_count')::int AS issue_count,
+       (input_data->>'governance_trigger')::int AS governance_trigger,
+       reason, timestamp
 FROM ledger_entries
-WHERE action_type = 'governance_decision'
+WHERE record_kind = 'governance_decision'
 ORDER BY id DESC LIMIT 10;
 ```
-Pass: all three non-null, confidence between 0 and 1.
+Pass (for rows written by `GovernanceHarness`; rows written directly to the ledger by other callers have their own `input_data` shape and will show nulls here): `episode_id`, `issue_count` and `governance_trigger` non-null, `reason` non-empty, and `issue_count >= governance_trigger` (a decision is only governed when the issue count reaches the trigger).
 
-**7.3 Cassette Governance** — every decision governed by a recorded cassette version.
+**7.3 Cassette Governance**: every decision governed by a recorded cassette version.
 ```sql
-SELECT id, policy_parameters->>'cassette_version' AS cassette_version,
-       (policy_parameters->>'long_wait_threshold')::float AS long_wait_threshold, timestamp
+SELECT id, cassette_version, cassette_hash,
+       policy_parameters->'parameters'->'governance_trigger'->>'value' AS governance_trigger,
+       timestamp
 FROM ledger_entries
-WHERE action_type = 'governance_decision'
+WHERE record_kind = 'governance_decision'
 ORDER BY id DESC LIMIT 10;
 ```
-Pass: `cassette_version` present, parameters non-null. Caveat this check can't resolve: `cassette_version` is self-asserted (H2) — nothing here binds the label to the parameters that actually governed the decision. This confirms a version was recorded, not that it was honest.
+Pass: `cassette_version` and `cassette_hash` present, parameters non-null. Caveat this check can't resolve: `cassette_version` is self-asserted (H2): nothing here binds the label to the parameters that actually governed the decision. This confirms a version was recorded, not that it was honest.
 
-**7.4 Error Handling** — no approved decision also carries an error flag.
+**7.4 Error Handling**: no approved decision also carries an error reason.
 ```sql
-SELECT id, decision_output->>'reasoning' AS reasoning, timestamp
+SELECT id, reason, timestamp
 FROM ledger_entries
-WHERE action_type = 'governance_decision'
+WHERE record_kind = 'governance_decision'
   AND (decision_output->>'approved')::boolean = true
-  AND ((decision_output->>'parse_failed')::boolean = true OR (decision_output->>'governed')::boolean = false)
+  AND reason LIKE 'decider_error:%'
 ORDER BY id DESC LIMIT 100;
 ```
 Pass: zero rows.
 
-**7.5 Bias / No Hidden Branching**
+**7.5 Approval Rates (a plausibility check, not a bias test)**
 ```sql
-SELECT input_data->>'intent_classification' AS intent, count(*) AS total,
+SELECT node, cassette_version, count(*) AS total,
        round(100.0 * sum(CASE WHEN (decision_output->>'approved')::boolean THEN 1 ELSE 0 END) / count(*), 2) AS approval_rate_pct
 FROM ledger_entries
-WHERE action_type = 'governance_decision' AND timestamp > now() - interval '30 days'
-GROUP BY 1 ORDER BY 2;
+WHERE record_kind = 'governance_decision' AND timestamp > now() - interval '30 days'
+GROUP BY 1, 2 ORDER BY 1, 2;
 ```
-Pass: non-`UNKNOWN` intents within roughly ±10% of each other.
+Pass: rates match what the deployment expects, and a change after a cassette version change is explained. Ledger rows carry no applicant or customer group, so this cannot show disparate outcomes between groups. Group-level fairness screening is the regulatory lens (`regulatory_checks.py`, the four-fifths screen) fed by `obligation_sweep.py`, which a deployer must schedule.
 
 **7.6 Decision Traceability**
 ```sql
-SELECT id, node, input_data->>'intent_classification' AS intent,
-       input_data->>'intent_reasoning' AS intent_reasoning,
-       policy_parameters->>'cassette_version' AS cassette_version,
+SELECT id, node, input_data->>'episode_id' AS episode_id,
+       cassette_version, cassette_hash,
        (decision_output->>'approved')::boolean AS approved,
-       decision_output->>'reasoning' AS governor_reasoning, timestamp
+       reason AS governor_reasoning, timestamp
 FROM ledger_entries
 WHERE id = <decision_id>;  -- substitute an actual ID from an earlier query
 ```
 Pass: every field populated for a sampled ID.
 
-**7.7 Monitoring & Alerting** — not a ledger query.
+**7.7 Monitoring & Alerting**: not a ledger query.
 ```bash
 curl '<prometheus_url>/api/v1/query?query=sentinel_governance_decisions_total'
 curl '<prometheus_url>/api/v1/query?query=sentinel_governance_errors_total'
@@ -280,7 +279,7 @@ SELECT min(timestamp) AS oldest, max(timestamp) AS newest, count(*) AS total
 FROM ledger_entries
 WHERE action_type = 'governance_decision';
 ```
-Pass: span matches expected deployment history. What this can't rule out: H5. A wiped-and-restarted ledger can look either legitimately young or suspiciously recent depending on what survived — this query alone can't distinguish the two. Cross-check against an external record of go-live date.
+Pass: span matches expected deployment history. What this can't rule out: H5. A wiped-and-restarted ledger can look either legitimately young or suspiciously recent depending on what survived: this query alone can't distinguish the two. Cross-check against an external record of go-live date.
 
 ## 8. Audit Checklist & Findings Template
 
@@ -292,10 +291,10 @@ Pass: span matches expected deployment history. What this can't rule out: H5. A 
 | 4 | Wipe detection | 2 (H5) | Does not pass — no watermark exists yet |
 | 5 | Row-count continuity | 3 | Plausibility signal, not proof |
 | 6 | Fail-closed governor | 7.1 | Independently verified live |
-| 7 | Intent persistence | 7.2 | |
+| 7 | Decision input and reasoning persistence | 7.2 | |
 | 8 | Cassette version presence | 7.3 | Presence only — see H2 caveat |
 | 9 | Error handling | 7.4 | |
-| 10 | Bias / hidden branching | 7.5 | |
+| 10 | Approval-rate plausibility | 7.5 | Not a bias test, see 7.5 |
 | 11 | Decision traceability | 7.6 | |
 | 12 | Monitoring active | 7.7 | |
 | 13 | Audit retention | 7.8 | See H5 caveat |
