@@ -73,7 +73,7 @@ Every governed decision is submitted to [`Conservation_Kernel`](https://github.c
 
 ## 4. Brutally Honest Current Status & Gaps
 
-**Test status (measured 2026-11-10 on `main` @ `cd5b630`, `sentinel_os/` suite, with PostgreSQL 16 and Redis running locally):** 1169 passed, 12 failed, 22 skipped. All 12 failures are in `test_twin_live.py`, which passes when run alone (18 of 18) but fails when run after the rest of the suite. The same failures occur on a clean `main`, so this is a pre-existing test-ordering or environment problem and not a regression. It has not been root-caused. Without Postgres and Redis, many more tests fail or skip. CI (`.github/workflows/tests.yml`) is the executable spec; these numbers are a point-in-time snapshot and will go stale.
+**Test status (measured 2026-11-10 on `main` @ `8a8cd30`, run as root with PostgreSQL 16 and Redis running locally, using the CI command `python -m pytest . ../tools` from `sentinel_os/`):** 1181 passed, 0 failed, 22 skipped. An earlier run the same day (on `cd5b630`, the same code) had 12 failures, all in `test_twin_live.py`, where a twin service never reported healthy. Two later full runs, and the file run alone, passed, so that failure did not reproduce and its cause is unknown (a leftover process or port from an earlier run is the suspect, unconfirmed). Treat `test_twin_live.py` as environment-sensitive: it starts services under three OS accounts and needs `sudo scripts/twin_ensure_services.sh`. Without Postgres and Redis, many more tests fail or skip. CI (`.github/workflows/tests.yml`) is the executable spec; these numbers are a point-in-time snapshot and will go stale.
 
 | Gap | Detail |
 |---|---|
