@@ -7,6 +7,7 @@ import psycopg2
 import pytest
 
 import twin_issue_read_tokens as tool
+from twin_receiver import SCHEMA
 
 DSN = "host=localhost dbname=iceberg user=iceberg password=iceberg"
 
@@ -28,6 +29,7 @@ pytestmark = pytest.mark.skipif(
 def conn():
     c = psycopg2.connect(DSN)
     with c.cursor() as cur:
+        cur.execute(SCHEMA)  # a fresh database has no replica_meta until the receiver creates it
         cur.execute("ALTER TABLE replica_meta ADD COLUMN IF NOT EXISTS read_token TEXT")
     c.commit()
     yield c
