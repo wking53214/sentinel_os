@@ -25,7 +25,7 @@ That is an order, not an import chain. The live decision path is [`observe-perce
 | [`observe-perceive`](https://github.com/wking53214/observe-perceive) | Hub of the governed action stack; the live decision path and the first product | Never imports this repo. Custody comes after it in the conceptual order only. |
 | [`interconnected_alpha`](https://github.com/wking53214/interconnected_alpha) → [`zeta`](https://github.com/wking53214/interconnected_zeta) → [`beta`](https://github.com/wking53214/interconnected_beta) → [`delta`](https://github.com/wking53214/interconnected_delta) | Four small repos extracted from the live path: Keys, Locks, Decision, Custody | δ is the in-process cousin of this repo. It reimplements outcome obligations and the four-fifths screen without Postgres or a twin, and consumes β's `Decision`. It does not import this repo. |
 | [`Conservation_Kernel`](https://github.com/wking53214/Conservation_Kernel) `@7b08c79` | Repo 3 of 5 in the evidence spine; checks that a transformation did not silently change protected distinctions | Hard dependency. Every governed decision goes through it, and nothing is written unless it returns ACCEPTED. |
-| [`CNS`](https://github.com/wking53214/CNS) `@v3.0.0` | Shared contracts that the repos plug into | Dependency: `cns.gate` (the types behind verdict receipts) and `cns.graph` (graph types used by `sage_k`). |
+| [`CNS`](https://github.com/wking53214/CNS) `@v4.0.0` | Shared contracts that the repos plug into | Dependency: `cns.gate` (the types behind verdict receipts) and `cns.graph` (graph types used by `sage_k`). |
 | [`DIT`](https://github.com/wking53214/DIT) `@V0.1.0` | Output-integrity gate for generated text | Dependency: `epistemic/dit_gate.py` evaluates the governor's free-text reasoning. |
 | [`GSA-815`](https://github.com/wking53214/GSA-815) | IVR execution and learning application | Consumes this kernel and vendors it as the submodule `vendor/sentinel_os`. The IVR code was extracted out so this kernel stays domain-blind. |
 
@@ -34,7 +34,7 @@ That is an order, not an import chain. The live decision path is [`observe-perce
 - **This repo's side:** `sentinel_os/governance/ledger_postgres.py` and `sentinel_os/twin_custody.py` import `cns.gate`. This is required: the ledger does not load without it. `sentinel_os/sage_k/graph_extractor.py` imports `cns.graph`, which is not on the custody path.
 - **CNS's side:** CNS's connection list (`contracts/cns-links.json`) carries this repo as **two-way**: `to_cns` is `sentinel_os/twin_custody.py` and `from_cns` is `cns_composition/consumers.py`, which pins the exact names this repo imports. The list names one of the three importing files.
 - **Built, tested, used:** built (the imports exist); tested (`Tests/test_verdict_receipts.py`, `Tests/test_dependency_provenance.py` and the full suite); used on the normal path (every ledger write goes through `cns.gate`).
-- **Checked** 2026-11-10 against CNS `03eca66` (v2.3.0 plus later commits). This repo pins v3.0.0.
+- **Checked** 2026-11-10 against CNS `03eca66` (v2.3.0 plus later commits). This repo pins v4.0.0.
 
 ## 2. Full System Scope & Architectural Depth
 
@@ -88,7 +88,7 @@ Every governed decision is submitted to [`Conservation_Kernel`](https://github.c
 |---|---|
 | Root package metadata | Kernel `requirements.txt` exists under `sentinel_os/` (the package directory). Repo root does not install as a product. |
 | Required services | Postgres, Redis. Twin and live paths need `cryptography`, keys. |
-| `CNS` pin | `cns @ git+…/CNS.git@v3.0.0` (release tag). Public as of 2026-10-10: a clean install resolves it with no token. The ledger imports `cns.gate` and sage_k imports `cns.graph`. |
+| `CNS` pin | `cns @ git+…/CNS.git@v4.0.0` (release tag). Public as of 2026-10-10: a clean install resolves it with no token. The ledger imports `cns.gate` and sage_k imports `cns.graph`. |
 | DIT pin | `dit @ git+…/DIT.git@V0.1.0` (the tag points at commit `a690dc3`). Pinned to a tag so a squash merge cannot make it unreachable. DIT's own README names a different commit for this repo; trust `sentinel_os/requirements.txt`. |
 | Anthropic | Governor path. `httpx<0.28` pin required for anthropic 0.116.0. |
 | Conservation root attestation | Event-based root attestation applies only when `observed_events` are supplied. Without them, the boundary accepts an explicitly unguarded source root (`allow_unguarded_roots=True` default). Supplied events are caller claims, not independent proof of external reality. |
