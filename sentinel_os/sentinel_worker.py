@@ -115,6 +115,7 @@ import threading
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
+from cassette_interface import Cassette
 from cassettes.mortgage_cassette import MortgageCassette
 from episode import (
     Episode,
@@ -210,7 +211,7 @@ def _regulatory_deck_from_env(ledger):
 # and branches on the shape of what comes back.
 # ---------------------------------------------------------------------------
 
-def _payload_events(cassette: MortgageCassette, payload: Dict) -> Optional[List[EventV1]]:
+def _payload_events(cassette: Cassette, payload: Dict) -> Optional[List[EventV1]]:
     """The events a job payload carries, or None when it carries none.
 
     'events' is optional. When present it must be a non-empty list of dicts,
@@ -291,10 +292,12 @@ def _refuse_type_lax(payload: Dict) -> None:
             raise ValueError(f"job payload '{label}' contains control or bidirectional-formatting characters")
 
 
-def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> Tuple[Episode, int]:
+def _payload_to_episode(cassette: Cassette, payload: Dict) -> Tuple[Episode, int]:
     """Turn one queued job payload into (Episode, issue_count) for
-    GovernanceHarness.process() -- mortgage-domain-shaped, matching
-    MortgageCassette's own vocabulary (see cassettes/mortgage_cassette.py).
+    GovernanceHarness.process(). The payload shape is domain-blind; the
+    one cassette-owned input is the optional _THIN_REASON_WORD_COUNT
+    attribute (see issue_count below). Mortgage was the first cassette
+    on this path (see cassettes/mortgage_cassette.py).
 
     Payload shape:
       episode_id      -- required, non-empty string. Also the dedup key
@@ -364,12 +367,17 @@ def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> T
     validate_episode(episode)  # raises EpisodeIntegrityError on a real kernel violation
 
     mismatch_count = len(outcome_mismatches(episode))
-    thin_reason_count = sum(
-        1 for r in episode.outcome_reasons
-        if len(r.split()) < cassette._THIN_REASON_WORD_COUNT
+    # A cassette that declares no thin-reason bar contributes no thin-reason issues.
+    thin_words = getattr(cassette, "_THIN_REASON_WORD_COUNT", None)
+    thin_reason_count = 0 if thin_words is None else sum(
+        1 for r in episode.outcome_reasons if len(r.split()) < thin_words
     )
     issue_count = mismatch_count + thin_reason_count
     return episode, issue_count
+
+
+# Kept so existing callers and tests keep working; new code uses _payload_to_episode.
+_payload_to_mortgage_episode = _payload_to_episode
 
 
 class GovernanceHarnessJobAdapter:
@@ -409,7 +417,7 @@ class GovernanceHarnessJobAdapter:
 
     def process_call(self, payload: Dict) -> Dict:
         try:
-            episode, issue_count = _payload_to_mortgage_episode(self.harness.cassette, payload)
+            episode, issue_count = _payload_to_episode(self.harness.cassette, payload)
             events = _payload_events(self.harness.cassette, payload)
             if self.require_events and events is None:
                 raise ValueError(
