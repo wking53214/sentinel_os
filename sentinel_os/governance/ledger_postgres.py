@@ -195,6 +195,8 @@ class PostgreSQLLedger:
     def __init__(self, host: str = "localhost", port: int = 5432,  # nosec B107
                  dbname: str = "iceberg", user: str = "iceberg",
                  password: str = "iceberg", min_connections: int = 1, max_connections: int = 10,
+                 connect_timeout_s: Optional[float] = None,
+                 statement_timeout_s: Optional[float] = None,
                  runtime_user: str = None, runtime_password: str = None):
         """Initialize connection pool.
 
@@ -258,10 +260,20 @@ class PostgreSQLLedger:
             self._provision_runtime_password(runtime_user, runtime_password)
         self.pool.closeall()
 
+        # Opt-in time limits for the ONGOING connection (not the one-off
+        # schema connection above, and not audit scans like verify_chain
+        # run from scripts, which leave both None). A hung Postgres must
+        # fail a call in seconds, not hold a worker forever.
+        _limits: Dict[str, Any] = {}
+        if connect_timeout_s:
+            _limits["connect_timeout"] = max(1, int(round(connect_timeout_s)))
+        if statement_timeout_s:
+            _limits["options"] = f"-c statement_timeout={int(statement_timeout_s * 1000)}"
         self.pool = SimpleConnectionPool(
             min_connections, max_connections,
             host=host, port=port, database=dbname,
-            user=runtime_user, password=runtime_password
+            user=runtime_user, password=runtime_password,
+            **_limits
         )
         self._verify_runtime_user_is_not_privileged(runtime_user, dbname)
 

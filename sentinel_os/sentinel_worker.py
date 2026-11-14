@@ -370,8 +370,21 @@ class GovernanceHarnessJobAdapter:
         except (ValueError, TypeError, EpisodeIntegrityError, EventIntegrityError) as exc:
             return {"error": f"Failed to parse job: {exc}"}
 
-        if (self.harness.ledger is not None
-                and self.harness.ledger.episode_decision_exists(episode.episode_id)):
+        # The duplicate pre-check runs against the same Postgres the write
+        # does. If it raises (pool dead, query timeout, circuit open) the job
+        # must come back as the SAME retryable ledger_write_failed shape a
+        # failed write does, not as an exception out of process_call.
+        try:
+            already_done = (self.harness.ledger is not None
+                            and self.harness.ledger.episode_decision_exists(episode.episode_id))
+        except Exception:
+            return {
+                "error": None,
+                "ledger_write_failed": True,
+                "claude_safe": None,
+                "intent": episode.domain,
+            }
+        if already_done:
             return {
                 "error": "duplicate_sid",
                 "detail": f"Episode {episode.episode_id} has already been processed",

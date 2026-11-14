@@ -638,12 +638,41 @@ async def health() -> Dict[str, Any]:
     }
 
 
+# F-J follow-up: a queue whose ingress and worker disagree about the queue
+# name looks perfectly healthy (Redis answers, depth just grows). The only
+# visible symptom is that nothing has EVER been claimed. The queue keeps no
+# lifetime "claimed" counter, but any claim ends in at least one of these
+# counters (or is still in `processing`), so "all zero + nothing processing
+# + work waiting longer than the grace period" means no worker has ever
+# drained this namespace.
+_NO_WORKER_WARN_AFTER_S = float(os.getenv("NO_WORKER_WARN_AFTER_S", "60"))
+_DRAIN_COUNTERS = ("completed", "dead", "retries", "reaped", "heartbeats")
+
+
+def _drain_warnings(stats: Dict[str, Any]) -> list:
+    warnings = []
+    counters = stats.get("counters") or {}
+    age = stats.get("oldest_pending_age_s")
+    never_drained = (
+        stats.get("processing", 0) == 0
+        and all(int(counters.get(k, 0) or 0) == 0 for k in _DRAIN_COUNTERS)
+    )
+    if never_drained and age is not None and age > _NO_WORKER_WARN_AFTER_S:
+        msg = (f"no worker has ever drained queue namespace '{NAMESPACE}': oldest job "
+               f"has waited {age:.0f}s with nothing claimed. Check that the worker runs "
+               f"with the same SENTINEL_QUEUE_ID (or queue name) as this ingress.")
+        warnings.append({"code": "no_worker_has_drained", "namespace": NAMESPACE, "detail": msg})
+        logger.warning(msg)
+    return warnings
+
+
 @app.get("/ready")
 def ready(q: TransmissionQueue = Depends(get_queue)) -> Dict[str, Any]:
     """Readiness: can this ingress actually accept work right now?"""
     try:
         q.ping()
-        return {"ready": True, "queue": q.stats()}
+        st = q.stats()
+        return {"ready": True, "queue": st, "warnings": _drain_warnings(st)}
     except (redis.exceptions.RedisError, OSError) as exc:
         raise HTTPException(
             status_code=503,
@@ -658,7 +687,8 @@ def queue_stats(q: TransmissionQueue = Depends(get_queue)) -> Dict[str, Any]:
     """Depth per state + oldest-pending staleness, straight from
     TransmissionQueue.stats(). Operational visibility only."""
     try:
-        return q.stats()
+        st = q.stats()
+        return {**st, "warnings": _drain_warnings(st)}
     except (redis.exceptions.RedisError, OSError) as exc:
         raise _queue_unavailable(exc)
 

@@ -206,3 +206,80 @@ def test_mismatched_explicit_overrides_still_silently_fail():
         "deliberately set to different values -- if this now completes, "
         "something changed about how the escape hatches resolve"
     )
+
+
+# ---------------------------------------------------------------------------
+# Item 4 (2026-11-13): SENTINEL_QUEUE_ID set on ONE side only, and the
+# "no worker has ever drained this queue" warning that makes it visible.
+# ---------------------------------------------------------------------------
+def _run_pair_probe(ingress_env: dict, worker_env: dict, port: int,
+                    settle_s: float = 3.0):
+    """Like _run_pair_and_submit, but also returns the ingress /ready
+    warnings after `settle_s` seconds. NO_WORKER_WARN_AFTER_S is dropped to
+    1s on the ingress so the test does not have to wait a real minute."""
+    ingress_env = {"NO_WORKER_WARN_AFTER_S": "1", **ingress_env}
+    ingress_env = {**{"TRANSMISSION_REDIS_URL": REDIS_URL, "PYTHONPATH": BUILD_DIR}, **ingress_env}
+    worker_env = {**{"SENTINEL_REDIS_URL": REDIS_URL, "PYTHONPATH": BUILD_DIR,
+                     "POSTGRES_PASSWORD": os.environ.get("POSTGRES_PASSWORD") or "iceberg"},
+                  **worker_env}
+    ingress_proc = _spawn([sys.executable, "-m", "uvicorn", "api_server_v2:app", "--host", "127.0.0.1",
+                           "--port", str(port), "--log-level", "warning"], ingress_env, f"qic_ingress_{port}.log")
+    worker_proc = _spawn([sys.executable, "sentinel_worker.py", "--worker-id", f"qic-{port}"],
+                         worker_env, f"qic_worker_{port}.log")
+    try:
+        wait_for(lambda: httpx.get(f"http://127.0.0.1:{port}/health", timeout=1.0).status_code == 200,
+                 desc="ingress /health")
+        episode_id = random_job_id()
+        with httpx.Client(timeout=5.0) as c:
+            r = c.post(f"http://127.0.0.1:{port}/submit-mortgage-decision",
+                       json={"episode_id": episode_id, "requested": {"amount": 300000.0},
+                             "events": [{"event_id": f"{episode_id}:decision", "episode_id": episode_id,
+                                         "domain": "mortgage", "kind": "decision_observed",
+                                         "occurred_at": 1000.0, "observed_at": 1001.0,
+                                         "source": "loan_system", "provenance": "verified",
+                                         "fields": {"amount": 250000.0}}],
+                             "outcome_reasons": ["reduced based on updated appraisal value on file"]})
+            assert r.status_code == 202, r.text
+            time.sleep(settle_s)
+            status = c.get(f"http://127.0.0.1:{port}/job/{episode_id}").json().get("status")
+            ready = c.get(f"http://127.0.0.1:{port}/ready")
+            assert ready.status_code == 200  # a warning, NOT an outage
+            warnings = ready.json().get("warnings")
+            stats_warnings = c.get(f"http://127.0.0.1:{port}/queue/stats").json().get("warnings")
+        return status, warnings, stats_warnings
+    finally:
+        ingress_proc.terminate(); worker_proc.terminate()
+        try:
+            ingress_proc.wait(timeout=5); worker_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            ingress_proc.kill(); worker_proc.kill()
+
+
+def test_queue_id_set_on_ingress_only_strands_the_job_and_raises_the_warning():
+    _flush("sq:oneside_a"); _flush("sq:v12")
+    status, warnings, stats_warnings = _run_pair_probe(
+        ingress_env={"SENTINEL_QUEUE_ID": "oneside_a"}, worker_env={}, port=INGRESS_PORT + 10)
+    assert status != "done", "worker on a different queue must not drain this job"
+    codes = [w["code"] for w in warnings]
+    assert codes == ["no_worker_has_drained"], warnings
+    assert warnings[0]["namespace"] == "sq:oneside_a"
+    assert [w["code"] for w in stats_warnings] == ["no_worker_has_drained"]
+
+
+def test_queue_id_set_on_worker_only_strands_the_job_and_raises_the_warning():
+    _flush("sq:oneside_b"); _flush("sq:v12")
+    status, warnings, _ = _run_pair_probe(
+        ingress_env={}, worker_env={"SENTINEL_QUEUE_ID": "oneside_b"}, port=INGRESS_PORT + 11)
+    assert status != "done"
+    assert [w["code"] for w in warnings] == ["no_worker_has_drained"], warnings
+    assert warnings[0]["namespace"] == "sq:v12"
+
+
+def test_aligned_pair_raises_no_warning_after_work_completes():
+    """The false-alarm control: a healthy pair that has drained work must
+    report an empty warning list."""
+    _flush("sq:v12")
+    status, warnings, stats_warnings = _run_pair_probe(
+        ingress_env={}, worker_env={}, port=INGRESS_PORT + 12, settle_s=5.0)
+    assert status == "done"
+    assert warnings == [] and stats_warnings == []

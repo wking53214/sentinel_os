@@ -52,6 +52,7 @@ built silently.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
 from cassette_capabilities import (
@@ -66,6 +67,7 @@ from cassette_forensics import (
 )
 from cassette_interface import Cassette
 from cassette_schema import validate_cassette
+from circuit_breaker import CircuitBreaker
 from episode import Episode, explain_episode, judge_episode
 from governance_decider import GovernanceDecider
 from regulatory_cassette_interface import RegulatoryBlock
@@ -110,6 +112,13 @@ class GovernanceHarness:
         # regulatory screening, byte-identical to every caller that
         # doesn't opt in.
         self.regulatory_deck = regulatory_deck
+        # One breaker PER dependency, never shared (F-A): Claude trouble must
+        # not trip Postgres protection or the reverse. Held by this harness,
+        # so each harness (worker process) has its own pair.
+        self.claude_breaker = CircuitBreaker(
+            name="claude_governor", failure_threshold=5, reset_timeout_s=30)
+        self.ledger_breaker = CircuitBreaker(
+            name="postgres_ledger", failure_threshold=3, reset_timeout_s=15)
         self.ledger = self._connect_ledger(config)
 
         if self.ledger is None and require_cassette_binding:
@@ -160,6 +169,9 @@ class GovernanceHarness:
                 dbname=config.get("postgres_db", "iceberg"),
                 user=config.get("postgres_user", "iceberg"),
                 password=config.get("postgres_password", "iceberg"),
+                # Time limits (2026-11-13 policy): 5s to connect, 10s per query.
+                connect_timeout_s=float(os.environ.get("LEDGER_CONNECT_TIMEOUT_S", "5")),
+                statement_timeout_s=float(os.environ.get("LEDGER_STATEMENT_TIMEOUT_S", "10")),
             )
         except Exception as exc:
             if self.require_cassette_binding:
@@ -266,11 +278,19 @@ class GovernanceHarness:
             return result
 
         try:
-            decision = self.decider.safety_check(
+            # safety_check never raises: a transport failure comes back as a
+            # fail-closed dict whose reasoning starts "transport_error:". The
+            # breaker must count THAT, so it gets an is_failure predicate. An
+            # open breaker raises CircuitOpenError, handled by the except below
+            # exactly like any other unusable governor answer (fail closed).
+            decision = self.claude_breaker.call(
+                self.decider.safety_check,
                 "episode_judgment",
                 {"cassette_version": params.cassette_version,
                  "domain": self.cassette.get_config().domain,
                  "issue_count": issue_count, "tier": quality.tier},
+                is_failure=lambda r: isinstance(r, dict)
+                and str(r.get("reasoning", "")).startswith("transport_error:"),
             )
             if not isinstance(decision, dict):
                 raise TypeError(
@@ -399,8 +419,9 @@ class GovernanceHarness:
             ) from exc
 
         # Only if the conservation boundary accepted: persist to ledger
-        self.ledger.append_decision(record, governance_params=params, episode=episode,
-                                    observed_events=observed_events)
+        self.ledger_breaker.call(
+            self.ledger.append_decision, record, governance_params=params,
+            episode=episode, observed_events=observed_events)
 
     # ---- housekeeping ----
 
