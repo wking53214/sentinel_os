@@ -38,10 +38,15 @@ def setup_logging(name: str, level=logging.INFO):
     logger = logging.getLogger(name)
     logger.setLevel(level)
     
-    handler = logging.StreamHandler()
-    formatter = JSONFormatter()
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    # Idempotent: this is called once per object constructed (every
+    # CircuitBreaker, RateLimiter, HealthChecker...), so adding a handler
+    # unconditionally made N instances of one name emit every line N times.
+    if not any(getattr(h, "_sentinel_json", False) for h in logger.handlers):
+        handler = logging.StreamHandler()
+        formatter = JSONFormatter()
+        handler.setFormatter(formatter)
+        handler._sentinel_json = True
+        logger.addHandler(handler)
     
     return logger
 

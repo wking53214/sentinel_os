@@ -54,6 +54,7 @@ the one the fail-closed contract is protecting against.
 """
 
 import json
+import os
 from typing import Dict, Optional
 
 import anthropic
@@ -109,7 +110,14 @@ class GovernanceDecider:
         instance. None means "read the environment", which defaults to
         recording the verdict without acting on it.
         """
-        self.client = anthropic.Anthropic(api_key=api_key) if api_key else None
+        # Time limit on the governor call: the SDK default is ~10 minutes with
+        # 2 automatic retries, so one hung connection could freeze a worker for
+        # 30 minutes. 20s, no hidden retries: a slow answer is a transport
+        # failure (fail closed, counted by the harness's claude breaker), and
+        # the queue's own retry owns re-delivery. GOVERNOR_TIMEOUT_S overrides.
+        _timeout = float(os.environ.get("GOVERNOR_TIMEOUT_S", "20"))
+        self.client = (anthropic.Anthropic(api_key=api_key, timeout=_timeout, max_retries=0)
+                       if api_key else None)
         self.model = "claude-opus-4-6"
         self.epistemic_mode = epistemic_mode
         self.decisions = []
