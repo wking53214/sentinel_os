@@ -32,3 +32,15 @@ Follows roadster_breakers_verification_report_v1.md (July 18, 2026). Repo base: 
 - Breakers are per worker process by design; there is no fleet-wide view of breaker state.
 - Rate numbers (100 per minute, burst 20) are verified to be enforced as configured, not tuned. Tune once real traffic exists.
 - The twin's 27 live tests were not re-run here.
+
+## 5. Addendum: real remote-API breaker run (Nov 13, 2026, 21:27 local)
+
+Run by the maintainer on his Chromebook, from a fresh clone of main, against the real Groq API (`scripts/prove_breaker_recovery_remote_api.py`), five of five steps passed:
+
+- a real call succeeded and the breaker stayed CLOSED;
+- five real rejections from the provider (deliberately invalid key) opened the breaker, with the log showing failure counts 1 to 5 and the OPEN transition;
+- while OPEN, a good call was refused in 0 ms with no network traffic;
+- after the 31 second wait the breaker entered HALF_OPEN and, after two real successful calls, logged "circuit CLOSED (recovered)";
+- normal service resumed.
+
+Scope, unchanged: this proves the `CircuitBreaker` class and the claude_governor thresholds against real network behavior. It does NOT prove the Claude governor path (`GovernanceDecider` through `GovernanceHarness`), which needs an Anthropic API key and `scripts/prove_claude_breaker_recovery.py`. Section 4's first bullet therefore stands: Claude recovery with a real working key remains NOT proven.
