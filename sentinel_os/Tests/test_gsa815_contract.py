@@ -50,7 +50,6 @@ CONTRACT = {
     "tracing": ["tracer", "mark_error"],
     "api_key_auth": ["api_key_manager", "require_api_key"],
     "governance_loop_guard": ["PipelineStateEngine"],
-    "governance.friction_core": ["compute_friction"],
     "governance.ledger_postgres": ["GovernanceDecisionRecord", "PostgreSQLLedger"],
 }
 
