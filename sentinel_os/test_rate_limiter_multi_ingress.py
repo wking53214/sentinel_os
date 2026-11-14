@@ -15,7 +15,6 @@ Run:  python3 -m pytest test_rate_limiter_multi_ingress.py -v -s
 from __future__ import annotations
 
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -70,6 +69,12 @@ def cluster():
                 "PYTHONPATH": BUILD_DIR, "PYTHONUNBUFFERED": "1",
                 "ICEBERG_API_KEYS": ",".join(f"{k}:tester-{n}" for n, k in KEYS.items()),
                 "RATE_LIMIT_NAMESPACE": RL_NAMESPACE,
+                # api_key_auth.py has a SECOND, older limiter: per connecting
+                # IP, in memory, 60/min, counting every request (valid keys
+                # too). It is raised out of the way here so these tests
+                # measure rate_limiter_v2 alone. See the 2026-11-13 finding
+                # in roadster_breakers_verification_report_v2.md.
+                "ICEBERG_RATE_LIMIT_MAX": "100000",
             })
             for k in ("RATE_LIMIT_REQUESTS_PER_MINUTE", "RATE_LIMIT_BURST_CAPACITY",
                       "RATE_LIMIT_BUCKET_TTL_SECONDS"):

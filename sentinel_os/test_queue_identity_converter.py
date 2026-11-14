@@ -175,7 +175,8 @@ def test_transmission_namespace_escape_hatch_still_works():
     must still take precedence over SENTINEL_QUEUE_ID when explicitly
     set, for anyone who wants it -- as long as the worker's queue-name
     is set to match it directly (this is the escape hatch, not the
-    converter; alignment here is the operator's explicit choice, not
+    converter
+    alignment here is the operator's explicit choice, not
     automatic, which is the whole point of it being an override)."""
     _flush("manual_ns_match")
     status = _run_pair_and_submit(
@@ -248,15 +249,19 @@ def _run_pair_probe(ingress_env: dict, worker_env: dict, port: int,
             stats_warnings = c.get(f"http://127.0.0.1:{port}/queue/stats").json().get("warnings")
         return status, warnings, stats_warnings
     finally:
-        ingress_proc.terminate(); worker_proc.terminate()
+        ingress_proc.terminate()
+        worker_proc.terminate()
         try:
-            ingress_proc.wait(timeout=5); worker_proc.wait(timeout=5)
+            ingress_proc.wait(timeout=5)
+            worker_proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            ingress_proc.kill(); worker_proc.kill()
+            ingress_proc.kill()
+            worker_proc.kill()
 
 
 def test_queue_id_set_on_ingress_only_strands_the_job_and_raises_the_warning():
-    _flush("sq:oneside_a"); _flush("sq:v12")
+    _flush("sq:oneside_a")
+    _flush("sq:v12")
     status, warnings, stats_warnings = _run_pair_probe(
         ingress_env={"SENTINEL_QUEUE_ID": "oneside_a"}, worker_env={}, port=INGRESS_PORT + 10)
     assert status != "done", "worker on a different queue must not drain this job"
@@ -267,7 +272,8 @@ def test_queue_id_set_on_ingress_only_strands_the_job_and_raises_the_warning():
 
 
 def test_queue_id_set_on_worker_only_strands_the_job_and_raises_the_warning():
-    _flush("sq:oneside_b"); _flush("sq:v12")
+    _flush("sq:oneside_b")
+    _flush("sq:v12")
     status, warnings, _ = _run_pair_probe(
         ingress_env={}, worker_env={"SENTINEL_QUEUE_ID": "oneside_b"}, port=INGRESS_PORT + 11)
     assert status != "done"

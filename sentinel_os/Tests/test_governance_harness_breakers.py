@@ -7,8 +7,10 @@ breaker at all until this change. These tests fail if the wiring is removed.
 
 Nothing here is mocked: the Claude path uses the real GovernanceDecider and
 the real anthropic client (bad key, so every call is a genuine transport or
-auth failure); the ledger path uses a real Postgres whose role is genuinely
-made unable to write; the timeout test uses a real TCP socket that never
+auth failure)
+the ledger path uses a real Postgres whose role is genuinely
+made unable to write
+the timeout test uses a real TCP socket that never
 answers.
 
 Run:  python3 -m pytest Tests/test_governance_harness_breakers.py -v -s
@@ -98,7 +100,9 @@ def test_governor_default_time_limit_is_20s_with_no_hidden_retries():
 
 
 def test_governor_call_gives_up_on_a_server_that_never_answers(monkeypatch):
-    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(5)
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(5)
     port = srv.getsockname()[1]
     held = []
     stop = threading.Event()
@@ -121,7 +125,8 @@ def test_governor_call_gives_up_on_a_server_that_never_answers(monkeypatch):
         out = d.safety_check("episode_judgment", {"k": "v"})
         elapsed = time.monotonic() - t0
     finally:
-        stop.set(); srv.close()
+        stop.set()
+        srv.close()
         for c in held:
             c.close()
     assert out["safe"] is False
@@ -139,7 +144,8 @@ def test_ledger_connection_carries_the_time_limits_and_a_slow_query_is_cancelled
         try:
             assert conn.get_dsn_parameters()["connect_timeout"] == "5"
             cur = conn.cursor()
-            cur.execute("SHOW statement_timeout"); assert cur.fetchone()[0] == "1s"
+            cur.execute("SHOW statement_timeout")
+            assert cur.fetchone()[0] == "1s"
             t0 = time.monotonic()
             with pytest.raises(psycopg2.errors.QueryCanceled):
                 cur.execute("SELECT pg_sleep(5)")
@@ -155,7 +161,8 @@ def test_ledger_connection_carries_the_time_limits_and_a_slow_query_is_cancelled
 @requires_pg
 def test_ledger_breaker_opens_on_real_write_failures_and_claude_breaker_is_untouched(monkeypatch):
     role, pw = "brk_writer_test", "brk_writer_pw"
-    own = psycopg2.connect(**OWNER); own.autocommit = True
+    own = psycopg2.connect(**OWNER)
+    own.autocommit = True
     cur = own.cursor()
     cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
     if not cur.fetchone():

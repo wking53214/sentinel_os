@@ -1,11 +1,11 @@
 """2026-11-13 hardening: (1) setup_logging no longer stacks a handler per
-call; (2) the worker adapter's duplicate pre-check failing is a retryable
+call
+(2) the worker adapter's duplicate pre-check failing is a retryable
 ledger_write_failed, not an exception out of process_call.
 
 Run: python3 -m pytest Tests/test_logging_and_adapter_hardening.py -v
 """
 import io
-import json
 import logging
 import os
 import sys
@@ -38,14 +38,15 @@ def test_many_breakers_with_one_name_log_each_event_once():
     lg.handlers[0].setStream(buf)
     with pytest.raises(RuntimeError):
         brs[0].call(lambda: (_ for _ in ()).throw(RuntimeError("x")))
-    lines = [l for l in buf.getvalue().splitlines() if l.strip()]
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
     assert len(lines) == len(set(lines)), f"duplicate log lines: {lines}"
 
 
 def _pg_up():
     try:
         psycopg2.connect(connect_timeout=2, host="localhost", dbname="iceberg",
-                         user="iceberg", password="iceberg").close(); return True
+                         user="iceberg", password="iceberg").close()
+        return True
     except Exception:
         return False
 
