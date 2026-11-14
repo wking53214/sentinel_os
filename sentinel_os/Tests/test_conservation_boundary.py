@@ -102,7 +102,7 @@ def test_authorized_by_string_cannot_raise_kernel_authority():
         rec = _Record()
         rec.authorized_by = spoof
         src = build_episode_source(_episode(), (reg := EvidenceRegistry()))
-        gw = ConservationGateway(registry=reg)
+        gw = ConservationGateway(registry=reg, allow_unguarded_roots=True)
         gw.ingest_source(src)
         tx = GovernanceJudgmentTransformer.for_record(rec, _episode())
         gw.register_gem(tx.identity)
@@ -117,7 +117,7 @@ def test_authorized_by_string_cannot_raise_kernel_authority():
 def test_unrooted_judgment_is_rejected():
     """A judgment proposition with no lineage must not pass the boundary."""
     registry = EvidenceRegistry()
-    gateway = ConservationGateway(registry=registry)
+    gateway = ConservationGateway(registry=registry, allow_unguarded_roots=True)
     ep = _episode()
     source = build_episode_source(ep, registry)
     gateway.ingest_source(source)

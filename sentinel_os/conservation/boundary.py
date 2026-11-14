@@ -47,8 +47,8 @@ def verify_governed_decision(episode: Episode, record: Any, observed_events: Any
     (conservation.episode_guard) that registers the source root only if those
     events reproduce the Episode; an Episode they do not support is refused with
     ROOT_NOT_ATTESTED. Without them nothing independent can vouch for the
-    Episode, and the root is registered by the gateway's explicit
-    `allow_unguarded_roots=True` default, exactly as before.
+    Episode, and the root is registered with the explicit
+    `allow_unguarded_roots=True` passed here, exactly as before.
     """
     registry = EvidenceRegistry()
     if observed_events:
@@ -63,7 +63,7 @@ def verify_governed_decision(episode: Episode, record: Any, observed_events: Any
             ) from exc
         gateway = ConservationGateway(kernel=ConservationKernel(registry=registry, root_guard=guard))
     else:
-        gateway = ConservationGateway(registry=registry)
+        gateway = ConservationGateway(registry=registry, allow_unguarded_roots=True)
 
     source = build_episode_source(episode, registry)
     gateway.ingest_source(source)
