@@ -350,6 +350,9 @@ class MortgageCassette(Cassette, OutcomeObligations, InterpretationTestable):
     # A reason this short is present (satisfies the kernel) but too
     # thin to be a documented basis for an adverse action.
     _THIN_REASON_WORD_COUNT = 3
+    # Name of the regulatory lens the production worker inserts by default
+    # for this cassette (see regulatory_cassettes.LENSES).
+    DEFAULT_REGULATORY_LENS = "cfpb_reg_b"
 
     # An episode recording no requested fields at all has nothing for
     # outcome_mismatches to compare `actual` against -- outcome_mismatches
