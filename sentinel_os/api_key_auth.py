@@ -135,6 +135,29 @@ class RateLimiter:
                 )
             q.append(now)
 
+    def blocked(self, identity: str) -> None:
+        """Raise HTTPException(429) if `identity` is already at its limit,
+        WITHOUT recording a hit. Paired with record() so a caller can count
+        only the events it wants counted (failed key checks)."""
+        now = time.monotonic()
+        with self._lock:
+            q = self._hits[identity]
+            cutoff = now - self.window_seconds
+            while q and q[0] < cutoff:
+                q.popleft()
+            if len(q) >= self.max_requests:
+                retry_after = max(0.0, self.window_seconds - (now - q[0]))
+                raise HTTPException(
+                    status_code=429,
+                    detail="Rate limit exceeded",
+                    headers={"Retry-After": str(int(retry_after) + 1)},
+                )
+
+    def record(self, identity: str) -> None:
+        """Count one hit against `identity`."""
+        with self._lock:
+            self._hits[identity].append(time.monotonic())
+
 
 rate_limiter = RateLimiter(
     max_requests=int(os.getenv("ICEBERG_RATE_LIMIT_MAX", "60")),
@@ -147,7 +170,7 @@ api_key_manager = APIKeyManager()
 
 def require_api_key(request: Request, x_api_key: str = Header(None)) -> Dict:
     """FastAPI dependency: require a valid API key AND enforce a per-IP
-    rate limit on the *attempt*, before that key is known to be valid.
+    rate limit on FAILED attempts (a request with a valid key is never counted).
 
     Previously the identity rate-limited was the caller-supplied key
     itself when one was present, falling back to IP only when the
@@ -166,5 +189,14 @@ def require_api_key(request: Request, x_api_key: str = Header(None)) -> Dict:
     is a distinct feature, not part of this fix.
     """
     identity = request.client.host if request.client else "unknown"
-    rate_limiter.check(identity)
-    return api_key_manager.validate_key(x_api_key)
+    # 2026-11-13: only FAILED key checks count toward the per-IP limit.
+    # Counting every request capped the whole product at ICEBERG_RATE_LIMIT_MAX
+    # per minute behind a shared proxy IP (F-F again), below the per-caller
+    # limit in rate_limiter_v2. An IP already over its failure budget is
+    # refused outright, so guessing is still throttled.
+    rate_limiter.blocked(identity)
+    try:
+        return api_key_manager.validate_key(x_api_key)
+    except HTTPException:
+        rate_limiter.record(identity)
+        raise
