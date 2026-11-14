@@ -151,7 +151,11 @@ def test_worker_survives_and_classifies_every_bad_payload():
                            "event for another episode", "event missing observed_at",
                            "event provenance invalid", "event kind invalid",
                            "event fields is a list", "requested missing", "requested is a list",
-                           "episode_id empty", "episode_id is a number", "payload is empty"}
+                           "episode_id empty", "episode_id is a number", "payload is empty",
+                           # 2026-11-13 policy: clear type and character errors are refused too
+                           "amount is a string", "amount is null", "outcome_reasons is a string",
+                           "outcome_reasons has a number", "huge reason text (200 KB)",
+                           "unicode and control chars"}
         bad = [lab for lab, eid in wrongly_recorded if lab in must_not_record]
         assert not bad, f"structurally broken payloads were recorded as valid: {bad}"
     finally:
