@@ -244,6 +244,53 @@ def _payload_events(cassette: MortgageCassette, payload: Dict) -> Optional[List[
     return events
 
 
+_MAX_REASON_CHARS = 2000
+_FORBIDDEN_CHARS = frozenset(
+    [chr(c) for c in range(0, 32) if chr(c) not in "\t\n\r"]
+    + [chr(0x7F), "\u2028", "\u2029"]
+    + [chr(c) for c in range(0x202A, 0x202F)]      # bidirectional embeddings and overrides
+    + [chr(c) for c in range(0x2066, 0x206A)]      # bidirectional isolates
+)
+
+
+def _refuse_type_lax(payload: Dict) -> None:
+    """Refuse payloads whose fields have the wrong TYPE or hold characters no
+    legitimate record carries (2026-11-13 policy: refuse the clear errors,
+    still allow unknown extra keys and nesting for forward compatibility).
+
+    Raises ValueError, which process_call reports as a parse failure and the
+    queue dead-letters as data_corruption. Checked: 'amount' wherever it
+    appears in requested/actual/event fields must be a finite non-bool
+    number; outcome_reasons must be a list of non-empty strings, each at most
+    _MAX_REASON_CHARS; episode_id and reasons must carry no control or
+    bidirectional-formatting characters."""
+    import math
+
+    def _amount_ok(d: Any, where: str) -> None:
+        if isinstance(d, dict) and "amount" in d:
+            v = d["amount"]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                raise ValueError(f"job payload {where}.amount must be a finite number, got {type(v).__name__}")
+
+    _amount_ok(payload.get("requested"), "requested")
+    _amount_ok(payload.get("actual"), "actual")
+    for ev in payload.get("events") or ():
+        if isinstance(ev, dict):
+            _amount_ok(ev.get("fields"), "events[].fields")
+    reasons = payload.get("outcome_reasons")
+    if reasons is not None:
+        if not isinstance(reasons, list):
+            raise ValueError(f"job payload 'outcome_reasons' must be a list, got {type(reasons).__name__}")
+        for r in reasons:
+            if not isinstance(r, str) or not r.strip():
+                raise ValueError("job payload 'outcome_reasons' must hold non-empty strings")
+            if len(r) > _MAX_REASON_CHARS:
+                raise ValueError(f"job payload outcome reason longer than {_MAX_REASON_CHARS} characters")
+    for label, text in [("episode_id", payload.get("episode_id"))] + [("outcome_reasons", r) for r in (reasons or [])]:
+        if isinstance(text, str) and any(ch in _FORBIDDEN_CHARS for ch in text):
+            raise ValueError(f"job payload '{label}' contains control or bidirectional-formatting characters")
+
+
 def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> Tuple[Episode, int]:
     """Turn one queued job payload into (Episode, issue_count) for
     GovernanceHarness.process() -- mortgage-domain-shaped, matching
@@ -290,6 +337,7 @@ def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> T
     episode_id = payload.get("episode_id")
     if not episode_id or not isinstance(episode_id, str):
         raise ValueError("job payload missing required non-empty string 'episode_id'")
+    _refuse_type_lax(payload)
     requested = payload.get("requested")
     if not isinstance(requested, dict):
         raise ValueError(f"job payload 'requested' must be a dict, got {type(requested).__name__}")
