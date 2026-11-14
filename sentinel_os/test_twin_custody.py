@@ -97,6 +97,70 @@ def _live_rows():
         conn.close()
 
 
+def _ledger_row_count():
+    conn = psycopg2.connect(host="localhost", dbname="iceberg",
+                            user="iceberg", password="iceberg")
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("SELECT count(*) FROM ledger_entries")
+            except psycopg2.errors.UndefinedTable:
+                return 0
+            return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+
+class _StubDecider:
+    """Deterministic stand-in for the governor: no network, same contract."""
+
+    def safety_check(self, action, details):
+        return {"safe": True, "reasoning": "stub: within bounds",
+                "model_identity": "stub-model", "cost": None}
+
+
+_LEDGER_CHECKED = False
+
+
+@pytest.fixture(autouse=True)
+def _primary_ledger_has_rows(_default_ledger_runtime_user):
+    """The two recompute tests read real rows from the primary ledger. On a
+    machine whose ledger has never been written (a fresh checkout), they used
+    to fail for want of rows. If the ledger is empty, write a few real rows
+    through the real GovernanceHarness and ledger code first. Nothing is
+    mocked except the governor's network call. A populated ledger is left
+    untouched. Function-scoped so it runs after the conftest fixture that
+    supplies the ledger's runtime login; checked once per module."""
+    global _LEDGER_CHECKED
+    if _LEDGER_CHECKED:
+        return
+    _LEDGER_CHECKED = True
+    if _ledger_row_count() > 0:
+        return
+    from cassettes.mortgage_cassette import MortgageCassette
+    from episode import make_episode
+    from governance_harness import GovernanceHarness
+
+    cfg = {"postgres_host": "localhost", "postgres_port": 5432,
+           "postgres_db": "iceberg", "postgres_user": "iceberg",
+           "postgres_password": "iceberg", "claude_api_key": None}
+    harness = GovernanceHarness(cfg, MortgageCassette(),
+                                require_cassette_binding=False)
+    try:
+        harness.decider = _StubDecider()
+        for i in range(3):
+            harness.process(
+                make_episode(
+                    f"E-twin-seed-{i}", "mortgage",
+                    requested={"granted": True, "amount": 500.0},
+                    actual={"granted": True, "amount": 350.0},
+                    outcome_reasons=("amount capped by program ceiling",)),
+                issue_count=1)
+    finally:
+        harness.shutdown()
+    assert _ledger_row_count() > 0, "could not seed the primary ledger"
+
+
 def test_recompute_matches_every_live_ledger_row():
     rows = _live_rows()
     assert rows, "primary ledger unexpectedly empty"

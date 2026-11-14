@@ -23,7 +23,7 @@ The first full run finished 28 passed, 2 failed (99 s). The two failures were `t
 
 The ledger was then filled by running `Tests/test_governance_harness.py` (17 passed). That left 53 rows in `ledger_entries`. `test_twin_custody.py` was re-run alone: 9 of 9 passed.
 
-Read this plainly: the two tests depend on a ledger populated by other suites. Run alone on an empty database they fail. They are not self-contained. A full-repo run, as CI does, fills the ledger first. The failures were a missing precondition, not a twin defect, and no test was edited.
+Read this plainly: when this run was made, the two tests depended on a ledger populated by other suites, and run alone on an empty database they failed. This was fixed afterwards (Nov 14, 2026): `test_twin_custody.py` now writes a few real rows through the real harness and ledger code if the ledger is empty, and leaves a populated ledger alone. Verified three ways: a populated ledger (9 of 9 pass), an emptied ledger with the fix (9 of 9 pass), and an emptied ledger without it (the same 2 failures as the first run). The test bodies and assertions are unchanged. A full-repo run, as CI does, fills the ledger first. The failures were a missing precondition, not a twin defect, and no test was edited.
 
 ## What this does and does not show
 
