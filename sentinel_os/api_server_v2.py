@@ -307,7 +307,7 @@ class CallSubmission(BaseModel):
 
 
 # --------------------------------------------------------------------------
-# Submission model — GovernanceHarness path (any cassette). Same cheap-validation
+# Submission model, GovernanceHarness path (any cassette). Same cheap-validation
 # posture as CallSubmission above: episode_id is the job key (checked the
 # same way sid is), everything else (requested/actual/outcome_reasons/
 # actor_report/attributes) passes through untouched with extra="allow" --
