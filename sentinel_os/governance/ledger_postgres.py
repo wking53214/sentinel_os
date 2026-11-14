@@ -394,6 +394,16 @@ class PostgreSQLLedger:
         conn = self.pool.getconn()
         try:
             cursor = conn.cursor()
+            # Serialize concurrent boots. CREATE TABLE IF NOT EXISTS is not
+            # safe against itself: two sessions on an empty database can both
+            # pass the existence check, then collide on the catalog's unique
+            # index (pg_type_typname_nsp_index). The loser raised
+            # UniqueViolation out of this constructor and its worker never
+            # started (found by test_multi_worker_breakers.py in CI, #128).
+            # Transaction-scoped: released at the commit below, and it takes
+            # no table lock, so a boot against a current schema still never
+            # queues behind a lingering reader (see test_ledger_boot_lock.py).
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_schema_init'));")
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS ledger_entries (
                     id SERIAL PRIMARY KEY,
@@ -724,6 +734,13 @@ class PostgreSQLLedger:
         try:
             conn.autocommit = False
             cursor = conn.cursor()
+            # Same boot lock as _initialize_schema, taken BEFORE the "already
+            # applied" check so a boot that had to wait re-checks after the
+            # other one commits. Two boots that both see "not applied" and both
+            # run the file collide in CREATE OR REPLACE FUNCTION
+            # (pg_proc_proname_args_nsp_index). Released at the commit below,
+            # or when the connection goes back to the pool.
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('ledger_schema_init'));")
 
             if not self._immutability_already_applied(cursor):
                 cursor.execute(sql_path.read_text())
