@@ -115,7 +115,7 @@ import threading
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from cassettes.mortgage_cassette import MortgageCassette
+from cassette_interface import Cassette
 from episode import (
     Episode,
     EpisodeIntegrityError,
@@ -152,7 +152,25 @@ def _harness_config_from_env() -> dict:
     }
 
 
-def _regulatory_deck_from_env(ledger):
+def _cassette_from_env():
+    """The cassette this worker governs with: SENTINEL_CASSETTE names it
+    (a cassettes/<name>_cassette.py file); unset keeps the original
+    default, mortgage. Loaded through CassetteLoader, so it is validated
+    before the worker starts."""
+    from cassette_loader import CassetteLoader
+    return CassetteLoader().load_cassette(os.getenv("SENTINEL_CASSETTE", "mortgage"))
+
+
+def _regulatory_lens_name(cassette):
+    """The lens to insert, or None for no deck. SENTINEL_REGULATORY_LENS
+    wins ("none" turns the deck off); otherwise the cassette's own
+    DEFAULT_REGULATORY_LENS, if it declares one."""
+    name = os.getenv("SENTINEL_REGULATORY_LENS") or getattr(
+        cassette, "DEFAULT_REGULATORY_LENS", None)
+    return None if not name or name.lower() == "none" else name
+
+
+def _regulatory_deck_from_env(ledger, lens_name="cfpb_reg_b", domain="mortgage"):
     """Build the bias/fair-lending RegulatoryDeck for main() -- see the
     BIAS/FAIR-LENDING SCREENING section of this module's own docstring
     for the full design. Pulled into its own function (mirrors
@@ -181,9 +199,16 @@ def _regulatory_deck_from_env(ledger):
     script deliberately doesn't make for you", and this function
     doesn't make it either.
     """
+    import importlib
+
     from regulatory_cassette_interface import MODE_LIVE
-    from regulatory_cassettes.cfpb_reg_b import CFPBRegBLens
+    from regulatory_cassettes import LENSES
     from regulatory_deck import RegulatoryDeck
+
+    if lens_name not in LENSES:
+        raise ValueError(f"unknown regulatory lens {lens_name!r}; known: {sorted(LENSES)}")
+    module_name, class_name = LENSES[lens_name]
+    lens_class = getattr(importlib.import_module(module_name), class_name)
 
     twin_client = None
     replica_id = os.getenv("SENTINEL_TWIN_REPLICA_ID")
@@ -195,9 +220,10 @@ def _regulatory_deck_from_env(ledger):
             base_url=receiver_url, timeout=30.0,
             headers={"Authorization": f"Bearer {ship_token}"})
 
-    deck = RegulatoryDeck(ledger, default_authorized_by="sentinel_worker:mortgage",
+    label = f"sentinel_worker:{domain}"
+    deck = RegulatoryDeck(ledger, default_authorized_by=label,
                           twin_client=twin_client, replica_id=replica_id)
-    deck.insert(CFPBRegBLens(), MODE_LIVE, inserted_by="sentinel_worker:mortgage")
+    deck.insert(lens_class(), MODE_LIVE, inserted_by=label)
     return deck
 
 
@@ -210,7 +236,7 @@ def _regulatory_deck_from_env(ledger):
 # and branches on the shape of what comes back.
 # ---------------------------------------------------------------------------
 
-def _payload_events(cassette: MortgageCassette, payload: Dict) -> Optional[List[EventV1]]:
+def _payload_events(cassette: Cassette, payload: Dict) -> Optional[List[EventV1]]:
     """The events a job payload carries, or None when it carries none.
 
     'events' is optional. When present it must be a non-empty list of dicts,
@@ -291,10 +317,12 @@ def _refuse_type_lax(payload: Dict) -> None:
             raise ValueError(f"job payload '{label}' contains control or bidirectional-formatting characters")
 
 
-def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> Tuple[Episode, int]:
+def _payload_to_episode(cassette: Cassette, payload: Dict) -> Tuple[Episode, int]:
     """Turn one queued job payload into (Episode, issue_count) for
-    GovernanceHarness.process() -- mortgage-domain-shaped, matching
-    MortgageCassette's own vocabulary (see cassettes/mortgage_cassette.py).
+    GovernanceHarness.process(). The payload shape is domain-blind; the
+    one cassette-owned input is the optional _THIN_REASON_WORD_COUNT
+    attribute (see issue_count below). Mortgage was the first cassette
+    on this path (see cassettes/mortgage_cassette.py).
 
     Payload shape:
       episode_id      -- required, non-empty string. Also the dedup key
@@ -364,12 +392,17 @@ def _payload_to_mortgage_episode(cassette: MortgageCassette, payload: Dict) -> T
     validate_episode(episode)  # raises EpisodeIntegrityError on a real kernel violation
 
     mismatch_count = len(outcome_mismatches(episode))
-    thin_reason_count = sum(
-        1 for r in episode.outcome_reasons
-        if len(r.split()) < cassette._THIN_REASON_WORD_COUNT
+    # A cassette that declares no thin-reason bar contributes no thin-reason issues.
+    thin_words = getattr(cassette, "_THIN_REASON_WORD_COUNT", None)
+    thin_reason_count = 0 if thin_words is None else sum(
+        1 for r in episode.outcome_reasons if len(r.split()) < thin_words
     )
     issue_count = mismatch_count + thin_reason_count
     return episode, issue_count
+
+
+# Kept so existing callers and tests keep working; new code uses _payload_to_episode.
+_payload_to_mortgage_episode = _payload_to_episode
 
 
 class GovernanceHarnessJobAdapter:
@@ -409,7 +442,7 @@ class GovernanceHarnessJobAdapter:
 
     def process_call(self, payload: Dict) -> Dict:
         try:
-            episode, issue_count = _payload_to_mortgage_episode(self.harness.cassette, payload)
+            episode, issue_count = _payload_to_episode(self.harness.cassette, payload)
             events = _payload_events(self.harness.cassette, payload)
             if self.require_events and events is None:
                 raise ValueError(
@@ -740,13 +773,15 @@ def main() -> None:
     # production entrypoint, and there is no fallback that lets it start
     # ungoverned by an operator forgetting to set a flag.
     #
-    # MortgageCassette, fixed at construction (Config A: fixed-per-
+    # The cassette (SENTINEL_CASSETTE, default mortgage), fixed at
+    # construction (Config A: fixed-per-
     # client). GovernanceHarness.swap_cassette() is available for a
     # future multi-tenant (Config B) wiring without redoing this
     # migration -- not built here, since nothing in this task asked for
     # multi-cassette dispatch.
+    cassette = _cassette_from_env()
     governance_harness = GovernanceHarness(
-        _harness_config_from_env(), MortgageCassette(), require_cassette_binding=True,
+        _harness_config_from_env(), cassette, require_cassette_binding=True,
     )
     # Bias/fair-lending screening (2026-08-07): see
     # _regulatory_deck_from_env's own docstring for the full design.
@@ -755,9 +790,10 @@ def main() -> None:
     # this real entrypoint; the guard exists so an offline/unbound
     # harness -- tests, dev runs with binding opted out -- never hits
     # RegulatoryDeck's own "no ledgerless mode" refusal).
-    if governance_harness.ledger is not None:
+    lens_name = _regulatory_lens_name(cassette)
+    if governance_harness.ledger is not None and lens_name is not None:
         governance_harness.regulatory_deck = _regulatory_deck_from_env(
-            governance_harness.ledger)
+            governance_harness.ledger, lens_name, cassette.get_config().domain)
     # require_events=True, hardcoded like require_cassette_binding above: a job without
     # observed events is refused, not recorded as an unattested episode.
     harness = GovernanceHarnessJobAdapter(governance_harness, require_events=True)

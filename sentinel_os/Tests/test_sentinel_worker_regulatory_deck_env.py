@@ -67,3 +67,30 @@ def test_the_cfpb_lens_is_inserted_live_and_on_the_record(test_ledger):
     assert len(active) == 1
     assert active[0]["mode"] == "live"
     assert active[0]["inserted_by"] == "sentinel_worker:mortgage"
+
+
+def test_an_unknown_lens_name_is_refused(test_ledger):
+    with pytest.raises(ValueError, match="unknown regulatory lens"):
+        _regulatory_deck_from_env(test_ledger, lens_name="no_such_lens")
+
+
+def test_the_action_label_follows_the_domain(test_ledger):
+    deck = _regulatory_deck_from_env(test_ledger, domain="banking")
+    assert deck.default_authorized_by == "sentinel_worker:banking"
+
+
+def test_lens_name_comes_from_env_then_the_cassette_default(monkeypatch):
+    from cassettes.mortgage_cassette import MortgageCassette
+    from sentinel_worker import _regulatory_lens_name
+    monkeypatch.delenv("SENTINEL_REGULATORY_LENS", raising=False)
+    assert _regulatory_lens_name(MortgageCassette()) == "cfpb_reg_b"
+    monkeypatch.setenv("SENTINEL_REGULATORY_LENS", "none")
+    assert _regulatory_lens_name(MortgageCassette()) is None
+
+
+def test_cassette_comes_from_env_and_defaults_to_mortgage(monkeypatch):
+    from sentinel_worker import _cassette_from_env
+    monkeypatch.delenv("SENTINEL_CASSETTE", raising=False)
+    assert _cassette_from_env().get_config().domain == "mortgage"
+    monkeypatch.setenv("SENTINEL_CASSETTE", "banking")
+    assert _cassette_from_env().get_config().domain == "banking"

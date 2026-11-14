@@ -94,3 +94,15 @@ def test_events_together_with_actual_or_actor_report_is_422(tc, name):
     r = tc.post("/submit-mortgage-decision", json=body)
     assert r.status_code == 422 and name in r.text
     assert not _enqueued(body["episode_id"])
+
+
+def test_the_neutral_route_accepts_and_enqueues_a_submission(tc):
+    body = _body()
+    assert tc.post("/submit-decision", json=body).status_code == 202
+    assert _enqueued(body["episode_id"])
+
+
+def test_the_neutral_route_applies_the_same_events_rule(tc):
+    body = _body()
+    del body["events"]
+    assert tc.post("/submit-decision", json=body).status_code == 422
