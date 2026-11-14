@@ -281,8 +281,8 @@ def _validate_job_key(v: str, field_name: str) -> str:
     """Shared sanity check for any field that becomes job_id -- the
     queue hash key AND the /job/{id} URL path segment. Used by both
     CallSubmission.sid (IcebergProductionHarness/IVR path) and
-    MortgageDecisionSubmission.episode_id (GovernanceHarness/
-    MortgageCassette path, see sentinel_worker.py's
+    DecisionSubmission.episode_id (GovernanceHarness/
+    cassette path, see sentinel_worker.py's
     GovernanceHarnessJobAdapter) -- the key-shape requirement is the
     same regardless of which domain the submission governs."""
     if v != v.strip() or not v.strip():
@@ -307,16 +307,16 @@ class CallSubmission(BaseModel):
 
 
 # --------------------------------------------------------------------------
-# Submission model — mortgage/GovernanceHarness path. Same cheap-validation
+# Submission model — GovernanceHarness path (any cassette). Same cheap-validation
 # posture as CallSubmission above: episode_id is the job key (checked the
 # same way sid is), everything else (requested/actual/outcome_reasons/
 # actor_report/attributes) passes through untouched with extra="allow" --
-# GovernanceHarnessJobAdapter._payload_to_mortgage_episode
+# GovernanceHarnessJobAdapter._payload_to_episode
 # (sentinel_worker.py) owns real episode-shape validation, and a
 # malformed body here is ADMITTED and will dead-letter with a real
 # reason, same as a malformed call record already does on /submit-call.
 # --------------------------------------------------------------------------
-class MortgageDecisionSubmission(BaseModel):
+class DecisionSubmission(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     episode_id: StrictStr = Field(min_length=1, max_length=256,
@@ -329,7 +329,7 @@ class MortgageDecisionSubmission(BaseModel):
         description="Observed events (EventV1 field dicts) the episode is assembled from.")
 
     @model_validator(mode="after")
-    def _events_replace_actual_and_actor_report(self) -> "MortgageDecisionSubmission":
+    def _events_replace_actual_and_actor_report(self) -> "DecisionSubmission":
         stated = [name for name in ("actual", "actor_report") if name in (self.model_extra or {})]
         if stated:
             raise ValueError(f"with events, {' and '.join(stated)} come from the events and must be omitted")
@@ -339,6 +339,10 @@ class MortgageDecisionSubmission(BaseModel):
     @classmethod
     def _episode_id_is_a_sane_key(cls, v: str) -> str:
         return _validate_job_key(v, "episode_id")
+
+
+# Old name, kept so existing imports keep working.
+MortgageDecisionSubmission = DecisionSubmission
 
 
 class HumanSelectionSubmission(BaseModel):
@@ -422,17 +426,20 @@ def submit_call(call: CallSubmission, q: TransmissionQueue = Depends(get_queue))
 
 
 # --------------------------------------------------------------------------
-# POST /submit-mortgage-decision
+# POST /submit-decision  (also served at /submit-mortgage-decision, its
+# original path, kept so existing clients keep working)
 # --------------------------------------------------------------------------
-@app.post("/submit-mortgage-decision", status_code=202, dependencies=INGRESS_GUARDS)
-def submit_mortgage_decision(
-    decision: MortgageDecisionSubmission, q: TransmissionQueue = Depends(get_queue)
+@app.post("/submit-decision", status_code=202, dependencies=INGRESS_GUARDS)
+@app.post("/submit-mortgage-decision", status_code=202, dependencies=INGRESS_GUARDS,
+          include_in_schema=False)
+def submit_decision(
+    decision: DecisionSubmission, q: TransmissionQueue = Depends(get_queue)
 ) -> Dict[str, Any]:
-    """Accept a mortgage-domain decision payload and enqueue it.
+    """Accept a decision payload for the worker's configured cassette and enqueue it.
 
     Mirrors submit_call above exactly (same atomicity guarantee, same
     idempotent-on-key semantics, same 503 posture) for the
-    GovernanceHarness/MortgageCassette worker path
+    GovernanceHarness worker path
     (sentinel_worker.py's GovernanceHarnessJobAdapter) instead of the
     IcebergProductionHarness/IVR path submit_call feeds. job_id ==
     episode_id.
