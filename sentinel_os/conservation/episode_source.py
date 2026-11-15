@@ -88,9 +88,28 @@ def _observation_ids(episode: Episode) -> tuple[str, ...]:
     return (*_unique_ids("p-actual", episode.actual).values(), *_reason_ids(episode))
 
 
+def _observer() -> Actor:
+    return Actor.external("sentinel-observed-record", "Sentinel governed-episode observed record")
+
+
+def expected_evidence(episode: Episode) -> dict[str, str]:
+    """{evidence id: subject} for every record `build_episode_source` registers for this episode.
+
+    The kernel counts evidence only when it is about the proposition that cites it (or one of that
+    proposition's parents), and a "*" subject counts for none. The shared record is about p-episode, which
+    every judgment has as a parent. Each other root OBSERVATION also gets a record about itself, so a root
+    that is an observation cites evidence about that very observation. `EpisodeEvidenceGuard` permits exactly
+    these records, so the guard and the builder cannot drift apart.
+    """
+    return {
+        OBSERVED_EVIDENCE_ID: "p-episode",
+        **{_own_evidence_id(pid): pid for pid in _observation_ids(episode)},
+    }
+
+
 def build_episode_source(episode: Episode, registry: EvidenceRegistry) -> Artifact:
-    observer = Actor.external("sentinel-observed-record", "Sentinel governed-episode observed record")
-    def _record(evidence_id: str, subject_id: str) -> None:
+    observer = _observer()
+    for evidence_id, subject_id in expected_evidence(episode).items():
         registry.add_evidence(
             EvidenceRecord(
                 evidence_id=evidence_id,
@@ -102,14 +121,6 @@ def build_episode_source(episode: Episode, registry: EvidenceRegistry) -> Artifa
                 detail={"episode_id": episode.episode_id, "domain": episode.domain},
             )
         )
-
-    # The kernel counts evidence only when it is about the proposition that cites it (or one of that
-    # proposition's parents), and a "*" subject counts for none. The shared record is about p-episode, which
-    # every judgment has as a parent. Each other root OBSERVATION also gets a record about itself, so a root
-    # that is an observation cites evidence about that very observation.
-    _record(OBSERVED_EVIDENCE_ID, "p-episode")
-    for pid in _observation_ids(episode):
-        _record(_own_evidence_id(pid), pid)
     src = _source_refs(episode)
     props: list[Proposition] = [
         Proposition(

@@ -16,6 +16,7 @@ from typing import Any
 from conservation_kernel import ConservationKernel, EvidenceRegistry
 
 from conservation.episode_guard import EpisodeNotAttested, EpisodeRootGuard
+from conservation.evidence_guard import EpisodeEvidenceGuard
 from conservation.episode_source import build_episode_source
 from conservation.judgment import GovernanceJudgmentTransformer
 from conservation.transport import ConservationGateway
@@ -48,9 +49,11 @@ def verify_governed_decision(episode: Episode, record: Any, observed_events: Any
     events reproduce the Episode; an Episode they do not support is refused with
     ROOT_NOT_ATTESTED. Without them nothing independent can vouch for the
     Episode, and the root is registered by the gateway's explicit
-    `allow_unguarded_roots=True` default, exactly as before.
+    `allow_unguarded_roots=True`, stated here out loud, exactly as before. That gap is named, not
+    closed. The registry is always built with an evidence guard (`EpisodeEvidenceGuard`): only the
+    records this episode's source produces may enter it.
     """
-    registry = EvidenceRegistry()
+    registry = EvidenceRegistry(evidence_guard=EpisodeEvidenceGuard(episode))
     if observed_events:
         guard = EpisodeRootGuard()
         try:
@@ -63,7 +66,7 @@ def verify_governed_decision(episode: Episode, record: Any, observed_events: Any
             ) from exc
         gateway = ConservationGateway(kernel=ConservationKernel(registry=registry, root_guard=guard))
     else:
-        gateway = ConservationGateway(registry=registry)
+        gateway = ConservationGateway(kernel=ConservationKernel(registry=registry, allow_unguarded_roots=True))
 
     source = build_episode_source(episode, registry)
     gateway.ingest_source(source)

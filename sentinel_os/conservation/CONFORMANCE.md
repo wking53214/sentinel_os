@@ -41,6 +41,24 @@ unrooted claims (`UNROOTED_NEW_PROPOSITION`), unbacked human authority
 fail-closed on the pre-transport gateway now pass (PR #35: CI 855→881 passed,
 0 failed).
 
+## Kernel `cc42d3f`: what the boundary now answers for (2026-11-15)
+
+The pinned kernel moved from `7b08c79` to `cc42d3f`. Three of its rules reach this boundary:
+
+- **Evidence is about what cites it.** A root OBSERVATION must cite evidence whose subject is that proposition, and
+  a derived one may cite only evidence about itself or a parent; a `"*"` subject counts for none.
+  `episode_source.expected_evidence` is the one place that says which records an episode has: `ev-observed-record`
+  (about `p-episode`, which every judgment has as a parent) and `ev-observed-record:<pid>` (about each observed
+  field and each outcome reason).
+- **The registry needs an evidence guard.** `evidence_guard.EpisodeEvidenceGuard` permits exactly the records
+  `expected_evidence` names, with the observer, kind, episode and domain they record, and refuses everything else.
+  The boundary builds its registry with it on every path. It says which evidence may enter, nothing about whether
+  the episode is true.
+- **Authorizations need `trusted_humans`.** The boundary adds none, so the kernel's default (refuse) stays in force.
+
+The root gap is unchanged and now written out loud: with no observed events, `boundary.py` builds the kernel with an
+explicit `allow_unguarded_roots=True`. That gap is named, not closed.
+
 ## Not bridged, by design: `authorized_by` attestation ≠ kernel authority
 
 The keyed `authorized_by` attestation (PR #28) is **not** threaded into the
