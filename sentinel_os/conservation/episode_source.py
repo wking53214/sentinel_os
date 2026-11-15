@@ -78,19 +78,38 @@ def observed_proposition_ids(episode: Episode) -> tuple[str, ...]:
     )
 
 
+def _own_evidence_id(proposition_id: str) -> str:
+    """The id of the evidence record that is about one root observation."""
+    return f"{OBSERVED_EVIDENCE_ID}:{proposition_id}"
+
+
+def _observation_ids(episode: Episode) -> tuple[str, ...]:
+    """The root OBSERVATION propositions other than p-episode: each observed field and each outcome reason."""
+    return (*_unique_ids("p-actual", episode.actual).values(), *_reason_ids(episode))
+
+
 def build_episode_source(episode: Episode, registry: EvidenceRegistry) -> Artifact:
     observer = Actor.external("sentinel-observed-record", "Sentinel governed-episode observed record")
-    registry.add_evidence(
-        EvidenceRecord(
-            evidence_id=OBSERVED_EVIDENCE_ID,
-            subject_id="*",
-            kind=EvidenceKind.SOURCE_OBSERVATION,
-            provided_by=observer,
-            independent=True,
-            active=True,
-            detail={"episode_id": episode.episode_id, "domain": episode.domain},
+    def _record(evidence_id: str, subject_id: str) -> None:
+        registry.add_evidence(
+            EvidenceRecord(
+                evidence_id=evidence_id,
+                subject_id=subject_id,
+                kind=EvidenceKind.SOURCE_OBSERVATION,
+                provided_by=observer,
+                independent=True,
+                active=True,
+                detail={"episode_id": episode.episode_id, "domain": episode.domain},
+            )
         )
-    )
+
+    # The kernel counts evidence only when it is about the proposition that cites it (or one of that
+    # proposition's parents), and a "*" subject counts for none. The shared record is about p-episode, which
+    # every judgment has as a parent. Each other root OBSERVATION also gets a record about itself, so a root
+    # that is an observation cites evidence about that very observation.
+    _record(OBSERVED_EVIDENCE_ID, "p-episode")
+    for pid in _observation_ids(episode):
+        _record(_own_evidence_id(pid), pid)
     src = _source_refs(episode)
     props: list[Proposition] = [
         Proposition(
@@ -115,7 +134,7 @@ def build_episode_source(episode: Episode, registry: EvidenceRegistry) -> Artifa
                 text=f"Observed record: {key} = {_short(episode.actual[key])}.",
                 epistemic_status=EpistemicStatus.OBSERVATION,
                 origin=OriginStatus.EXTERNAL_ORIGINATED,
-                evidence_refs=(OBSERVED_EVIDENCE_ID,),
+                evidence_refs=(OBSERVED_EVIDENCE_ID, _own_evidence_id(pid)),
                 source_refs=src,
             )
         )
@@ -155,7 +174,7 @@ def build_episode_source(episode: Episode, registry: EvidenceRegistry) -> Artifa
                 text=f"Recorded outcome reason: {_short(reason)}.",
                 epistemic_status=EpistemicStatus.OBSERVATION,
                 origin=OriginStatus.EXTERNAL_ORIGINATED,
-                evidence_refs=(OBSERVED_EVIDENCE_ID,),
+                evidence_refs=(OBSERVED_EVIDENCE_ID, _own_evidence_id(pid)),
                 source_refs=src,
             )
         )
