@@ -30,6 +30,16 @@ edit described below, made when it was moved in). `contracts.py`, `artifact.py`
 and `errors.py` still match. The Re-sync step below would therefore overwrite
 the PR #59 and #86 fixes: diff against upstream first.
 
+## Drift from GEMS since the copy (recorded 2026-11-15)
+
+GEMS #22 changed its `ConservationGateway`: it takes `root_guard`, `evidence_guard`, `trusted_humans` and a `clock`,
+and builds its kernel without any opt-out unless the caller says so. This copy was NOT re-synced and does not take
+those parameters: it keeps its own fallback kernel (root opt-out as before; the evidence opt-out only when the
+registry has no evidence guard, which is what this path did before the kernel required one). sentinel_os's boundary
+(`conservation/boundary.py`) always supplies its own kernel and a registry carrying `EpisodeEvidenceGuard`, so the
+fallback is reached only by a direct caller. Re-syncing would also bring GEMS's reference-Gem changes, which this
+repo does not use.
+
 ## Changes on the way in
 
 - `builder.py` (was `reference_gems/base.py`): `from ..artifact` / `from ..contracts`

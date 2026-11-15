@@ -71,7 +71,14 @@ class ConservationGateway:
         if kernel is not None and registry is not None and kernel.registry is not registry:
             raise InvalidContract("provided kernel and registry must share the same registry")
         self.registry = registry or (kernel.registry if kernel is not None else EvidenceRegistry())
-        self.kernel = kernel or ConservationKernel(registry=self.registry, allow_unguarded_roots=True)
+        # Fallback kernel for a caller that supplies none. The root opt-out is the vendored default; the evidence
+        # opt-out is taken only when the registry has no evidence guard, which is what this path did before the
+        # kernel required one. sentinel_os's boundary always supplies its own kernel (see boundary.py).
+        self.kernel = kernel or ConservationKernel(
+            registry=self.registry,
+            allow_unguarded_roots=True,
+            allow_unguarded_evidence=not self.registry.has_evidence_guard,
+        )
         self.gem_registry = gem_registry or GemRegistry()
         self.ledger = ledger or TransformationLedger()
         self._accepted: dict[str, Artifact] = {}

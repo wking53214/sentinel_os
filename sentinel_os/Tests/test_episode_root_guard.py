@@ -109,7 +109,7 @@ def test_one_guard_serves_one_episode():
 
 def test_a_kernel_with_the_guard_refuses_a_root_that_was_not_attested():
     guard = EpisodeRootGuard()
-    kernel = ConservationKernel(registry=EvidenceRegistry(), root_guard=guard)
+    kernel = ConservationKernel(registry=EvidenceRegistry(), root_guard=guard, allow_unguarded_evidence=True)
     with pytest.raises(RootAdmissionError):
         kernel.register_root(_root(_assembled()))
 
