@@ -8,7 +8,7 @@
 | `POSTGRES_PORT` | `5432` | |
 | `POSTGRES_DB` | `iceberg` | |
 | `POSTGRES_USER` | `iceberg` | |
-| `POSTGRES_PASSWORD` | none (required) | The worker, the operator scripts and docker-compose refuse to start without it |
+| `POSTGRES_PASSWORD` | none (required) | The worker, the operator scripts, the ingress's human-review routes and docker-compose refuse to start without it. `obligation_sweep.py` reads it when `--sealed-channel-password` is not given. `PostgreSQLLedger`, `SealedDemographicChannel` and `GovernanceHarness` (with `postgres_host` set) have no default password either |
 | `ICEBERG_LEDGER_RUNTIME_PASSWORD` | none (required) | Password of the restricted runtime role. The role name comes from `ICEBERG_LEDGER_RUNTIME_USER`, which has no default in the ledger and is required (docker-compose sets `ledger_reader`; `scripts/verify_ledger.py` defaults to it). The ledger, `scripts/verify_ledger.py`, `scripts/ledger_backup_verify.sh` and docker-compose refuse to start without it |
 | `FORTRESS_AUDIT_KEY` | unset | Secret that signs the `sage_k` audit log (`FORTRESS_AUDIT_LOG`). Unset → a random key held only by that process, with a warning, so the log cannot be verified after a restart. The literal `development-key` is a published value: warned about everywhere, refused in production. |
 | `FORTRESS_ENV` | unset | Set to exactly `production` to make `sage_k` refuse to import without a unique `FORTRESS_AUDIT_KEY`. |

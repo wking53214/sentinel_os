@@ -189,12 +189,13 @@ class PostgreSQLLedger:
         "prevent_ledger_truncate",
     )
 
-    # "iceberg" is the documented local-dev default (DEPLOYMENT.md). Real
+    # The owner password has no default (a well-known one would let a
+    # misconfigured caller connect with a guessable credential). Real
     # deployments write through runtime_user/runtime_password, which is
     # fail-closed with no privileged fallback.
-    def __init__(self, host: str = "localhost", port: int = 5432,  # nosec B107
+    def __init__(self, host: str = "localhost", port: int = 5432,
                  dbname: str = "iceberg", user: str = "iceberg",
-                 password: str = "iceberg", min_connections: int = 1, max_connections: int = 10,
+                 password: Optional[str] = None, min_connections: int = 1, max_connections: int = 10,
                  connect_timeout_s: Optional[float] = None,
                  statement_timeout_s: Optional[float] = None,
                  runtime_user: str = None, runtime_password: str = None):
@@ -212,7 +213,14 @@ class PostgreSQLLedger:
         is no privileged fallback if unset (see the RuntimeError below), and
         a resolved identity that turns out to be the table owner or a
         superuser is rejected too (see _verify_runtime_user_is_not_privileged).
+        `password` is required: there is no default.
         """
+        if not password:
+            raise RuntimeError(
+                "PostgreSQLLedger needs the owner password (password=...). "
+                "There is no default: a well-known fallback would let a "
+                "misconfigured deployment connect with a guessable credential."
+            )
         runtime_user = runtime_user or os.getenv("ICEBERG_LEDGER_RUNTIME_USER")
         runtime_password = runtime_password or os.getenv("ICEBERG_LEDGER_RUNTIME_PASSWORD")
         if not runtime_user:

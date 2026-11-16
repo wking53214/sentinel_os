@@ -161,6 +161,15 @@ class GovernanceHarness:
     def _connect_ledger(self, config: Dict[str, Any]):
         if not config.get("postgres_host"):
             return None
+        password = config.get("postgres_password")
+        if not password:
+            # No default: a guessable fallback would let a misconfigured
+            # deployment connect with a well-known credential. Raised before
+            # the try below so it is never downgraded to an offline run.
+            raise RuntimeError(
+                "postgres_host is set but postgres_password is not: "
+                "GovernanceHarness refuses to connect the ledger without "
+                "an explicit password")
         from governance.ledger_postgres import PostgreSQLLedger
         try:
             return PostgreSQLLedger(
@@ -168,7 +177,7 @@ class GovernanceHarness:
                 port=config.get("postgres_port", 5432),
                 dbname=config.get("postgres_db", "iceberg"),
                 user=config.get("postgres_user", "iceberg"),
-                password=config.get("postgres_password", "iceberg"),
+                password=password,
                 # Time limits (2026-11-13 policy): 5s to connect, 10s per query.
                 connect_timeout_s=float(os.environ.get("LEDGER_CONNECT_TIMEOUT_S", "5")),
                 statement_timeout_s=float(os.environ.get("LEDGER_STATEMENT_TIMEOUT_S", "10")),
