@@ -78,14 +78,22 @@ class SealedDemographicChannel:
     ICEBERG_LEDGER_RUNTIME_USER.
     """
 
-    # "iceberg" is the documented local-dev default; this channel is
-    # fail-closed with no privileged fallback (see the class docstring).
-    def __init__(self, host: str = "localhost", port: int = 5432,  # nosec B107
+    # The owner password has no default (a well-known one would let a
+    # misconfigured caller connect with a guessable credential); this channel
+    # is fail-closed with no privileged fallback (see the class docstring).
+    def __init__(self, host: str = "localhost", port: int = 5432,
                  dbname: str = "iceberg", user: str = "iceberg",
-                 password: str = "iceberg", min_connections: int = 1,
+                 password: Optional[str] = None, min_connections: int = 1,
                  max_connections: int = 5,
                  runtime_user: Optional[str] = None,
                  runtime_password: Optional[str] = None):
+        if not password:
+            raise RuntimeError(
+                "SealedDemographicChannel needs the owner password "
+                "(password=...). There is no default: a well-known fallback "
+                "would let a misconfigured deployment connect with a "
+                "guessable credential."
+            )
         runtime_user = runtime_user or os.getenv("SEALED_CHANNEL_RUNTIME_USER")
         runtime_password = runtime_password or os.getenv("SEALED_CHANNEL_RUNTIME_PASSWORD")
         if not runtime_user:

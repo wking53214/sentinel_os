@@ -2,7 +2,8 @@
 """Export every ledger row, with every shipped column, as one JSON file.
 
 The input to tools/verify_receipts.py, which then needs no database. Reads
-the same POSTGRES_* connection settings as scripts/verify_ledger.py. The
+the same POSTGRES_* connection settings as scripts/verify_ledger.py;
+POSTGRES_PASSWORD is required. The
 rows are exactly what the twin is shipped (twin_custody.SHIPPED_COLUMNS),
 in id order; timestamps are rendered ISO-8601 (they are not hashed).
 
@@ -41,6 +42,11 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="path of the export file to write")
     ap.add_argument("--db", help="database name (overrides POSTGRES_DB)")
     args = ap.parse_args()
+    # No default password: a well-known fallback would let a misconfigured
+    # run connect with a guessable credential (same rule as verify_ledger.py).
+    password = os.environ.get("POSTGRES_PASSWORD")
+    if not password:
+        ap.error("POSTGRES_PASSWORD is not set")
 
     import psycopg2
     conn = psycopg2.connect(
@@ -48,7 +54,7 @@ def main() -> int:
         port=int(os.environ.get("POSTGRES_PORT", "5432")),
         dbname=args.db or os.environ.get("POSTGRES_DB", "iceberg"),
         user=os.environ.get("POSTGRES_USER", "iceberg"),
-        password=os.environ.get("POSTGRES_PASSWORD", "iceberg"))
+        password=password)
     try:
         export = export_rows(conn)
     finally:

@@ -614,7 +614,12 @@ def main() -> None:
     ap.add_argument("--sealed-channel-port", type=int, default=5432)
     ap.add_argument("--sealed-channel-dbname", default="iceberg")
     ap.add_argument("--sealed-channel-user", default="iceberg")
-    ap.add_argument("--sealed-channel-password", default="iceberg")
+    ap.add_argument("--sealed-channel-password",
+                    default=os.environ.get("POSTGRES_PASSWORD"),
+                    help="owner password for the sealed channel's database "
+                         "(falls back to the POSTGRES_PASSWORD env var). "
+                         "No default: SealedDemographicChannel refuses to "
+                         "start without one.")
     ap.add_argument("--domain", default=None,
                     help="Restrict the sweep to one domain's cohorts "
                          "(default: every domain with resolved obligations)")

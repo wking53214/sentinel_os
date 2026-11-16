@@ -654,8 +654,12 @@ EXPORT_SCRIPT = os.path.join(_REPO, "sentinel_os", "scripts", "export_ledger.py"
 
 
 def _export_to(path):
+    # The script has no password fallback; pass the throwaway test database's
+    # credential explicitly, as the other DB fixtures in this suite do.
+    env = dict(os.environ)
+    env.setdefault("POSTGRES_PASSWORD", "iceberg")
     run = subprocess.run([sys.executable, EXPORT_SCRIPT, "--out", str(path)],
-                         capture_output=True, text=True, check=True)
+                         capture_output=True, text=True, check=True, env=env)
     assert "wrote" in run.stdout
     with open(path) as fh:
         return json.load(fh)
