@@ -5,7 +5,7 @@
 Second sellable unit after the governed action gate in [observe-perceive](https://github.com/wking53214/observe-perceive). Decision spine that feeds obligations: [interconnected_alpha](https://github.com/wking53214/interconnected_alpha) → [zeta](https://github.com/wking53214/interconnected_zeta) → [beta](https://github.com/wking53214/interconnected_beta) → [delta](https://github.com/wking53214/interconnected_delta).
 
 ```text
-Live path: Admission → OBSERVE/Keys → Locks → PERCEIVE → Decision → Conservation → Execution → Custody (this repo)
+Orchestrator path: Admission → OBSERVE/Keys → Locks → PERCEIVE → Decision → Conservation → Execution → Custody (this repo)
 ```
 
 **Verdict receipts (TACK Layer 5):** every governance decision the ledger writes is bound to the CNS digest of what it judged, authenticated with an HMAC-SHA256 tag computed with a service key supplied by the environment (not by the agent), hash-chained, and optionally anchored outside the database when `ICEBERG_LEDGER_ANCHOR_PATH` is set. `tools/verify_receipts.py` verifies an export offline and prints one of `VERIFIED`, `TAMPERED`, `TRANSPLANTED`, `SEED_FORGED`, `TRUNCATED`, `UNATTESTED`. Attestation is enforced by default; the ledger refuses to start without `ICEBERG_LEDGER_ATTESTATION_KEY`. The only opt-out is the dev-only override `ICEBERG_LEDGER_ATTESTATION_DEV_OVERRIDE`.
