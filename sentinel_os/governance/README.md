@@ -45,8 +45,15 @@ manual `set_ledger_reader_password.py` step required. That script still
 exists for rotating the password on an already-running system without a
 restart.
 
-**What this closes:** the application's own credential can no longer
-rewrite or wipe the ledger, even if the app is compromised or misused.
+**What this closes:** with the restricted role as the runtime identity, the
+application's own SQL credential cannot rewrite or wipe the ledger rows.
+
+**What it does not close:** the ledger opens an owner connection at startup to
+provision the restricted role. In `docker-compose.yml` the writer service is
+also given the owner password, the attestation key and the anchor path, so a
+compromised writer process that reads its own environment holds those values.
+The claim "even if the app is compromised" does not hold for that deployment
+(INSPECTED 2026-11-15; not exercised).
 
 **What this does NOT close:** a human operator with direct, independent
 database-owner or superuser access (e.g. a DBA) can still disable the
