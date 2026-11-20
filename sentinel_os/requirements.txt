@@ -27,14 +27,14 @@ conservation-kernel @ git+https://github.com/wking53214/Conservation_Kernel.git@
 # The shared graph substrate (sage_k Node/Edge/Graph) and the gate contract
 # (cns.gate: subject_digest, GatePosition, GateOutcome) that the ledger's
 # verdict receipts bind to. Public; pinned to a release tag. This is tag
-# v4.0.0 = eabe6c72d71557b6327b80b42b0afab572acce80 (cns_composition ships beside cns in the wheel; this repo imports
+# v4.1.0 = c84ef8c60079aae1753f92d9169d89081c670c22 (cns_composition ships beside cns in the wheel; this repo imports
 # only cns.gate and cns.graph).
 # NAME COLLISION: "cns" and "dit" are also the names of unrelated PyPI
 # packages that import under the same names. Install only from this file, in a
 # virtual environment of its own, and never `pip install -U cns` or name either
 # one without its address. Tests/test_dependency_provenance.py fails if the
 # installed copy did not come from the repository pinned here.
-cns @ git+https://github.com/wking53214/CNS.git@v4.0.0
+cns @ git+https://github.com/wking53214/CNS.git@v4.1.0
 # The epistemic gate: epistemic/dit_gate.py judges whether the governor's
 # free-text reasoning qualifies as evidence before it is sealed into the
 # ledger's canonical hash. Public; pinned to a release tag.
