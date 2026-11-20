@@ -20,6 +20,7 @@ Last checked against the code on 2026-11-10.
 | [../sentinel_os/conservation/CONFORMANCE.md](../sentinel_os/conservation/CONFORMANCE.md) | How decisions pass the conservation boundary |
 | [../sentinel_os/conservation/transport/PROVENANCE.md](../sentinel_os/conservation/transport/PROVENANCE.md) | Where the vendored transport code came from and how it has drifted |
 | [architecture/ACTION_AUTHORIZATION_INTERFACE_v1.md](architecture/ACTION_AUTHORIZATION_INTERFACE_v1.md) | A contract that exists in code with no production consumer yet |
+| [architecture/OUTSTANDING_SEPARATE_SIGNER_v1.md](architecture/OUTSTANDING_SEPARATE_SIGNER_v1.md) | An outstanding design, not built: move signing and the head anchor out of the writer |
 | Sub-READMEs in `sentinel_os/cassettes/`, `regulatory_cassettes/`, `contract_cassettes/`, `governance/` and `tools/wiring_verify/` | One directory each |
 
 ## Historical records (true when written, not maintained)
