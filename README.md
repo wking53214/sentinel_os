@@ -23,7 +23,7 @@ That is an order, not an import chain. The orchestrator path is [`observe-percei
 | Repo | Its role in ≡TACK | Relationship to this repo |
 |---|---|---|
 | [`observe-perceive`](https://github.com/wking53214/observe-perceive) | Hub of the governed action stack; the orchestrator path and the first product | Never imports this repo. Custody comes after it in the conceptual order only. |
-| [`interconnected_alpha`](https://github.com/wking53214/interconnected_alpha) → [`zeta`](https://github.com/wking53214/interconnected_zeta) → [`beta`](https://github.com/wking53214/interconnected_beta) → [`delta`](https://github.com/wking53214/interconnected_delta) | Four small repos extracted from the live path: Keys, Locks, Decision, Custody | δ is the in-process cousin of this repo. It reimplements outcome obligations and the four-fifths screen without Postgres or a twin, and consumes β's `Decision`. It does not import this repo. |
+| [`interconnected_alpha`](https://github.com/wking53214/interconnected_alpha) → [`zeta`](https://github.com/wking53214/interconnected_zeta) → [`beta`](https://github.com/wking53214/interconnected_beta) → [`delta`](https://github.com/wking53214/interconnected_delta) | Four small repos extracted from the orchestrator path (observe-perceive): Keys, Locks, Decision, Custody | δ is the in-process cousin of this repo. It reimplements outcome obligations and the four-fifths screen without Postgres or a twin, and consumes β's `Decision`. It does not import this repo. |
 | [`Conservation_Kernel`](https://github.com/wking53214/Conservation_Kernel) `@cc42d3f` | Repo 3 of 5 in the evidence spine; checks that a transformation did not silently change protected distinctions | Hard dependency. Every governed decision goes through it, and nothing is written unless it returns ACCEPTED. |
 | [`CNS`](https://github.com/wking53214/CNS) `@v4.1.0` | Shared contracts that the repos plug into | Dependency: `cns.gate` (the types behind verdict receipts) and `cns.graph` (graph types used by `sage_k`). |
 | [`DIT`](https://github.com/wking53214/DIT) `@V0.1.0` | Output-integrity gate for generated text | Dependency: `epistemic/dit_gate.py` evaluates the governor's free-text reasoning. |
@@ -74,7 +74,7 @@ Thesis: decouple governance from the systems being governed so both can evolve w
 | `sage_k/` | Experiment, not on the custody path: a seeded simulation kernel (Fortress), a hash-chain adapter and a call-graph extractor. The drift and harness code was retired |
 | `api_server_v2.py` | HTTP ingress: API-key auth, rate limiting, backpressure, and the human-selection endpoint |
 
-Cassette contract: domain packs declare capabilities; unknown/unevaluated cassette state fail-closes the loader. Judgment (`Cassette.judge`) is **after-the-fact** quality, distinct from live α-ζ-β decisioning.
+Cassette contract: domain packs declare capabilities; unknown/unevaluated cassette state fail-closes the loader. Judgment (`Cassette.judge`) is **after-the-fact** quality, distinct from the α-ζ-β decision path.
 
 ### Conservation seam
 
