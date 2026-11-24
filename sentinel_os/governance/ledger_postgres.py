@@ -198,7 +198,8 @@ class PostgreSQLLedger:
                  password: Optional[str] = None, min_connections: int = 1, max_connections: int = 10,
                  connect_timeout_s: Optional[float] = None,
                  statement_timeout_s: Optional[float] = None,
-                 runtime_user: str = None, runtime_password: str = None):
+                 runtime_user: str = None, runtime_password: str = None,
+                 append_policy_marker: bool = True):
         """Initialize connection pool.
 
         `user`/`password` must be privileged enough to create/alter the
@@ -214,7 +215,13 @@ class PostgreSQLLedger:
         a resolved identity that turns out to be the table owner or a
         superuser is rejected too (see _verify_runtime_user_is_not_privileged).
         `password` is required: there is no default.
+
+        `append_policy_marker` (default True, unchanged behaviour) lets a
+        read-only caller such as scripts/verify_ledger.py open the ledger
+        without the boot-time attestation_policy marker append, so an audit
+        run never adds a row to the chain it is checking.
         """
+        self._append_policy_marker = append_policy_marker
         if not password:
             raise RuntimeError(
                 "PostgreSQLLedger needs the owner password (password=...). "
@@ -836,6 +843,8 @@ class PostgreSQLLedger:
         appends one marker naming the new key. See
         canonical_fields.attestation_policy_canonical.
         """
+        if not getattr(self, "_append_policy_marker", True):
+            return
         if not enforcement_required():
             return
         key = attestation_key()
