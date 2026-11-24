@@ -316,3 +316,30 @@ class TestCassetteSnapshot:
         # Both should be valid SHA-256 hex strings
         assert len(decision_row["cassette_hash"]) == 64
         assert len(decision_row["current_hash"]) == 64
+
+
+def test_a_decision_edited_in_the_database_is_not_served_as_verified(test_ledger, test_cassette):
+    """The cassette proof alone said integrity_verified=True for a decision whose approval had been flipped by a
+    database owner with the append-only triggers disabled (found in an end-to-end run, 2026-11-24). The lookup now
+    recomputes the row's own hash, so that edit makes the proof unverified."""
+    import psycopg2
+    governance_params = validate_cassette(test_cassette)
+    test_ledger.append_decision(GovernanceDecisionRecord(
+        action_type="governance", node="test_node", cassette_version=cassette_version_of(test_cassette),
+        input_data={"friction": 2}, policy_parameters=governance_params.snapshot(),
+        reasoning="test decision", output={"approved": False}), governance_params=governance_params)
+    decision_id = test_ledger.get_decisions(limit=1)[0]["id"]
+    clean = test_ledger.get_decision_with_cassette(decision_id)["cassette_proof"]
+    assert clean["row_hash_verified"] is True and clean["integrity_verified"] is True
+
+    conn = psycopg2.connect(host="localhost", port=5432, dbname="iceberg", user="iceberg", password="iceberg")
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("ALTER TABLE ledger_entries DISABLE TRIGGER USER")
+        cur.execute("UPDATE ledger_entries SET decision_output = jsonb_set(decision_output, '{approved}', 'true') "
+                    "WHERE id = %s", (decision_id,))
+        cur.execute("ALTER TABLE ledger_entries ENABLE TRIGGER USER")
+    conn.close()
+
+    edited = test_ledger.get_decision_with_cassette(decision_id)["cassette_proof"]
+    assert edited["row_hash_verified"] is False and edited["integrity_verified"] is False
