@@ -43,7 +43,8 @@ def main() -> int:
     from governance.ledger_postgres import PostgreSQLLedger
 
     ledger = PostgreSQLLedger(host=host, port=port, dbname=dbname,
-                              user=user, password=password)
+                              user=user, password=password,
+                              append_policy_marker=False)
     try:
         # non-strict: collect every violation instead of raising on the first
         result = ledger.verify_chain(mode="audit")

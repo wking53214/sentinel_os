@@ -22,6 +22,8 @@ psql -h <ledger_host> -U <ledger_user> -d <ledger_db>
 \dt   -- one relevant table: ledger_entries
 ```
 
+**Scope of the ledger.** The ledger holds the decisions an auditor is meant to check: every governed decision, approved or blocked, plus the records that govern them. Episodes below the cassette's `governance_trigger` are not governed and leave no row, so row counts here are not a count of all calls. This is intentional. Open question: whether anyone will need the whole population (for example fairness review across all decisions, or outcome tracking of below-trigger cases); if so, the ordinary cases would need to be counted somewhere, inside or outside the ledger.
+
 Everything in this playbook queries `ledger_entries`. There's no separate table for cassette snapshots, decision records, or anything else — one table, described in full in Section 1.
 
 ## 1. What `verify_chain()` Actually Verifies
