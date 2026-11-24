@@ -2943,6 +2943,20 @@ class PostgreSQLLedger:
             # Reconstruct cassette and verify integrity
             cassette_proof = reconstruct_cassette_for_decision(decision_dict)
 
+            # The cassette check above covers the cassette snapshot only. Recompute this
+            # row's own hash too, so a decision edited in the database (triggers disabled
+            # by an owner) is not served to a reviewer as verified.
+            cursor.execute("SELECT * FROM ledger_entries WHERE id = %s", (decision_id,))
+            full = dict(zip([c[0] for c in cursor.description], cursor.fetchone()))
+            try:
+                from twin_custody import recompute_current_hash
+                row_ok = recompute_current_hash(full) == full.get("current_hash")
+            except Exception:  # cannot recompute: not verified, never assumed fine
+                row_ok = False
+            cassette_proof["row_hash_verified"] = row_ok
+            if not row_ok:
+                cassette_proof["integrity_verified"] = False
+
             return {
                 "decision": decision_dict,
                 "cassette_proof": cassette_proof,
